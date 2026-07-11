@@ -1,19 +1,19 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { AuthProvider } from './hooks/useAuth.jsx'
-import Auth from './components/Auth.jsx'
-import Home from './components/Home.jsx'
-import CreateRoom from './components/CreateRoom.jsx'
-import Room from './components/Room.jsx'
+import { AuthProvider } from './shared/auth/hooks/useAuth.jsx'
+import { AuthPage } from './features/auth/index.js'
+import { HomePage } from './features/home/index.js'
+import { CreateRoomPage } from './features/create/index.js'
+import { RoomPage } from './features/room/index.js'
 
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/auth" element={<Auth />} />
-          <Route path="/create" element={<CreateRoom />} />
-          <Route path="/room/:roomId" element={<Room />} />
+          <Route path="/" element={<HomePage />} />
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/create" element={<CreateRoomPage />} />
+          <Route path="/room/:roomId" element={<RoomPage />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
