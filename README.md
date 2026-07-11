@@ -36,7 +36,7 @@ Add all environment variables in the Vercel dashboard → Project → Settings �
 ## Vercel free plan notes
 
 - **Serverless functions**: the Hobby plan gives you **12 functions per deployment**. This project uses **4** (`joinRoom`, `endRoom`, `createLiveKitToken`, `cleanupStaleRooms`), so you have 8 left for future features.
-- **Cron jobs**: Vercel now supports cron jobs on every plan, including Hobby, with up to 100 cron jobs per project. The `vercel.json` in this repo already registers `/api/cleanupStaleRooms` every 15 minutes. If your deployment fails because of cron limits, switch to an external cron service (e.g., cron-job.org) that calls `POST https://your-app.vercel.app/api/cleanupStaleRooms` every 15 minutes.
+- **Cron jobs**: Vercel Hobby only allows **daily** cron jobs. The previous `vercel.json` included a 15-minute cron, which causes the deploy error you saw. I removed it. To run cleanup every 15 minutes on Hobby, use an external cron service (e.g., cron-job.org) and point it at `POST https://your-app.vercel.app/api/cleanupStaleRooms`. If you upgrade to Pro later, you can re-add the cron in `vercel.json`.
 - **Function duration**: Hobby functions timeout at 10 seconds. `joinRoom`, `endRoom`, and `createLiveKitToken` are fast transactions. `cleanupStaleRooms` batches updates; if you have many stale rooms, it may need to be split into smaller batches.
 - **Firebase free plan**: Firestore has a generous free tier (50K reads/day, 20K writes/day, 1GB stored). A watch party mostly does small real-time writes (playerState heartbeat, chat). LiveKit Cloud has its own free tier but is the only bill that typically grows with usage; track participant minutes as you scale.
 
