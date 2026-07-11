@@ -8,9 +8,47 @@
   transition: background 0.15s ease;
 }
 
+.grouped {
+  padding-top: 0.15rem;
+}
+
+.pending {
+  opacity: 0.65;
+}
+
+.mine .author {
+  color: var(--success);
+}
+
 .message:hover {
   background: var(--bg-surface);
 }
+
+.reactWrap {
+  position: relative;
+}
+
+.emojiMenu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.35rem;
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: 5;
+}
+
+.emojiBtn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+
 
 .replySnippet {
   padding: 0.4rem 0.6rem;

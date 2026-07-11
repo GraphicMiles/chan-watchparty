@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, onSnapshot, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 
@@ -8,12 +8,13 @@ const SYNC_THRESHOLD = 1.5
 export function usePlayerSync(roomId, room, playerRef) {
   const { user } = useAuth()
   const isHost = room?.hostId === user?.uid
-  const isCoHost = room?.coHosts?.includes(user?.uid) ?? false
-  const canControl = isHost || isCoHost
+  const isCoHost = Array.isArray(room?.coHosts) && room.coHosts.includes(user?.uid)
+  const canControl = Boolean(isHost || isCoHost)
   const lastVideoIdRef = useRef(null)
+  const lastPlayingRef = useRef(null)
 
   const writePlayerState = useCallback(async (patch) => {
-    if (!roomId || !canControl || !room) return
+    if (!roomId || !canControl || !room || !user) return
     const ref = doc(db, 'rooms', roomId, 'playerState', 'current')
     await setDoc(ref, {
       videoId: room.videoId || '',
@@ -25,7 +26,7 @@ export function usePlayerSync(roomId, room, playerRef) {
     }, { merge: true })
   }, [roomId, canControl, room, user])
 
-  // Controller heartbeat: reads playerRef.current inside the interval so it starts as soon as the player is ready
+  // Controller heartbeat every 5s
   useEffect(() => {
     if (!canControl || !room?.videoId) return
 
@@ -45,7 +46,7 @@ export function usePlayerSync(roomId, room, playerRef) {
     return () => clearInterval(interval)
   }, [canControl, room?.videoId, playerRef, writePlayerState])
 
-  // Viewer reconciliation: reads playerRef.current inside the callback
+  // Viewer reconciliation
   useEffect(() => {
     if (canControl || !roomId) return
 
@@ -54,6 +55,7 @@ export function usePlayerSync(roomId, room, playerRef) {
       if (!state) return
       const player = playerRef.current
       if (!player || player.getPlayerState === undefined) return
+      if (!state.updatedAt?.toMillis) return
 
       const expectedTime = state.isPlaying
         ? state.currentTime + (Date.now() - state.updatedAt.toMillis()) / 1000
@@ -63,27 +65,54 @@ export function usePlayerSync(roomId, room, playerRef) {
       const playerState = player.getPlayerState()
       const diff = Math.abs(current - expectedTime)
 
-      // Video change
-      if (lastVideoIdRef.current !== state.videoId) {
-        player.loadVideoById(state.videoId)
+      if (state.videoId && lastVideoIdRef.current !== state.videoId) {
+        try {
+          player.loadVideoById(state.videoId)
+        } catch {
+          /* ignore */
+        }
         lastVideoIdRef.current = state.videoId
       }
 
-      // Play/pause toggle
-      if (state.isPlaying && playerState !== 1) {
-        player.playVideo?.()
-      } else if (!state.isPlaying && playerState !== 2) {
-        player.pauseVideo?.()
-      }
+      if (state.isPlaying && playerState !== 1) player.playVideo?.()
+      else if (!state.isPlaying && playerState !== 2) player.pauseVideo?.()
+      lastPlayingRef.current = state.isPlaying
 
-      // Seek only if drifted past threshold
       if (diff > SYNC_THRESHOLD) {
         player.seekTo(expectedTime, true)
       }
     })
 
     return unsub
-  }, [isHost, roomId, playerRef])
+  }, [canControl, roomId, playerRef])
+
+  // Idle-tab resync on return
+  useEffect(() => {
+    if (canControl || !roomId) return
+    const onVis = async () => {
+      if (document.visibilityState !== 'visible') return
+      const player = playerRef.current
+      if (!player || player.getPlayerState === undefined) return
+      try {
+        const snap = await getDoc(doc(db, 'rooms', roomId, 'playerState', 'current'))
+        const state = snap.data()
+        if (!state?.updatedAt?.toMillis) return
+        const expectedTime = state.isPlaying
+          ? state.currentTime + (Date.now() - state.updatedAt.toMillis()) / 1000
+          : state.currentTime
+        const current = player.getCurrentTime?.() || 0
+        if (Math.abs(current - expectedTime) > SYNC_THRESHOLD) {
+          player.seekTo(expectedTime, true)
+        }
+        if (state.isPlaying) player.playVideo?.()
+        else player.pauseVideo?.()
+      } catch {
+        /* ignore */
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [canControl, roomId, playerRef])
 
   return { writePlayerState, isHost, isCoHost, canControl }
 }

@@ -113,6 +113,18 @@ a:hover, a:focus {
   outline: none;
 }
 
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible),
+input:focus:not(:focus-visible) {
+  outline: none;
+}
+
+
 .input::placeholder {
   color: var(--text-muted);
 }

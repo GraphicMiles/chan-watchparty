@@ -115,3 +115,39 @@
 .emojiButton:hover {
   background: var(--bg-surface);
 }
+
+.system {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  padding: 0.45rem 0.5rem;
+  margin: 0.25rem 0;
+}
+
+.newPill {
+  align-self: center;
+  margin: 0.35rem 0;
+  border: 1px solid var(--border-strong);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-radius: var(--radius-full);
+  padding: 0.35rem 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.clearReply {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.counter {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+

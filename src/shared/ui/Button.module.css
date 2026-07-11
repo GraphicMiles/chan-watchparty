@@ -81,3 +81,17 @@
 .fullWidth {
   width: 100%;
 }
+
+.loading {
+  position: relative;
+}
+
+.labelHidden {
+  opacity: 0.85;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+

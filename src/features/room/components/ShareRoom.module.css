@@ -34,4 +34,16 @@
   font-size: 0.85rem;
   color: var(--text-secondary);
   margin: 0;
+  text-align: center;
 }
+
+.copyCode {
+  margin-left: 0.35rem;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+

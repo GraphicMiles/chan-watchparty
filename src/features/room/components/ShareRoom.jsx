@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
-import { Button, Input, Modal } from '../../../shared/ui/index.js'
+import { Button, Input, Modal, useToast } from '../../../shared/ui/index.js'
 import styles from './ShareRoom.module.css'
 
 export default function ShareRoom({ room, roomId, open, onClose }) {
+  const { toast } = useToast()
   const [qr, setQr] = useState('')
   const url = room?.inviteCode
     ? `${window.location.origin}/room/${roomId}?invite=${room.inviteCode}`
@@ -20,18 +21,36 @@ export default function ShareRoom({ room, roomId, open, onClose }) {
       .catch(() => setQr(''))
   }, [open, url])
 
-  const copy = () => {
-    navigator.clipboard.writeText(url)
-    alert('Link copied')
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url)
+      toast('Invite link copied', { variant: 'success' })
+    } catch {
+      toast('Could not copy link', { variant: 'error' })
+    }
   }
 
-  const share = () => {
+  const copyCode = async () => {
+    if (!room?.inviteCode) return
+    try {
+      await navigator.clipboard.writeText(room.inviteCode)
+      toast('Invite code copied', { variant: 'success' })
+    } catch {
+      toast('Could not copy code', { variant: 'error' })
+    }
+  }
+
+  const share = async () => {
     if (navigator.share) {
-      navigator.share({
-        title: room?.title,
-        text: `Join ${room?.title} on Chan`,
-        url,
-      })
+      try {
+        await navigator.share({
+          title: room?.title,
+          text: `Join ${room?.title} on Chan`,
+          url,
+        })
+      } catch {
+        /* user cancelled */
+      }
     } else {
       copy()
     }
@@ -43,11 +62,16 @@ export default function ShareRoom({ room, roomId, open, onClose }) {
         {qr && <img src={qr} alt="QR code" className={styles.qr} />}
         <Input value={url} readOnly className={styles.link} />
         <div className={styles.actions}>
-          <Button onClick={copy} variant="secondary">Copy link</Button>
+          <Button onClick={copy} variant="secondary">Copy invite link</Button>
           <Button onClick={share}>Share</Button>
         </div>
         {room?.inviteCode && (
-          <p className={styles.code}>Invite code: <strong>{room.inviteCode}</strong></p>
+          <p className={styles.code}>
+            Invite code: <strong>{room.inviteCode}</strong>{' '}
+            <button type="button" className={styles.copyCode} onClick={copyCode}>
+              Copy code
+            </button>
+          </p>
         )}
       </div>
     </Modal>

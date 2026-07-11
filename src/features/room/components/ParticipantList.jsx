@@ -30,7 +30,7 @@ export default function ParticipantList({
           return (
             <div key={p.id} className={styles.participant}>
               <div className={styles.avatarWrap}>
-                <Avatar name={p.displayName} size={36} status={p.id === hostId ? 'live' : undefined} />
+                <Avatar name={p.displayName} uid={p.id} size={36} status={p.id === hostId ? 'live' : undefined} />
                 {p.id === hostId && (
                   <div className={styles.pulse}>
                     <SyncPulse active size={44} />

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { onAuthStateChanged, signInAnonymously as firebaseSignInAnonymously, updateProfile, signOut } from 'firebase/auth'
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../../lib/firebase.js'
+import { friendlyAuthError } from '../../utils/authErrors.js'
 
 const AuthContext = createContext(null)
 
@@ -35,20 +36,27 @@ export function AuthProvider({ children }) {
   }, [])
 
   const signInAnonymously = async (displayName) => {
-    const name = displayName?.trim() || 'Viewer'
-    const cred = await firebaseSignInAnonymously(auth)
-    await updateProfile(cred.user, { displayName: name })
-    await setDoc(
-      doc(db, 'users', cred.user.uid),
-      { displayName: name, anonymous: true },
-      { merge: true }
-    )
-    return cred.user
+    const name = (displayName || '').trim() || 'Viewer'
+    try {
+      const cred = await firebaseSignInAnonymously(auth)
+      await updateProfile(cred.user, { displayName: name })
+      await setDoc(
+        doc(db, 'users', cred.user.uid),
+        { displayName: name, anonymous: true, tier: 'free' },
+        { merge: true }
+      )
+      return cred.user
+    } catch (err) {
+      const friendly = new Error(friendlyAuthError(err))
+      friendly.code = err?.code
+      friendly.cause = err
+      throw friendly
+    }
   }
 
   const updateDisplayName = async (displayName) => {
     if (!user) return
-    const name = displayName?.trim() || 'Viewer'
+    const name = (displayName || '').trim() || 'Viewer'
     await updateProfile(user, { displayName: name })
     await setDoc(
       doc(db, 'users', user.uid),
