@@ -100,10 +100,24 @@ service cloud.firestore {
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 500;
       }
+
+      match /typing/{uid} {
+        allow read: if isAuthed();
+        allow create, update: if isOwner(uid);
+        allow delete: if isOwner(uid);
+      }
+
+      match /messages/{messageId}/reactions/{uid} {
+        allow read: if isAuthed();
+        allow create, update: if isOwner(uid) && request.resource.data.emoji is string;
+        allow delete: if isOwner(uid);
+      }
     }
   }
 }
 ```
+
+**Note:** After adding chat reactions, deploy the updated rules above. If you see `FAILED_PRECONDITION` on the cron cleanup, create the Firestore composite index for `rooms`: `status` ascending, `lastHeartbeat` ascending.
 
 ## API keys and where to put them
 

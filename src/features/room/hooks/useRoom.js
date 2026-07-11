@@ -10,6 +10,8 @@ import {
   serverTimestamp,
   updateDoc,
   getDoc,
+  setDoc,
+  deleteDoc,
 } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
@@ -24,6 +26,7 @@ export function useRoom(roomId, inviteCode = null) {
   const [joined, setJoined] = useState(false)
   const [error, setError] = useState(null)
   const [activityType, setActivityType] = useState('youtube')
+  const [typing, setTyping] = useState([])
 
   // Join / leave via Vercel server functions
   const join = useCallback(async () => {
@@ -76,15 +79,19 @@ export function useRoom(roomId, inviteCode = null) {
     }
   }, [user, roomId, navigate])
 
-  const sendMessage = useCallback(async (text) => {
+  const sendMessage = useCallback(async (text, replyTo = null) => {
     if (!user || !roomId || !text.trim()) return
     const trimmed = text.trim().slice(0, 500)
-    await addDoc(collection(db, 'rooms', roomId, 'messages'), {
+    const payload = {
       uid: user.uid,
       displayName: user.displayName || user.email?.split('@')[0] || 'Viewer',
       text: trimmed,
       createdAt: serverTimestamp(),
-    })
+    }
+    if (replyTo) payload.replyTo = replyTo
+    await addDoc(collection(db, 'rooms', roomId, 'messages'), payload)
+    // Clear typing indicator after sending
+    await deleteDoc(doc(db, 'rooms', roomId, 'typing', user.uid)).catch(() => {})
   }, [user, roomId])
 
   const updateRoom = useCallback(async (payload) => {
@@ -135,6 +142,38 @@ export function useRoom(roomId, inviteCode = null) {
     return unsub
   }, [roomId])
 
+  // Typing indicator listener
+  useEffect(() => {
+    if (!roomId) return
+    const q = query(collection(db, 'rooms', roomId, 'typing'))
+    const unsub = onSnapshot(q, (snap) => {
+      const now = Date.now()
+      setTyping(
+        snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((t) => t.lastTypedAt?.toMillis && now - t.lastTypedAt.toMillis() < 5000)
+      )
+    })
+    return unsub
+  }, [roomId])
+
+  const setTypingStatus = useCallback(async (isTyping) => {
+    if (!user || !roomId) return
+    const ref = doc(db, 'rooms', roomId, 'typing', user.uid)
+    if (isTyping) {
+      await setDoc(
+        ref,
+        {
+          displayName: user.displayName || user.email?.split('@')[0] || 'Viewer',
+          lastTypedAt: serverTimestamp(),
+        },
+        { merge: true }
+      )
+    } else {
+      await deleteDoc(ref).catch(() => {})
+    }
+  }, [user, roomId])
+
   // Host heartbeat for stale-room cleanup
   useEffect(() => {
     if (!user || !roomId || room?.hostId !== user.uid) return
@@ -174,5 +213,7 @@ export function useRoom(roomId, inviteCode = null) {
     endRoom,
     sendMessage,
     updateRoom,
+    typing,
+    setTyping: setTypingStatus,
   }
 }

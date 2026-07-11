@@ -1,24 +1,54 @@
 import { useState, useRef, useEffect } from 'react'
-import { Card, Input, Button } from '../../../shared/ui/index.js'
+import { Card, Input, Button, IconButton } from '../../../shared/ui/index.js'
+import ChatMessage from './ChatMessage.jsx'
 import styles from './Chat.module.css'
 
-export default function Chat({ messages, sendMessage }) {
+const EMOJIS = ['😀', '😂', '😍', '🔥', '👍', '❤️', '👏', '😮', '🎉', '🤔', '😢', '😡']
+const TYPING_DEBOUNCE = 800
+
+export default function Chat({ messages, sendMessage, user, roomId, typing, setTyping }) {
   const [text, setText] = useState('')
   const [cooldown, setCooldown] = useState(false)
+  const [replyTo, setReplyTo] = useState(null)
+  const [showEmoji, setShowEmoji] = useState(false)
   const bottomRef = useRef(null)
+  const typingTimer = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  const handleInputChange = (value) => {
+    setText(value)
+    if (!value.trim()) {
+      setTyping(false)
+      return
+    }
+    setTyping(true)
+    clearTimeout(typingTimer.current)
+    typingTimer.current = setTimeout(() => setTyping(false), TYPING_DEBOUNCE)
+  }
+
+  const insertEmoji = (emoji) => {
+    setText((t) => t + emoji)
+    setShowEmoji(false)
+  }
+
   const onSubmit = async (e) => {
     e.preventDefault()
     if (!text.trim() || cooldown) return
-    await sendMessage(text)
+    await sendMessage(text, replyTo ? { id: replyTo.id, displayName: replyTo.displayName, text: replyTo.text } : null)
     setText('')
+    setReplyTo(null)
     setCooldown(true)
+    setTyping(false)
+    clearTimeout(typingTimer.current)
     setTimeout(() => setCooldown(false), 1000)
   }
+
+  const typingNames = typing
+    .filter((t) => t.id !== user?.uid)
+    .map((t) => t.displayName)
 
   return (
     <Card className={styles.chat}>
@@ -28,29 +58,63 @@ export default function Chat({ messages, sendMessage }) {
           <span className={styles.empty}>No messages yet. Say hi!</span>
         )}
         {messages.map((m) => (
-          <div key={m.id} className={styles.message}>
-            <div className={styles.meta}>
-              <span className={styles.author}>{m.displayName}</span>
-              <span className={styles.time}>
-                {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </div>
-            <span className={styles.text}>{m.text}</span>
-          </div>
+          <ChatMessage
+            key={m.id}
+            message={m}
+            user={user}
+            roomId={roomId}
+            onReply={setReplyTo}
+          />
         ))}
         <div ref={bottomRef} />
+        {typingNames.length > 0 && (
+          <div className={styles.typing}>
+            <div className={styles.typingDot} />
+            <div className={styles.typingDot} />
+            <div className={styles.typingDot} />
+            <span>
+              {typingNames.length === 1
+                ? `${typingNames[0]} is typing…`
+                : `${typingNames.slice(0, 2).join(', ')}${typingNames.length > 2 ? ` +${typingNames.length - 2}` : ''} are typing…`}
+            </span>
+          </div>
+        )}
       </div>
       <form onSubmit={onSubmit} className={styles.form}>
-        <Input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Send a message…"
-          maxLength={500}
-          className={styles.input}
-        />
-        <Button type="submit" disabled={cooldown || !text.trim()}>
-          Send
-        </Button>
+        {replyTo && (
+          <div className={styles.replyPreview}>
+            <span>Replying to {replyTo.displayName}: {replyTo.text.slice(0, 60)}{replyTo.text.length > 60 ? '…' : ''}</span>
+            <button type="button" onClick={() => setReplyTo(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+              ✕
+            </button>
+          </div>
+        )}
+        <div className={styles.inputRow}>
+          <Input
+            value={text}
+            onChange={(e) => handleInputChange(e.target.value)}
+            placeholder={replyTo ? 'Write a reply…' : 'Send a message…'}
+            maxLength={500}
+            className={styles.input}
+          />
+          <div className={styles.emojiPicker}>
+            <IconButton type="button" onClick={() => setShowEmoji((s) => !s)} active={showEmoji}>
+              😊
+            </IconButton>
+            {showEmoji && (
+              <div className={styles.emojiGrid}>
+                {EMOJIS.map((emoji) => (
+                  <button key={emoji} type="button" className={styles.emojiButton} onClick={() => insertEmoji(emoji)}>
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <Button type="submit" disabled={cooldown || !text.trim()}>
+            Send
+          </Button>
+        </div>
       </form>
     </Card>
   )
