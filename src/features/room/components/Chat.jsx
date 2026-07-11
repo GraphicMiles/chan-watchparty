@@ -59,8 +59,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     .map((t) => t.displayName)
 
   return (
-    <Card className={styles.chat}>
-      <h3 className={styles.title}>Chat</h3>
+    <div className={styles.chat}>
       <div className={styles.messages}>
         {messages.length === 0 && (
           <span className={styles.empty}>No messages yet. Say hi!</span>
@@ -124,6 +123,6 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
           </Button>
         </div>
       </form>
-    </Card>
+    </div>
   )
 }
