@@ -4,6 +4,12 @@ A real-time synchronized watch party web app. Host a room around a YouTube video
 
 Built with React + Vite, Firebase Auth/Firestore, LiveKit, and Vercel server functions.
 
+## Developer guide
+
+Full map of folders, files, functions, Firestore paths, and “where to fix X”:
+
+→ **[docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)**
+
 ## API keys & environment variables
 
 See `.env.example` and the detailed key guide at the bottom of this file.
