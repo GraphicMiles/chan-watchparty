@@ -60,6 +60,14 @@ service cloud.firestore {
       return isAuthed() && get(/databases/$(database)/documents/rooms/$(roomId)).data.hostId == request.auth.uid;
     }
 
+    function isRoomCoHost(roomId) {
+      return isAuthed() && (get(/databases/$(database)/documents/rooms/$(roomId)).data.coHosts ?? []).hasAny([request.auth.uid]);
+    }
+
+    function isRoomHostOrCoHost(roomId) {
+      return isRoomHost(roomId) || isRoomCoHost(roomId);
+    }
+
     function isRoomParticipant(roomId) {
       return isAuthed() && exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid));
     }
@@ -79,12 +87,13 @@ service cloud.firestore {
       // Only authenticated users can create rooms, and they must set themselves as host.
       allow create: if isAuthed() && request.resource.data.hostId == request.auth.uid;
 
-      // Only the host can update the room doc (title, video, mode, heartbeat, etc.).
-      allow update: if isRoomHost(roomId);
+      // Only the host or co-hosts can update the room doc (title, video, mode, etc.).
+      // Heartbeat is still host-only in the client, but the rule is permissive for co-hosts.
+      allow update: if isRoomHostOrCoHost(roomId);
 
       match /playerState/current {
         allow read: if isAuthed();
-        allow write: if isRoomHost(roomId);
+        allow write: if isRoomHostOrCoHost(roomId);
       }
 
       match /participants/{uid} {
@@ -98,7 +107,8 @@ service cloud.firestore {
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
-          && request.resource.data.text.size() <= 500;
+          && request.resource.data.text.size() <= 500
+          && !get(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid)).data.muted;
       }
 
       match /typing/{uid} {

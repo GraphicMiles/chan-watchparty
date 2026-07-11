@@ -8,10 +8,12 @@ const SYNC_THRESHOLD = 1.5
 export function usePlayerSync(roomId, room, playerRef) {
   const { user } = useAuth()
   const isHost = room?.hostId === user?.uid
+  const isCoHost = room?.coHosts?.includes(user?.uid) ?? false
+  const canControl = isHost || isCoHost
   const lastVideoIdRef = useRef(null)
 
   const writePlayerState = useCallback(async (patch) => {
-    if (!roomId || !isHost || !room) return
+    if (!roomId || !canControl || !room) return
     const ref = doc(db, 'rooms', roomId, 'playerState', 'current')
     await setDoc(ref, {
       videoId: room.videoId || '',
@@ -21,11 +23,11 @@ export function usePlayerSync(roomId, room, playerRef) {
       updatedBy: user.uid,
       ...patch,
     }, { merge: true })
-  }, [roomId, isHost, room, user])
+  }, [roomId, canControl, room, user])
 
-  // Host heartbeat: reads playerRef.current inside the interval so it starts as soon as the player is ready
+  // Controller heartbeat: reads playerRef.current inside the interval so it starts as soon as the player is ready
   useEffect(() => {
-    if (!isHost || !room?.videoId) return
+    if (!canControl || !room?.videoId) return
 
     const interval = setInterval(() => {
       const player = playerRef.current
@@ -41,11 +43,11 @@ export function usePlayerSync(roomId, room, playerRef) {
     }, 5000)
 
     return () => clearInterval(interval)
-  }, [isHost, room?.videoId, playerRef, writePlayerState])
+  }, [canControl, room?.videoId, playerRef, writePlayerState])
 
   // Viewer reconciliation: reads playerRef.current inside the callback
   useEffect(() => {
-    if (isHost || !roomId) return
+    if (canControl || !roomId) return
 
     const unsub = onSnapshot(doc(db, 'rooms', roomId, 'playerState', 'current'), (snap) => {
       const state = snap.data()
@@ -83,5 +85,5 @@ export function usePlayerSync(roomId, room, playerRef) {
     return unsub
   }, [isHost, roomId, playerRef])
 
-  return { writePlayerState, isHost }
+  return { writePlayerState, isHost, isCoHost, canControl }
 }

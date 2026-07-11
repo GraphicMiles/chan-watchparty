@@ -32,7 +32,7 @@ export function useRoom(roomId, inviteCode = null) {
   const join = useCallback(async () => {
     if (!user || !roomId) return
     try {
-      const body = { roomId, uid: user.uid, displayName: user.displayName || user.email?.split('@')[0] || 'Viewer' }
+      const body = { roomId, uid: user.uid, displayName: user.displayName || 'Viewer' }
       if (inviteCode) body.inviteCode = inviteCode
       const res = await fetch('/api/joinRoom', {
         method: 'POST',
@@ -84,7 +84,7 @@ export function useRoom(roomId, inviteCode = null) {
     const trimmed = text.trim().slice(0, 500)
     const payload = {
       uid: user.uid,
-      displayName: user.displayName || user.email?.split('@')[0] || 'Viewer',
+      displayName: user.displayName || 'Viewer',
       text: trimmed,
       createdAt: serverTimestamp(),
     }
@@ -98,6 +98,34 @@ export function useRoom(roomId, inviteCode = null) {
     if (!user || !roomId) return
     await updateDoc(doc(db, 'rooms', roomId), payload)
   }, [user, roomId])
+
+  const authFetch = useCallback(async (path, body) => {
+    if (!user) throw new Error('Not signed in')
+    const token = await user.getIdToken()
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    })
+    const data = await parseJsonResponse(res)
+    if (!res.ok) throw new Error(data.error || 'Request failed')
+    return data
+  }, [user])
+
+  const kickParticipant = useCallback(async (uid) => {
+    if (!roomId) return
+    await authFetch('/api/kickParticipant', { roomId, uid })
+  }, [roomId, authFetch])
+
+  const promoteParticipant = useCallback(async (uid, role) => {
+    if (!roomId) return
+    await authFetch('/api/promoteParticipant', { roomId, uid, role })
+  }, [roomId, authFetch])
+
+  const muteParticipant = useCallback(async (uid, muted) => {
+    if (!roomId) return
+    await authFetch('/api/muteParticipant', { roomId, uid, muted })
+  }, [roomId, authFetch])
 
   // Room listener
   useEffect(() => {
@@ -164,7 +192,7 @@ export function useRoom(roomId, inviteCode = null) {
       await setDoc(
         ref,
         {
-          displayName: user.displayName || user.email?.split('@')[0] || 'Viewer',
+          displayName: user.displayName || 'Viewer',
           lastTypedAt: serverTimestamp(),
         },
         { merge: true }
@@ -215,5 +243,8 @@ export function useRoom(roomId, inviteCode = null) {
     updateRoom,
     typing,
     setTyping: setTypingStatus,
+    kickParticipant,
+    promoteParticipant,
+    muteParticipant,
   }
 }
