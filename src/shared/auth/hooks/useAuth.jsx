@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { onAuthStateChanged, signInAnonymously, updateProfile, signOut } from 'firebase/auth'
+import { onAuthStateChanged, signInAnonymously as firebaseSignInAnonymously, updateProfile, signOut } from 'firebase/auth'
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../../lib/firebase.js'
 
@@ -36,7 +36,7 @@ export function AuthProvider({ children }) {
 
   const signInAnonymously = async (displayName) => {
     const name = displayName?.trim() || 'Viewer'
-    const cred = await signInAnonymously(auth)
+    const cred = await firebaseSignInAnonymously(auth)
     await updateProfile(cred.user, { displayName: name })
     await setDoc(
       doc(db, 'users', cred.user.uid),
