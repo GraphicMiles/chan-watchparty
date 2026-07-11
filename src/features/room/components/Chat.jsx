@@ -4,7 +4,8 @@ import ChatMessage from './ChatMessage.jsx'
 import styles from './Chat.module.css'
 
 const EMOJIS = ['😀', '😂', '😍', '🔥', '👍', '❤️', '👏', '😮', '🎉', '🤔', '😢', '😡']
-const TYPING_DEBOUNCE = 800
+const TYPING_DEBOUNCE = 1200
+const TYPING_WRITE_INTERVAL = 2000
 
 export default function Chat({ messages, sendMessage, user, roomId, typing, setTyping }) {
   const [text, setText] = useState('')
@@ -13,6 +14,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   const [showEmoji, setShowEmoji] = useState(false)
   const bottomRef = useRef(null)
   const typingTimer = useRef(null)
+  const lastTypingWrite = useRef(0)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -22,9 +24,15 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     setText(value)
     if (!value.trim()) {
       setTyping(false)
+      clearTimeout(typingTimer.current)
+      lastTypingWrite.current = 0
       return
     }
-    setTyping(true)
+    const now = Date.now()
+    if (now - lastTypingWrite.current > TYPING_WRITE_INTERVAL) {
+      lastTypingWrite.current = now
+      setTyping(true)
+    }
     clearTimeout(typingTimer.current)
     typingTimer.current = setTimeout(() => setTyping(false), TYPING_DEBOUNCE)
   }
