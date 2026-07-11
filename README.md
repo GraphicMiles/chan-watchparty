@@ -56,12 +56,22 @@ service cloud.firestore {
       return isAuthed() && request.auth.uid == uid;
     }
 
-    function isRoomHost(roomId) {
-      return isAuthed() && get(/databases/$(database)/documents/rooms/$(roomId)).data.hostId == request.auth.uid;
+    function roomData(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)).data;
     }
 
+    function participantData(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid)).data;
+    }
+
+    function isRoomHost(roomId) {
+      return isAuthed() && roomData(roomId).hostId == request.auth.uid;
+    }
+
+    // Use Map.get(key, default). Nullish coalescing is not valid in Firestore rules.
     function isRoomCoHost(roomId) {
-      return isAuthed() && (get(/databases/$(database)/documents/rooms/$(roomId)).data.coHosts ?? []).hasAny([request.auth.uid]);
+      return isAuthed()
+        && roomData(roomId).get('coHosts', []).hasAny([request.auth.uid]);
     }
 
     function isRoomHostOrCoHost(roomId) {
@@ -69,7 +79,13 @@ service cloud.firestore {
     }
 
     function isRoomParticipant(roomId) {
-      return isAuthed() && exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid));
+      return isAuthed()
+        && exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid));
+    }
+
+    function isMuted(roomId) {
+      return isRoomParticipant(roomId)
+        && participantData(roomId).get('muted', false) == true;
     }
 
     match /users/{uid} {
@@ -79,47 +95,57 @@ service cloud.firestore {
     }
 
     match /rooms/{roomId} {
-      // Public rooms are visible to everyone. Private rooms are visible to the host or existing participants.
+      // Public live rooms are visible to everyone authenticated.
+      // Private rooms are visible to the host or existing participants.
       allow read: if isAuthed()
         && resource.data.status == "live"
-        && (!resource.data.isPrivate || isRoomHost(roomId) || isRoomParticipant(roomId));
+        && (resource.data.get('isPrivate', false) != true
+            || isRoomHost(roomId)
+            || isRoomParticipant(roomId));
 
       // Only authenticated users can create rooms, and they must set themselves as host.
-      allow create: if isAuthed() && request.resource.data.hostId == request.auth.uid;
+      allow create: if isAuthed()
+        && request.resource.data.hostId == request.auth.uid;
 
-      // Only the host or co-hosts can update the room doc (title, video, mode, etc.).
-      // Heartbeat is still host-only in the client, but the rule is permissive for co-hosts.
+      // Host or co-hosts can update the room doc (title, video, mode, coHosts, etc.).
       allow update: if isRoomHostOrCoHost(roomId);
 
-      match /playerState/current {
-        allow read: if isAuthed();
-        allow write: if isRoomHostOrCoHost(roomId);
+      match /playerState/{docId} {
+        allow read: if isAuthed() && docId == 'current';
+        allow write: if isRoomHostOrCoHost(roomId) && docId == 'current';
       }
 
       match /participants/{uid} {
         allow read: if isAuthed();
-        allow write: if false; // joins must go through the Vercel server function
+        // Joins/leaves/kicks/mutes/promotes must go through Vercel server functions.
+        allow write: if false;
       }
 
       match /messages/{messageId} {
         allow read: if isAuthed();
         allow create: if isAuthed()
+          && isRoomParticipant(roomId)
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 500
-          && !get(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid)).data.muted;
+          && !isMuted(roomId);
+
+        // Nested path: rooms/{roomId}/messages/{messageId}/reactions/{uid}
+        match /reactions/{uid} {
+          allow read: if isAuthed();
+          allow create, update: if isOwner(uid)
+            && isRoomParticipant(roomId)
+            && request.resource.data.emoji is string
+            && request.resource.data.emoji.size() > 0
+            && request.resource.data.emoji.size() <= 16;
+          allow delete: if isOwner(uid);
+        }
       }
 
       match /typing/{uid} {
         allow read: if isAuthed();
-        allow create, update: if isOwner(uid);
-        allow delete: if isOwner(uid);
-      }
-
-      match /messages/{messageId}/reactions/{uid} {
-        allow read: if isAuthed();
-        allow create, update: if isOwner(uid) && request.resource.data.emoji is string;
+        allow create, update: if isOwner(uid) && isRoomParticipant(roomId);
         allow delete: if isOwner(uid);
       }
     }

@@ -1,0 +1,106 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthed() && request.auth.uid == uid;
+    }
+
+    function roomData(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)).data;
+    }
+
+    function participantData(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid)).data;
+    }
+
+    function isRoomHost(roomId) {
+      return isAuthed() && roomData(roomId).hostId == request.auth.uid;
+    }
+
+    // Use Map.get(key, default). Nullish coalescing is not valid in Firestore rules.
+    function isRoomCoHost(roomId) {
+      return isAuthed()
+        && roomData(roomId).get('coHosts', []).hasAny([request.auth.uid]);
+    }
+
+    function isRoomHostOrCoHost(roomId) {
+      return isRoomHost(roomId) || isRoomCoHost(roomId);
+    }
+
+    function isRoomParticipant(roomId) {
+      return isAuthed()
+        && exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid));
+    }
+
+    function isMuted(roomId) {
+      return isRoomParticipant(roomId)
+        && participantData(roomId).get('muted', false) == true;
+    }
+
+    match /users/{uid} {
+      allow read: if isAuthed();
+      allow create: if isOwner(uid);
+      allow update: if isOwner(uid);
+    }
+
+    match /rooms/{roomId} {
+      // Public live rooms are visible to everyone authenticated.
+      // Private rooms are visible to the host or existing participants.
+      allow read: if isAuthed()
+        && resource.data.status == "live"
+        && (resource.data.get('isPrivate', false) != true
+            || isRoomHost(roomId)
+            || isRoomParticipant(roomId));
+
+      // Only authenticated users can create rooms, and they must set themselves as host.
+      allow create: if isAuthed()
+        && request.resource.data.hostId == request.auth.uid;
+
+      // Host or co-hosts can update the room doc (title, video, mode, coHosts, etc.).
+      allow update: if isRoomHostOrCoHost(roomId);
+
+      match /playerState/{docId} {
+        allow read: if isAuthed() && docId == 'current';
+        allow write: if isRoomHostOrCoHost(roomId) && docId == 'current';
+      }
+
+      match /participants/{uid} {
+        allow read: if isAuthed();
+        // Joins/leaves/kicks/mutes/promotes must go through Vercel server functions.
+        allow write: if false;
+      }
+
+      match /messages/{messageId} {
+        allow read: if isAuthed();
+        allow create: if isAuthed()
+          && isRoomParticipant(roomId)
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 500
+          && !isMuted(roomId);
+
+        // Nested path: rooms/{roomId}/messages/{messageId}/reactions/{uid}
+        match /reactions/{uid} {
+          allow read: if isAuthed();
+          allow create, update: if isOwner(uid)
+            && isRoomParticipant(roomId)
+            && request.resource.data.emoji is string
+            && request.resource.data.emoji.size() > 0
+            && request.resource.data.emoji.size() <= 16;
+          allow delete: if isOwner(uid);
+        }
+      }
+
+      match /typing/{uid} {
+        allow read: if isAuthed();
+        allow create, update: if isOwner(uid) && isRoomParticipant(roomId);
+        allow delete: if isOwner(uid);
+      }
+    }
+  }
+}
