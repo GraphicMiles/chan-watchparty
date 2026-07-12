@@ -1,140 +1,194 @@
-const API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY
-const BASE = 'https://www.googleapis.com/youtube/v3'
+// YouTube Data API v3 configuration (optional - only needed for search)
+const YOUTUBE_API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY || ''
+const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
 
-const DIRECT_VIDEO_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv)(\?|#|$)/i
+const VIDEO_ID_RE =
+  /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|youtube\.com\/shorts\/)([^"&?/ ]{11})/
 
-export function extractVideoId(url) {
-  if (!url || typeof url !== 'string') return null
-  try {
-    const parsed = new URL(url.trim())
-    const host = parsed.hostname.replace(/^www\./, '')
-    if (host === 'youtu.be') {
-      return parsed.pathname.split('/').filter(Boolean)[0] || null
-    }
-    if (host.endsWith('youtube.com') || host.endsWith('youtube-nocookie.com')) {
-      if (parsed.searchParams.get('v')) return parsed.searchParams.get('v')
-      const parts = parsed.pathname.split('/').filter(Boolean)
-      // /embed/ID, /shorts/ID, /live/ID, /v/ID
-      if (parts[0] && ['embed', 'shorts', 'live', 'v', 'watch'].includes(parts[0]) && parts[1]) {
-        return parts[0] === 'watch' ? parsed.searchParams.get('v') : parts[1]
-      }
-      return parts[parts.length - 1] || null
-    }
-  } catch {
-    // bare id?
-    if (/^[\w-]{11}$/.test(url.trim())) return url.trim()
-  }
-  return null
+export function extractVideoId(input) {
+  if (!input || typeof input !== 'string') return null
+  const m = input.match(VIDEO_ID_RE)
+  return m ? m[1] : null
 }
+
+export function buildYouTubeEmbedUrl(videoId) {
+  if (!videoId) return null
+  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?rel=0&modestbranding=1`
+}
+
+export function buildYouTubeWatchUrl(videoId) {
+  if (!videoId) return null
+  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
+}
+
+const DIRECT_VIDEO_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv)(\?|#|$)/i
+
+// Common direct video host patterns
+const DIRECT_HOST_PATTERNS = [
+  /o2tv\.org$/i,
+  /cdn\./i,
+  /video\./i,
+  /stream\./i,
+  /download\./i,
+  /media\./i,
+  /files\./i,
+  /content\./i,
+  /videos\./i,
+  /movies\./i,
+  /[a-z0-9]+\.otv/i,
+]
 
 export function isDirectVideoUrl(url) {
   if (!url || typeof url !== 'string') return false
+  
+  // Quick regex check first
+  if (DIRECT_VIDEO_RE.test(url)) return true
+  
   try {
     const u = new URL(url, 'https://example.com')
     if (!['http:', 'https:'].includes(u.protocol)) return false
+    
+    // Check if hostname matches known direct video hosts
+    const hostname = u.hostname.toLowerCase()
+    if (DIRECT_HOST_PATTERNS.some(pattern => pattern.test(hostname))) {
+      // If it's from a known video CDN, check for video extension or path patterns
+      if (DIRECT_VIDEO_RE.test(u.pathname)) return true
+      
+      // Also accept URLs with hash-based filenames (common on CDNs)
+      if (/\/[a-f0-9]{16,}\//i.test(u.pathname) && u.pathname.length > 30) {
+        return true
+      }
+    }
+    
     return DIRECT_VIDEO_RE.test(u.pathname) || DIRECT_VIDEO_RE.test(url)
   } catch {
     return DIRECT_VIDEO_RE.test(url)
   }
 }
 
-export function getThumbnail(videoId) {
-  if (!videoId) return null
-  return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
-}
-
-export async function getVideoMetadata(videoId) {
-  if (!API_KEY || !videoId) return null
-  const res = await fetch(
-    `${BASE}/videos?part=snippet,status,contentDetails&id=${encodeURIComponent(videoId)}&key=${API_KEY}`
-  )
-  const data = await res.json()
-  return data.items?.[0] || null
-}
-
-/** Returns { embeddable, title, reason } */
-export async function checkEmbeddable(videoId) {
-  if (!videoId) return { embeddable: false, reason: 'No video id' }
-  if (!API_KEY) {
-    // Can't verify — allow but warn upstream
-    return { embeddable: true, unverified: true, title: null, reason: null }
-  }
+export function normalizeDirectUrl(url) {
   try {
-    const item = await getVideoMetadata(videoId)
-    if (!item) return { embeddable: false, reason: 'Video not found' }
-    const embeddable = item.status?.embeddable !== false
-    const privacy = item.status?.privacyStatus
-    if (privacy === 'private') {
-      return { embeddable: false, title: item.snippet?.title, reason: 'Video is private' }
-    }
-    if (!embeddable) {
+    return decodeURIComponent(url)
+  } catch {
+    return url
+  }
+}
+
+export function isYouTubeUrl(url) {
+  return !!extractVideoId(url)
+}
+
+// Public oEmbed - no API key needed
+export async function fetchYouTubeInfo(videoId) {
+  try {
+    const res = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(
+        videoId
+      )}&format=json`
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    return { title: data.title, thumbnail: data.thumbnail_url }
+  } catch {
+    return null
+  }
+}
+
+// Public oEmbed - no API key needed
+export async function checkEmbeddable(videoId) {
+  try {
+    const url = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(
+      videoId
+    )}&format=json`
+    const res = await fetch(url)
+    if (res.status === 403 || res.status === 401) {
       return {
         embeddable: false,
-        title: item.snippet?.title,
-        reason:
-          'This video cannot be embedded (often Vevo/label restriction). Play it on YouTube, or pick another video.',
+        reason: 'This video is blocked from embedding by the uploader.',
       }
     }
-    return { embeddable: true, title: item.snippet?.title, reason: null }
+    if (!res.ok) {
+      return { embeddable: false, reason: 'Unable to verify embed status.' }
+    }
+    const data = await res.json()
+    return {
+      embeddable: true,
+      title: data.title,
+      thumbnail: data.thumbnail_url,
+    }
   } catch {
-    return { embeddable: true, unverified: true, title: null, reason: null }
+    return { embeddable: false, reason: 'Network error while checking embed status.' }
   }
 }
 
-/**
- * Search + enrich with embeddable status (filters non-embeddable when possible).
- */
-export async function searchVideos(query, maxResults = 12, { preferEmbeddable = true } = {}) {
-  if (!API_KEY || !query) return []
-  const res = await fetch(
-    `${BASE}/search?part=snippet&type=video&q=${encodeURIComponent(query)}&maxResults=${Math.min(
-      maxResults * 2,
-      25
-    )}&key=${API_KEY}`
-  )
-  const data = await res.json()
-  if (!res.ok) {
-    throw new Error(data.error?.message || 'YouTube search failed')
+// YouTube Data API v3 functions (requires API key)
+
+export async function searchYouTube(query, maxResults = 10) {
+  if (!YOUTUBE_API_KEY) {
+    throw new Error('YouTube API key not configured. Add VITE_YOUTUBE_API_KEY to your .env file.')
   }
-  const ids = (data.items || []).map((it) => it.id?.videoId).filter(Boolean)
-  if (!ids.length) return []
-
-  // Enrich with status.embeddable
-  const vRes = await fetch(
-    `${BASE}/videos?part=snippet,status&id=${ids.join(',')}&key=${API_KEY}`
-  )
-  const vData = await vRes.json()
-  const byId = new Map((vData.items || []).map((it) => [it.id, it]))
-
-  let results = ids.map((id) => {
-    const full = byId.get(id)
-    const sn = full?.snippet || data.items.find((i) => i.id?.videoId === id)?.snippet
-    const embeddable = full?.status?.embeddable !== false
-    return {
-      id,
-      title: sn?.title || 'Untitled',
-      thumbnail:
-        sn?.thumbnails?.high?.url ||
-        sn?.thumbnails?.medium?.url ||
-        sn?.thumbnails?.default?.url ||
-        getThumbnail(id),
-      channel: sn?.channelTitle,
-      published: sn?.publishedAt,
-      url: `https://www.youtube.com/watch?v=${id}`,
-      source: 'youtube',
-      embeddable,
-      link: `https://www.youtube.com/watch?v=${id}`,
-    }
+  
+  const params = new URLSearchParams({
+    part: 'snippet',
+    q: query,
+    type: 'video',
+    maxResults: String(maxResults),
+    key: YOUTUBE_API_KEY,
   })
-
-  if (preferEmbeddable) {
-    const embeddable = results.filter((r) => r.embeddable)
-    // Keep some non-embeddable at end so user still sees them labeled
-    const blocked = results.filter((r) => !r.embeddable)
-    results = [...embeddable, ...blocked].slice(0, maxResults)
-  } else {
-    results = results.slice(0, maxResults)
+  
+  const res = await fetch(`${YOUTUBE_API_BASE}/search?${params}`)
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}))
+    throw new Error(error.error?.message || 'YouTube search failed')
   }
+  
+  const data = await res.json()
+  return data.items.map(item => ({
+    id: item.id.videoId,
+    title: item.snippet.title,
+    description: item.snippet.description,
+    thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+    channelTitle: item.snippet.channelTitle,
+    publishedAt: item.snippet.publishedAt,
+  }))
+}
 
-  return results
+export async function getVideoDetails(videoId) {
+  if (!YOUTUBE_API_KEY) {
+    throw new Error('YouTube API key not configured')
+  }
+  
+  const params = new URLSearchParams({
+    part: 'snippet,contentDetails,statistics',
+    id: videoId,
+    key: YOUTUBE_API_KEY,
+  })
+  
+  const res = await fetch(`${YOUTUBE_API_BASE}/videos?${params}`)
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}))
+    throw new Error(error.error?.message || 'Failed to get video details')
+  }
+  
+  const data = await res.json()
+  if (!data.items || data.items.length === 0) {
+    return null
+  }
+  
+  const item = data.items[0]
+  return {
+    id: item.id,
+    title: item.snippet.title,
+    description: item.snippet.description,
+    thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url,
+    duration: item.contentDetails.duration,
+    viewCount: item.statistics.viewCount,
+    likeCount: item.statistics.likeCount,
+    channelTitle: item.snippet.channelTitle,
+  }
+}
+
+// Check if API key is configured
+export function hasYouTubeApiKey() {
+  return !!YOUTUBE_API_KEY
 }
