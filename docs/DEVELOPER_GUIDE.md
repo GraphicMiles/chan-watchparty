@@ -38,6 +38,11 @@ Related docs:
 
 ---
 
+
+> **API consolidation (Hobby limit):** the app exposes **4** Vercel functions only:
+> `POST /api/room` (`join|leave|end`), `POST /api/moderate` (`kick|promote|mute`), `POST /api/createLiveKitToken`, `POST/GET /api/cleanupStaleRooms`.
+> Older per-action files (`joinRoom.js`, `kickParticipant.js`, …) were removed.
+
 ## 1. Architecture at a glance
 
 ```
@@ -239,7 +244,7 @@ Public live-room discovery.
 | File | Role |
 |------|------|
 | `index.js` | Barrel → `CreateRoomPage` |
-| `pages/CreateRoomPage.jsx` | Title, YouTube URL/search, capacity, private flag → writes room + `playerState/current` → `POST /api/joinRoom` as host → navigate to room |
+| `pages/CreateRoomPage.jsx` | Title, YouTube URL/search, capacity, private flag → writes room + `playerState/current` → `POST /api/room` as host → navigate to room |
 | `pages/CreateRoomPage.module.css` | Form layout |
 
 **Helpers inside page**
@@ -309,9 +314,9 @@ features/room/
 
 | Name | What it does |
 |------|----------------|
-| `join` | `POST /api/joinRoom` |
-| `leave` | `POST /api/leaveRoom` |
-| `endRoom` | `POST /api/endRoom` → navigate home |
+| `join` | `POST /api/room` |
+| `leave` | `POST /api/room` |
+| `endRoom` | `POST /api/room` → navigate home |
 | `sendMessage(text, replyTo?)` | `addDoc` messages; clears typing doc |
 | `updateRoom(payload)` | `updateDoc` room root (title, activityType, videoId, locked, …) |
 | `authFetch(path, body)` | Adds `Authorization: Bearer <idToken>` for management APIs |
@@ -509,7 +514,7 @@ Barrel: `src/shared/ui/index.js`.
 `useRoom` → `authFetch`:
 
 ```http
-POST /api/kickParticipant
+POST /api/moderate
 Authorization: Bearer <Firebase ID token>
 Content-Type: application/json
 

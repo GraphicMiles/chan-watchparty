@@ -32,13 +32,28 @@ export function useRoom(roomId, inviteCode = null) {
   const [kicked, setKicked] = useState(false)
   const intentionalLeave = useRef(false)
   const wasParticipant = useRef(false)
+  const joinInFlight = useRef(false)
+
+  const rememberRoom = useCallback((id, title = '') => {
+    try {
+      localStorage.setItem(LAST_ROOM_KEY, JSON.stringify({ roomId: id, title, at: Date.now() }))
+    } catch {
+      /* ignore quota */
+    }
+  }, [])
 
   const join = useCallback(async () => {
-    if (!user || !roomId) return
+    if (!user || !roomId || joinInFlight.current) return
+    joinInFlight.current = true
     try {
-      const body = { roomId, uid: user.uid, displayName: user.displayName || 'Viewer' }
+      const body = {
+        action: 'join',
+        roomId,
+        uid: user.uid,
+        displayName: user.displayName || 'Viewer',
+      }
       if (inviteCode) body.inviteCode = inviteCode
-      const res = await fetch('/api/joinRoom', {
+      const res = await fetch('/api/room', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -47,27 +62,22 @@ export function useRoom(roomId, inviteCode = null) {
       if (!res.ok) throw new Error(data.error || 'Could not join room')
       setJoined(true)
       setKicked(false)
-      try {
-        localStorage.setItem(
-          LAST_ROOM_KEY,
-          JSON.stringify({ roomId, title: data.title || '', at: Date.now() })
-        )
-      } catch {
-        /* ignore */
-      }
+      rememberRoom(data.roomId || roomId)
     } catch (err) {
       setError(err.message)
+    } finally {
+      joinInFlight.current = false
     }
-  }, [user, roomId, inviteCode])
+  }, [user, roomId, inviteCode, rememberRoom])
 
   const leave = useCallback(async () => {
     if (!user || !roomId) return
     intentionalLeave.current = true
     try {
-      const res = await fetch('/api/leaveRoom', {
+      const res = await fetch('/api/room', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomId, uid: user.uid }),
+        body: JSON.stringify({ action: 'leave', roomId, uid: user.uid }),
       })
       const data = await parseJsonResponse(res)
       if (!res.ok) throw new Error(data.error || 'Could not leave room')
@@ -81,10 +91,10 @@ export function useRoom(roomId, inviteCode = null) {
     if (!user || !roomId) return
     intentionalLeave.current = true
     try {
-      const res = await fetch('/api/endRoom', {
+      const res = await fetch('/api/room', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomId, uid: user.uid }),
+        body: JSON.stringify({ action: 'end', roomId, uid: user.uid }),
       })
       const data = await parseJsonResponse(res)
       if (!res.ok) throw new Error(data.error || 'Could not end room')
@@ -130,44 +140,44 @@ export function useRoom(roomId, inviteCode = null) {
 
   const kickParticipant = useCallback(async (uid) => {
     if (!roomId) return
-    await authFetch('/api/kickParticipant', { roomId, uid })
+    await authFetch('/api/moderate', { action: 'kick', roomId, uid })
   }, [roomId, authFetch])
 
   const promoteParticipant = useCallback(async (uid, role) => {
     if (!roomId) return
-    await authFetch('/api/promoteParticipant', { roomId, uid, role })
+    await authFetch('/api/moderate', { action: 'promote', roomId, uid, role })
   }, [roomId, authFetch])
 
   const muteParticipant = useCallback(async (uid, muted) => {
     if (!roomId) return
-    await authFetch('/api/muteParticipant', { roomId, uid, muted })
+    await authFetch('/api/moderate', { action: 'mute', roomId, uid, muted })
   }, [roomId, authFetch])
 
   // Room listener
   useEffect(() => {
     if (!roomId) return
-    const unsub = onSnapshot(doc(db, 'rooms', roomId), (snap) => {
-      if (!snap.exists()) {
-        setError('Room not found')
-        return
+    const unsub = onSnapshot(
+      doc(db, 'rooms', roomId),
+      (snap) => {
+        if (!snap.exists()) {
+          setError('Room not found')
+          return
+        }
+        const data = snap.data()
+        setRoom({ id: roomId, ...data })
+        setActivityType(data.activityType || 'youtube')
+        if (data.status === 'ended') {
+          setError('This room has ended')
+        }
+        rememberRoom(roomId, data.title || '')
+      },
+      (err) => {
+        console.error(err)
+        setError(err.message || 'Could not load room')
       }
-      const data = snap.data()
-      setRoom({ id: roomId, ...data })
-      setActivityType(data.activityType || 'youtube')
-      if (data.status === 'ended') {
-        setError('This room has ended')
-      }
-      try {
-        localStorage.setItem(
-          LAST_ROOM_KEY,
-          JSON.stringify({ roomId, title: data.title || '', at: Date.now() })
-        )
-      } catch {
-        /* ignore */
-      }
-    })
+    )
     return unsub
-  }, [roomId])
+  }, [roomId, rememberRoom])
 
   // Participants listener + kick detection
   useEffect(() => {
@@ -192,10 +202,7 @@ export function useRoom(roomId, inviteCode = null) {
   // Messages listener
   useEffect(() => {
     if (!roomId) return
-    const q = query(
-      collection(db, 'rooms', roomId, 'messages'),
-      orderBy('createdAt', 'asc')
-    )
+    const q = query(collection(db, 'rooms', roomId, 'messages'), orderBy('createdAt', 'asc'))
     const unsub = onSnapshot(q, (snap) => {
       setMessages(
         snap.docs.map((d) => ({
@@ -243,31 +250,49 @@ export function useRoom(roomId, inviteCode = null) {
   // Host heartbeat for stale-room cleanup
   useEffect(() => {
     if (!user || !roomId || room?.hostId !== user.uid) return
+    // Immediate heartbeat so cleanup doesn't race a fresh room
+    updateDoc(doc(db, 'rooms', roomId), { lastHeartbeat: serverTimestamp() }).catch(() => {})
     const interval = setInterval(() => {
       updateDoc(doc(db, 'rooms', roomId), { lastHeartbeat: serverTimestamp() }).catch(() => {})
     }, 30000)
     return () => clearInterval(interval)
   }, [user, roomId, room?.hostId])
 
-  // Auto join if already a participant, otherwise leave on unmount
+  // Auto join; leave only on real unmount (not StrictMode remount race)
   useEffect(() => {
     if (!user || !roomId) return
     intentionalLeave.current = false
     wasParticipant.current = false
+    let cancelled = false
+
     const check = async () => {
-      const snap = await getDoc(doc(db, 'rooms', roomId, 'participants', user.uid))
-      if (snap.exists()) {
-        wasParticipant.current = true
-        setJoined(true)
-      } else {
-        await join()
+      try {
+        const snap = await getDoc(doc(db, 'rooms', roomId, 'participants', user.uid))
+        if (cancelled) return
+        if (snap.exists()) {
+          wasParticipant.current = true
+          setJoined(true)
+        } else {
+          await join()
+        }
+      } catch (err) {
+        if (!cancelled) setError(err.message || 'Could not join room')
       }
     }
     check()
+
     return () => {
-      leave()
+      cancelled = true
+      // Fire-and-forget leave; avoid blocking unmount
+      intentionalLeave.current = true
+      fetch('/api/room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'leave', roomId, uid: user.uid }),
+        keepalive: true,
+      }).catch(() => {})
     }
-  }, [user, roomId, join, leave])
+  }, [user, roomId, join])
 
   return {
     room,

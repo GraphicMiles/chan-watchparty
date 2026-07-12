@@ -21,6 +21,7 @@ service cloud.firestore {
       return isAuthed() && roomData(roomId).hostId == request.auth.uid;
     }
 
+    // Use Map.get(key, default). Nullish coalescing is not valid in Firestore rules.
     function isRoomCoHost(roomId) {
       return isAuthed()
         && roomData(roomId).get('coHosts', []).hasAny([request.auth.uid]);
@@ -94,14 +95,6 @@ service cloud.firestore {
         allow create, update: if isOwner(uid) && isRoomParticipant(roomId);
         allow delete: if isOwner(uid);
       }
-    }  // <-- rooms/{roomId} CLOSED HERE
-
-    // Scraped media collection - ROOT LEVEL (not inside rooms)
-    match /scrapes/{scrapeId} {
-      allow read: if isAuthed();
-      allow create: if isAuthed();
-      allow update, delete: if false;
     }
-    
   }
 }
