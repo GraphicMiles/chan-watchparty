@@ -1,4 +1,4 @@
-# On-Demand Media Scraper — Architecture & Connections
+# On-Demand Media Scraper — Architecture & Connections for real
 
 This document maps every file involved in the "Discover" (scraper) feature,
 exactly how they connect to each other and to the rest of the app, the exact
