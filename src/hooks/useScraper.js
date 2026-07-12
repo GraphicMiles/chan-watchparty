@@ -49,15 +49,47 @@ export function useScraper() {
     }
   }, []);
 
-  const search = useCallback(async (query) => {
+  const search = useCallback(async (query, source = 'youtube') => {
     if (!query) return;
     setLoading(true);
     setError(null);
 
     try {
-      const data = await postJson('/api/search', { query, source: 'youtube' });
+      let data;
+
+      if (source === 'omdb') {
+        // OMDb has no referrer restriction, so the server route works fine here.
+        data = await postJson('/api/search', { query, source: 'omdb' });
+      } else if (import.meta.env.VITE_YOUTUBE_API_KEY) {
+        const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY;
+        // YouTube API keys are typically restricted by HTTP referrer, so this
+        // must be called from the browser directly rather than proxied through
+        // our server (which has no browser referer and would get blocked).
+        const res = await fetch(
+          `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=12&q=${encodeURIComponent(query)}&key=${apiKey}`
+        );
+        const body = await res.json();
+        if (!res.ok) {
+          throw new Error(body?.error?.message || `YouTube API responded with HTTP ${res.status}`);
+        }
+        data = {
+          results: (body.items || []).map((item) => ({
+            id: item.id.videoId,
+            title: item.snippet.title,
+            thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url,
+            channel: item.snippet.channelTitle,
+            published: item.snippet.publishedAt,
+            url: `https://youtube.com/watch?v=${item.id.videoId}`,
+            source: 'youtube',
+          })),
+        };
+      } else {
+        // Fall back to the server route, for setups using an unrestricted server-side key.
+        data = await postJson('/api/search', { query, source: 'youtube' });
+      }
+
       setResults(data.results);
-      setLastQuery({ type: 'search', site: 'youtube', query });
+      setLastQuery({ type: 'search', site: source, query });
     } catch (err) {
       setError(err.message);
       setResults([]);

@@ -51,7 +51,6 @@ async function start() {
         middlewareMode: true,
         host: '0.0.0.0',
         allowedHosts: true,
-        hmr: { clientPort: 443 },
       },
       appType: 'spa',
     })
