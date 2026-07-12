@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { searchVideos as ytSearch } from '../shared/lib/youtube.js'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -8,11 +9,38 @@ async function postJson(url, body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  const data = await res.json()
-  if (!res.ok || !data.success) {
+  let data
+  try {
+    data = await res.json()
+  } catch {
+    throw new Error(`Server returned ${res.status} (not JSON)`)
+  }
+  if (!res.ok || data.success === false) {
     throw new Error(data.error || `HTTP ${res.status}`)
   }
   return data
+}
+
+/** Normalize any result shape for UI + create room */
+function normalizeResult(r) {
+  if (!r) return null
+  const link = r.link || r.url || null
+  const url = r.url || r.link || null
+  const isDirect =
+    r.isDirect === true ||
+    (typeof link === 'string' && /\.(mp4|m3u8|webm|ogg|mov|mkv)(\?|#|$)/i.test(link))
+  return {
+    ...r,
+    link,
+    url,
+    image: r.image || r.thumbnail || null,
+    thumbnail: r.thumbnail || r.image || null,
+    isDirect,
+    playableInRoom:
+      r.source === 'youtube' && r.id
+        ? r.embeddable !== false
+        : isDirect,
+  }
 }
 
 export function useScraper() {
@@ -33,9 +61,18 @@ export function useScraper() {
     setError(null)
     try {
       const data = await postJson('/api/scrape', { url, query, site })
-      setResults(data.results || [])
+      const list = (data.results || []).map(normalizeResult).filter(Boolean)
+      // Prefer direct media links first
+      list.sort((a, b) => Number(b.isDirect) - Number(a.isDirect))
+      setResults(list)
       setLastQuery({ type: 'scrape', site, query: query || url })
-      return data
+      if (!list.length) {
+        setError(
+          data.hint ||
+            'No links found on that page. Open the site, go to the movie page, paste that URL, or paste a direct .mp4 link.'
+        )
+      }
+      return { ...data, results: list }
     } catch (e) {
       setError(e.message)
       setResults([])
@@ -49,34 +86,27 @@ export function useScraper() {
     setLoading(true)
     setError(null)
     try {
-      if (source === 'youtube' && import.meta.env.VITE_YOUTUBE_API_KEY) {
-        const params = new URLSearchParams({
-          part: 'snippet',
-          q: query,
-          type: 'video',
-          maxResults: '20',
-          key: import.meta.env.VITE_YOUTUBE_API_KEY,
-        })
-        const res = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`)
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error?.message || 'YouTube search failed')
-        const items = data.items?.map((it) => ({
-          id: it.id.videoId,
-          title: it.snippet.title,
-          thumbnail: it.snippet.thumbnails?.high?.url || it.snippet.thumbnails?.medium?.url,
-          channel: it.snippet.channelTitle,
-          published: it.snippet.publishedAt,
-          url: `https://www.youtube.com/watch?v=${it.id.videoId}`,
-          source: 'youtube',
-        })) || []
-        setResults(items)
+      if (source === 'youtube') {
+        // Prefer client YouTube API with embeddable enrichment
+        if (import.meta.env.VITE_YOUTUBE_API_KEY) {
+          const items = await ytSearch(query.trim(), 16, { preferEmbeddable: true })
+          const list = items.map(normalizeResult)
+          setResults(list)
+          setLastQuery({ type: 'search', source, query })
+          if (!list.length) setError('No YouTube results for that search.')
+          return { results: list }
+        }
+        const data = await postJson('/api/search', { query, source: 'youtube' })
+        const list = (data.results || []).map(normalizeResult)
+        setResults(list)
         setLastQuery({ type: 'search', source, query })
-        return { results: items }
+        return data
       }
       const data = await postJson('/api/search', { query, source })
-      setResults(data.results || [])
+      const list = (data.results || []).map(normalizeResult)
+      setResults(list)
       setLastQuery({ type: 'search', source, query })
-      return data
+      return { ...data, results: list }
     } catch (e) {
       setError(e.message)
       setResults([])
