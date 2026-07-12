@@ -6,6 +6,7 @@ export function useScraper() {
   const [error, setError] = useState(null);
 
   const scrape = useCallback(async ({ url, site }) => {
+    if (!url) return;
     setLoading(true);
     setError(null);
     
@@ -20,16 +21,15 @@ export function useScraper() {
       if (!data.success) throw new Error(data.error);
       
       setResults(data.results);
-      return data.results;
     } catch (err) {
       setError(err.message);
-      return [];
     } finally {
       setLoading(false);
     }
   }, []);
 
   const search = useCallback(async (query) => {
+    if (!query) return;
     setLoading(true);
     setError(null);
     
@@ -44,10 +44,8 @@ export function useScraper() {
       if (!data.success) throw new Error(data.error);
       
       setResults(data.results);
-      return data.results;
     } catch (err) {
       setError(err.message);
-      return [];
     } finally {
       setLoading(false);
     }
