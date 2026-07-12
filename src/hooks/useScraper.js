@@ -15,27 +15,28 @@ export function useScraper() {
 
   const scrape = useCallback(async ({ url, query, site }) => {
     if (!url && !query) {
-      setError('Please provide a URL or search query')
-      return []
+      setError('URL or query is required')
+      return
     }
 
-    // Check if it's a direct video URL - skip scraping
+    // Handle direct video URLs immediately without API call
     if (url && isDirectVideoUrl(url)) {
       const normalized = normalizeDirectUrl(url)
+      const fileName = normalized.split('/').pop()?.replace(/\.(mp4|m3u8|mkv|avi|mov|webm|ogg|flv)$/i, '') || 'Video'
       const directResult = {
-        title: normalized.split('/').pop()?.replace(/\.(mp4|m3u8|mkv|avi|mov|webm)$/i, '') || 'Direct Video',
+        title: fileName,
         image: null,
         link: normalized,
         url: normalized,
         meta: 'direct file',
         source: 'direct',
         isDirect: true,
-        quality: null,
+        quality: extractQualityFromFilename(fileName),
+        playableInRoom: true,
       }
       setResults([directResult])
-      setLoading(false)
       setError(null)
-      return [directResult]
+      return
     }
 
     setLoading(true)
@@ -50,12 +51,17 @@ export function useScraper() {
 
       const data = await res.json()
 
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || `Server error: ${res.status}`)
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`)
       }
 
-      // Normalize results with isDirect flag
-      const normalized = (data.results || []).map((item) => ({
+      if (!data.success) {
+        throw new Error(data.error || 'Scrape failed')
+      }
+
+      // Normalize results with isDirect flag and quality extraction
+      const normalized = (data.results || []).map((item, index) => ({
+        id: index,
         title: item.title || 'Untitled',
         image: item.image || item.thumbnail || null,
         link: item.link || item.url || '',
@@ -63,17 +69,18 @@ export function useScraper() {
         meta: item.meta || null,
         source: item.source || site || 'unknown',
         isDirect: item.isDirect || isDirectVideoUrl(item.link || item.url),
-        quality: item.quality || extractQuality(item.title || item.meta || ''),
+        quality: item.quality || extractQualityFromText(item.title + ' ' + (item.meta || '')),
         playableInRoom: item.isDirect || isDirectVideoUrl(item.link || item.url),
       }))
 
       setResults(normalized)
-      return normalized
+      
+      if (data.hint) {
+        console.log('Scraper hint:', data.hint)
+      }
     } catch (err) {
-      const message = err.message || 'Failed to scrape'
-      setError(message)
+      setError(err.message || 'Failed to scrape')
       setResults([])
-      return []
     } finally {
       setLoading(false)
     }
@@ -82,9 +89,28 @@ export function useScraper() {
   return { results, loading, error, clear, scrape }
 }
 
-// Helper to extract quality from text
-function extractQuality(text) {
+// Helper functions
+function extractQualityFromText(text) {
   if (!text) return null
-  const match = text.match(/(480p|720p|1080p|4K|2160p|HD|SD|360p|240p|1440p)/i)
+  const match = text.match(/\b(4K|2160p|1440p|1080p|720p|480p|360p|240p|HD|SD|HQ|FullHD)\b/i)
   return match ? match[1] : null
+}
+
+function extractQualityFromFilename(filename) {
+  if (!filename) return null
+  const patterns = [
+    { regex: /1080p|1920x1080|fullhd/i, quality: '1080p' },
+    { regex: /720p|1280x720|hd/i, quality: '720p' },
+    { regex: /480p|854x480|sd/i, quality: '480p' },
+    { regex: /360p|640x360/i, quality: '360p' },
+    { regex: /4k|2160p|ultrahd|uhd/i, quality: '4K' },
+    { regex: /240p|426x240/i, quality: '240p' },
+  ]
+  
+  for (const pattern of patterns) {
+    if (pattern.regex.test(filename)) {
+      return pattern.quality
+    }
+  }
+  return null
 }
