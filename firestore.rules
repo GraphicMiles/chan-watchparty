@@ -47,6 +47,12 @@ service cloud.firestore {
       allow update: if isOwner(uid);
     }
 
+    match /scrapes/{scrapeId} {
+      allow read: if isAuthed();
+      allow create: if false; // server Admin SDK only
+      allow update, delete: if false;
+    }
+
     match /rooms/{roomId} {
       allow read: if isAuthed()
         && resource.data.status == "live"

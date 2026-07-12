@@ -21,7 +21,8 @@
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-router-dom": "^6.23.0",
-    "react-youtube": "^10.1.0"
+    "react-youtube": "^10.1.0",
+    "cheerio": "^1.0.0-rc.12"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

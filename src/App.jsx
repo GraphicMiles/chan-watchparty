@@ -6,6 +6,7 @@ import { AuthPage } from './features/auth/index.js'
 import { HomePage } from './features/home/index.js'
 import { CreateRoomPage } from './features/create/index.js'
 import { RoomPage } from './features/room/index.js'
+import { ScraperPage } from './features/scraper/index.js'
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/create" element={<CreateRoomPage />} />
             <Route path="/room/:roomId" element={<RoomPage />} />
+            <Route path="/media" element={<ScraperPage />} />
           </Routes>
         </BrowserRouter>
       </ToastProvider>

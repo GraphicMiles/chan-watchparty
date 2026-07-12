@@ -40,7 +40,7 @@ Related docs:
 
 
 > **API consolidation (Hobby limit):** the app exposes **4** Vercel functions only:
-> `POST /api/room` (`join|leave|end`), `POST /api/moderate` (`kick|promote|mute`), `POST /api/createLiveKitToken`, `POST/GET /api/cleanupStaleRooms`.
+> `POST /api/room` (`join|leave|end`), `POST /api/moderate` (`kick|promote|mute`), `POST /api/createLiveKitToken`, `POST/GET /api/cleanupStaleRooms`, `POST /api/media` (`search|scrape`).
 > Older per-action files (`joinRoom.js`, `kickParticipant.js`, …) were removed.
 
 ## 1. Architecture at a glance
