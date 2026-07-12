@@ -192,3 +192,9 @@ export async function getVideoDetails(videoId) {
 export function hasYouTubeApiKey() {
   return !!YOUTUBE_API_KEY
 }
+
+
+export function getThumbnail(videoId) {
+  if (!videoId) return null
+  return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+}
