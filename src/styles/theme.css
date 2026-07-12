@@ -1,0 +1,71 @@
+:root {
+  /* Backgrounds */
+  --bg-base: #07080f;
+  --bg-surface: #0f111a;
+  --bg-surface-raised: #161923;
+  --bg-surface-raised-hover: #1c1f2b;
+
+  /* Accents */
+  --accent: #7c89f7;
+  --accent-hover: #95a1ff;
+  --accent-muted: rgba(124, 137, 247, 0.15);
+  --danger: #ff6b47;
+  --danger-hover: #ff8a6f;
+  --danger-muted: rgba(255, 107, 71, 0.15);
+  --success: #34d399;
+  --success-muted: rgba(52, 211, 153, 0.15);
+  --warning: #fbbf24;
+  --warning-muted: rgba(251, 191, 36, 0.15);
+
+  /* Text */
+  --text-primary: #f5f3ef;
+  --text-secondary: #9aa0ae;
+  --text-muted: #6b7280;
+  --text-on-accent: #07080f;
+  --text-on-danger: #07080f;
+  --text-on-success: #07080f;
+  --text-on-warning: #07080f;
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-focus: rgba(124, 137, 247, 0.5);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+
+  /* Radius */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+  --radius-full: 9999px;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  /* Typography */
+  --font-display: 'Bricolage Grotesque', sans-serif;
+  --font-body: 'IBM Plex Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+
+  /* Legacy aliases for compatibility during migration */
+  --depth: var(--bg-base);
+  --ash: var(--bg-surface-raised);
+  --ember: var(--danger);
+  --drift: var(--accent);
+  --fog: var(--text-secondary);
+  --paper: var(--text-primary);
+
+  color-scheme: dark;
+}

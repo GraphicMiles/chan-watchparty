@@ -1,0 +1,97 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.08s ease, opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  font-family: var(--font-body);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.primary {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+.secondary {
+  background: var(--bg-surface-raised);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--bg-surface-raised-hover);
+  border-color: var(--border-strong);
+}
+
+.danger {
+  background: var(--danger);
+  color: var(--text-on-danger);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--danger-hover);
+  box-shadow: 0 0 0 3px var(--danger-muted);
+}
+
+.ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--bg-surface-raised);
+  color: var(--text-primary);
+}
+
+.sm {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.md {
+  padding: 0.65rem 1.15rem;
+  font-size: 1rem;
+}
+
+.lg {
+  padding: 0.85rem 1.5rem;
+  font-size: 1.05rem;
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+.loading {
+  position: relative;
+}
+
+.labelHidden {
+  opacity: 0.85;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+

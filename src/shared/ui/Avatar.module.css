@@ -1,0 +1,33 @@
+.avatar {
+  position: relative;
+  flex-shrink: 0;
+  width: var(--size, 2.5rem);
+  height: var(--size, 2.5rem);
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: calc(var(--size, 2.5rem) * 0.4);
+  color: var(--text-on-accent);
+  background: var(--accent);
+  user-select: none;
+}
+
+.status {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--bg-surface-raised);
+}
+
+.statusLive {
+  background: var(--danger);
+}
+
+.statusOnline {
+  background: var(--success);
+}
