@@ -1,15 +1,16 @@
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.6rem;
+  gap: 3px;
+  padding: 2px 7px;
   border-radius: var(--radius-pill);
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 700;
   font-family: var(--font-body);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  line-height: 1;
+  line-height: 1.4;
+  flex-shrink: 0;
 }
 
 .live {
@@ -34,7 +35,7 @@
 
 .warning {
   background: var(--warning-muted);
-  color: #b8860b;
+  color: #8B6914;
 }
 
 .icon {
@@ -44,8 +45,8 @@
 }
 
 .icon svg {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
 }
 
 .pulse {
@@ -55,6 +56,17 @@
 @keyframes badge-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.75; }
+}
+
+/* Dark theme badges */
+.room-theme .muted {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--room-text-secondary);
+}
+
+.room-theme .warning {
+  background: rgba(251, 191, 36, 0.1);
+  color: var(--warning);
 }
 
 @media (prefers-reduced-motion: reduce) {

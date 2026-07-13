@@ -2,16 +2,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   border-radius: var(--radius-pill);
   border: none;
   font-weight: 600;
   cursor: pointer;
   transition: transform 0.1s ease, opacity 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
   font-family: var(--font-body);
-  line-height: 1.25;
+  line-height: 1;
   white-space: nowrap;
   text-decoration: none;
+  flex-shrink: 0;
 }
 
 .button:disabled {
@@ -80,20 +81,23 @@
   background: #e85e22;
 }
 
-/* Sizes */
+/* Sizes — tight, content-fitting */
 .sm {
-  padding: 0.45rem 0.9rem;
-  font-size: 0.82rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  gap: 0.3rem;
 }
 
 .md {
-  padding: 0.6rem 1.25rem;
-  font-size: 0.9rem;
+  padding: 0.55rem 1.1rem;
+  font-size: 0.88rem;
+  gap: 0.4rem;
 }
 
 .lg {
-  padding: 0.85rem 1.75rem;
-  font-size: 1rem;
+  padding: 0.75rem 1.5rem;
+  font-size: 0.95rem;
+  gap: 0.45rem;
 }
 
 .fullWidth {
@@ -113,11 +117,12 @@
   outline-offset: 2px;
 }
 
-/* ===== DARK THEME (room) button overrides ===== */
+/* ===== DARK THEME (room) overrides ===== */
 .room-theme .primary {
   background: var(--room-surface);
   color: var(--room-text-primary);
   border: 1px solid var(--room-divider);
+  box-shadow: none;
 }
 
 .room-theme .primary:hover:not(:disabled) {
@@ -128,6 +133,7 @@
   background: var(--room-surface);
   color: var(--room-text-secondary);
   border: 1px solid var(--room-divider);
+  box-shadow: none;
 }
 
 .room-theme .secondary:hover:not(:disabled) {
@@ -141,4 +147,13 @@
 .room-theme .ghost:hover:not(:disabled) {
   background: var(--room-surface);
   color: var(--room-text-primary);
+}
+
+.room-theme .danger {
+  border-color: var(--room-danger);
+  color: var(--room-danger);
+}
+
+.room-theme .danger:hover:not(:disabled) {
+  background: var(--room-danger-bg);
 }

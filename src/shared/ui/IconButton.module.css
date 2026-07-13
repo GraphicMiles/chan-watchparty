@@ -2,14 +2,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: var(--radius-pill);
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   color: var(--text-body-grey);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
 }
 
 .button:hover:not(:disabled) {
@@ -27,11 +28,22 @@
   color: #fff;
 }
 
+.active:hover:not(:disabled) {
+  background: #e85e22;
+  color: #fff;
+}
+
 .room-theme .button {
   color: var(--room-text-secondary);
+  border-radius: var(--radius-sm);
 }
 
 .room-theme .button:hover:not(:disabled) {
   background: var(--room-surface);
   color: var(--room-text-primary);
+}
+
+.room-theme .active {
+  background: var(--room-surface);
+  color: var(--accent-orange);
 }

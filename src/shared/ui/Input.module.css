@@ -1,19 +1,20 @@
 .input {
   width: 100%;
-  padding: 0.65rem 1rem;
+  padding: 8px 14px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-hairline);
   background: var(--surface-white);
   color: var(--text-black);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   font-family: var(--font-body);
+  line-height: 1.4;
+  outline: none;
 }
 
 .input:focus {
   border-color: var(--accent-orange);
-  box-shadow: 0 0 0 3px rgba(255, 106, 43, 0.1);
-  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 106, 43, 0.08);
 }
 
 .input::placeholder {
@@ -28,20 +29,20 @@
 .label {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 4px;
   color: var(--text-body-grey);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 500;
 }
 
 .error {
   border-color: var(--live-red);
-  box-shadow: 0 0 0 3px rgba(234, 51, 35, 0.08);
+  box-shadow: 0 0 0 3px rgba(234, 51, 35, 0.06);
 }
 
 .errorText {
   color: var(--live-red);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
 }
 
 /* Dark theme input */
@@ -57,5 +58,5 @@
 
 .room-theme .input:focus {
   border-color: var(--accent-orange);
-  box-shadow: 0 0 0 3px rgba(255, 106, 43, 0.15);
+  box-shadow: 0 0 0 3px rgba(255, 106, 43, 0.12);
 }
