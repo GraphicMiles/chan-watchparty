@@ -202,6 +202,44 @@ async function searchIPTV(query, userChannels = []) {
     }))
 }
 
+function normalizeMatchText(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function readSportsChannelRules() {
+  const raw = process.env.SPORTS_CHANNEL_MAP_JSON
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    console.error('SPORTS_CHANNEL_MAP_JSON is not valid JSON')
+    return []
+  }
+}
+
+function matchSportsChannels(match, channels) {
+  const competition = match.competition.name
+  const teams = `${match.homeTeam.name} ${match.awayTeam.name}`
+  const rules = readSportsChannelRules().filter((rule) => {
+    const competitionMatches = !rule.competition || normalizeMatchText(competition).includes(normalizeMatchText(rule.competition))
+    const teamNeedle = rule.team || rule.teams
+    const teamMatches = !teamNeedle || normalizeMatchText(teams).includes(normalizeMatchText(teamNeedle))
+    return competitionMatches && teamMatches
+  })
+
+  const requestedNames = rules.flatMap((rule) => {
+    const values = rule.channels || rule.channelNames || rule.channel || []
+    return Array.isArray(values) ? values : [values]
+  }).filter(Boolean).map(normalizeMatchText)
+
+  if (!requestedNames.length) return []
+  return channels.filter((channel) => {
+    const channelText = normalizeMatchText(`${channel.name} ${channel.group}`)
+    return requestedNames.some((name) => channelText.includes(name) || name.includes(channelText))
+  })
+}
+
 async function searchSports(query) {
   if (!FOOTBALL_DATA_KEY) {
     throw Object.assign(new Error('Sports search is not configured. Add FOOTBALL_DATA_KEY.'), { status: 503 })
@@ -213,91 +251,54 @@ async function searchSports(query) {
       { headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY } }
     )
     
-    if (!res.ok) throw new Error('Sports API error')
+    if (!res.ok) throw Object.assign(new Error(`Sports API error: ${res.status}`), { status: 502 })
     
     const data = await res.json()
-    
+    const channels = await getIptvChannels().catch((err) => {
+      console.error('Could not load IPTV channels for sports mapping:', err.message)
+      return []
+    })
+    const term = query.toLowerCase()
+
     return (data.matches || [])
-      .filter(m => 
-        m.homeTeam.name.toLowerCase().includes(query.toLowerCase()) ||
-        m.awayTeam.name.toLowerCase().includes(query.toLowerCase()) ||
-        m.competition.name.toLowerCase().includes(query.toLowerCase())
-      )
-      .map(m => ({
-        id: `match-${m.id}`,
-        title: `${m.homeTeam.name} vs ${m.awayTeam.name}`,
-        description: `${m.competition.name} - ${formatMatchTime(m.utcDate)}`,
-        thumbnail: m.competition.emblem,
-        url: null,
-        matchInfo: {
-          teams: `${m.homeTeam.name} vs ${m.awayTeam.name}`,
-          time: formatMatchTime(m.utcDate),
-          competition: m.competition.name,
-          status: m.status,
-          homeTeam: m.homeTeam.name,
-          awayTeam: m.awayTeam.name,
-        },
-        channel: guessChannel(m.competition.name),
-        source: 'sports',
-        type: 'sports',
-        isLive: m.status === 'IN_PLAY' || m.status === 'LIVE',
-        isUpcoming: m.status === 'SCHEDULED',
-        channelAvailable: false, // Will be matched to IPTV
-      }))
+      .filter((match) => {
+        const home = match.homeTeam?.name?.toLowerCase() || ''
+        const away = match.awayTeam?.name?.toLowerCase() || ''
+        const competition = match.competition?.name?.toLowerCase() || ''
+        return home.includes(term) || away.includes(term) || competition.includes(term)
+      })
+      .map((match) => {
+        const channelCandidates = matchSportsChannels(match, channels)
+        const channel = channelCandidates[0] || null
+        const time = formatMatchTime(match.utcDate)
+        return {
+          id: `match-${match.id}`,
+          title: `${match.homeTeam.name} vs ${match.awayTeam.name}`,
+          description: `${match.competition.name} - ${time}`,
+          thumbnail: match.competition.emblem,
+          url: channel?.url || null,
+          matchInfo: {
+            teams: `${match.homeTeam.name} vs ${match.awayTeam.name}`,
+            time,
+            competition: match.competition.name,
+            status: match.status,
+            homeTeam: match.homeTeam.name,
+            awayTeam: match.awayTeam.name,
+          },
+          channel: channel?.name || null,
+          channelCandidates: channelCandidates.map((candidate) => candidate.name),
+          source: 'sports',
+          type: 'sports',
+          isDirect: Boolean(channel),
+          isLive: match.status === 'IN_PLAY' || match.status === 'LIVE',
+          isUpcoming: match.status === 'SCHEDULED',
+          channelAvailable: Boolean(channel),
+        }
+      })
   } catch (err) {
     console.error('Sports API error:', err)
-    return getDemoSportsData(query)
+    throw Object.assign(new Error(err.message || 'Sports search failed'), { status: err.status || 502 })
   }
-}
-
-function getDemoSportsData(query) {
-  const matches = [
-    { home: 'Arsenal', away: 'Liverpool', comp: 'Premier League', time: 'Today 15:00', status: 'SCHEDULED' },
-    { home: 'Real Madrid', away: 'Barcelona', comp: 'La Liga', time: 'Tomorrow 20:00', status: 'SCHEDULED' },
-    { home: 'Chelsea', away: 'Manchester City', comp: 'Premier League', time: 'Saturday 12:30', status: 'SCHEDULED' },
-    { home: 'Bayern Munich', away: 'Dortmund', comp: 'Bundesliga', time: 'LIVE NOW', status: 'LIVE' },
-  ]
-  
-  return matches
-    .filter(m => 
-      m.home.toLowerCase().includes(query.toLowerCase()) ||
-      m.away.toLowerCase().includes(query.toLowerCase()) ||
-      m.comp.toLowerCase().includes(query.toLowerCase()) ||
-      query.toLowerCase().includes('premier') ||
-      query.toLowerCase().includes('liga') ||
-      query.toLowerCase().includes('bundesliga')
-    )
-    .map((m, i) => ({
-      id: `demo-${i}`,
-      title: `${m.home} vs ${m.away}`,
-      description: `${m.comp} - ${m.time}`,
-      thumbnail: null,
-      url: null,
-      matchInfo: {
-        teams: `${m.home} vs ${m.away}`,
-        time: m.time,
-        competition: m.comp,
-        status: m.status,
-      },
-      channel: guessChannel(m.comp),
-      source: 'sports',
-      type: 'sports',
-      isLive: m.status === 'LIVE' || m.time === 'LIVE NOW',
-      isUpcoming: m.status === 'SCHEDULED',
-      channelAvailable: false,
-    }))
-}
-
-function guessChannel(competition) {
-  const channels = {
-    'Premier League': 'Sky Sports / NBC / Peacock',
-    'Champions League': 'CBS / TNT Sports',
-    'La Liga': 'ESPN+',
-    'Bundesliga': 'ESPN+',
-    'Serie A': 'Paramount+',
-    'Ligue 1': 'beIN Sports',
-  }
-  return channels[competition] || 'Sports Channel'
 }
 
 async function searchNSFW(query, options = {}) {
