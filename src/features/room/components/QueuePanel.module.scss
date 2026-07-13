@@ -68,6 +68,14 @@
   align-items: center;
 }
 
+.inputRow button {
+  border-radius: 100px !important;
+  padding: 0 20px !important;
+  height: 38px !important;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
 .searchInput {
   flex: 1;
   min-width: 0;

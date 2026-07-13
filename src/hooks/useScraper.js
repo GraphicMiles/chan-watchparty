@@ -68,7 +68,6 @@ export function useScraper() {
       }
 
       const targetQuery = (url || query || '').trim()
-      const isActualUrl = typeof url === 'string' && /^https?:\/\//i.test(url.trim())
 
       const filtered = (data.results || []).filter((item) => {
         if (!item) return false
