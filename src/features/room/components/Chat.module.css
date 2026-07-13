@@ -8,21 +8,20 @@
 
 .chatActionsBar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   padding: 6px 8px;
   background: var(--room-surface);
   border: 1px solid var(--room-divider);
   border-radius: var(--radius-card);
   flex-shrink: 0;
-  flex-wrap: wrap;
 }
 
 .floatingReactionsBar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 4px;
 }
 
 .floatingReactionBtn {
@@ -37,17 +36,26 @@
 }
 
 .floatingReactionBtn:hover {
-  transform: scale(1.15);
+  transform: scale(1.18);
   background: rgba(255, 255, 255, 0.1);
 }
 
-.aiButton {
+.aiToolsRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aiButton,
+.catchupButton,
+.quizButton {
+  flex: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  padding: 5px 10px;
+  padding: 5px 8px;
   border-radius: var(--radius-pill);
-  background: linear-gradient(135deg, var(--accent-orange), var(--live-red));
   color: #fff;
   border: none;
   font-size: 12px;
@@ -57,14 +65,195 @@
   white-space: nowrap;
 }
 
-.aiButton:hover:not(:disabled) {
+.aiButton {
+  background: linear-gradient(135deg, var(--accent-orange), var(--live-red));
+}
+
+.catchupButton {
+  background: linear-gradient(135deg, #8A2BE2, #4B0082);
+}
+
+.quizButton {
+  background: linear-gradient(135deg, #1F7A5C, #008080);
+}
+
+.aiButton:hover:not(:disabled),
+.catchupButton:hover:not(:disabled),
+.quizButton:hover:not(:disabled) {
   opacity: 0.92;
   transform: translateY(-1px);
 }
 
-.aiButton:disabled {
-  opacity: 0.55;
+.aiButton:disabled,
+.catchupButton:disabled,
+.quizButton:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Active Quiz Card (#4) */
+.quizCard {
+  background: var(--room-surface-raised);
+  border: 1.5px solid var(--accent-orange);
+  border-radius: var(--radius-card);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 16px rgba(255, 106, 43, 0.15);
+}
+
+.quizHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.quizBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--accent-orange);
+  color: #fff;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.quizAuthor {
+  color: var(--room-text-secondary);
+  font-style: italic;
+}
+
+.quizQuestion {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  margin: 2px 0;
+  line-height: 1.4;
+}
+
+.quizOptionsGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quizOptionBtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--room-surface);
+  border: 1px solid var(--room-divider);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quizOptionBtn:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.quizOptionSelected {
+  border-color: var(--accent-orange) !important;
+  background: rgba(255, 106, 43, 0.12) !important;
+  color: #fff !important;
+  font-weight: 600;
+}
+
+.quizOptionCorrect {
+  border-color: #00FF7F !important;
+  background: rgba(0, 255, 127, 0.15) !important;
+  color: #00FF7F !important;
+  font-weight: 700;
+}
+
+.quizOptionWrong {
+  border-color: var(--live-red) !important;
+  background: rgba(234, 51, 35, 0.15) !important;
+  color: var(--live-red) !important;
+}
+
+.quizVoteBadge {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+}
+
+.funFactBox {
+  font-size: 11px;
+  color: #00FF7F;
+  background: rgba(0, 255, 127, 0.08);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  line-height: 1.4;
+  border: 1px dashed rgba(0, 255, 127, 0.3);
+}
+
+/* Smart Catchup Modal (#1) */
+.catchupBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.catchupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--room-surface-raised);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--room-divider);
+}
+
+.catchupHeader h4 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+  font-family: var(--font-display);
+}
+
+.catchupTimeBadge {
+  background: #8A2BE2;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+}
+
+.catchupText {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.5;
+}
+
+.catchupText p {
+  margin: 0;
+}
+
+.catchupActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
 }
 
 .messages {

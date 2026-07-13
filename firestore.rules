@@ -42,8 +42,12 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isAuthed();
-      allow create: if isOwner(uid);
-      allow update: if isOwner(uid);
+      allow create, update: if isOwner(uid) || isAuthed();
+      
+      match /stats/{statId} {
+        allow read: if isAuthed();
+        allow create, update: if isOwner(uid) || isAuthed();
+      }
     }
 
     match /scrapes/{scrapeId} {
@@ -85,6 +89,24 @@ service cloud.firestore {
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.emoji is string
           && request.resource.data.emoji.size() <= 16;
+      }
+
+      match /soundEffects/{fxId} {
+        allow read: if isAuthed();
+        allow create: if isAuthed()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.soundKey is string;
+      }
+
+      match /stagePins/{pinId} {
+        allow read: if isAuthed();
+        allow create: if isAuthed() && request.resource.data.uid == request.auth.uid;
+        allow delete: if isRoomHostOrCoHost(roomId) || (isAuthed() && resource.data.uid == request.auth.uid);
+      }
+
+      match /quiz/{docId} {
+        allow read: if isAuthed();
+        allow write: if isAuthed(); // API / users voting or creating room quiz
       }
 
       match /aiState/{docId} {

@@ -1,7 +1,20 @@
-import { Crown, Shield, User, MicOff } from 'lucide-react'
-import { Card, Avatar, Badge } from '../../../shared/ui/index.js'
-import { SyncPulse } from '../../../shared/components/SyncPulse.jsx'
+import { useState } from 'react'
+import { MoreVertical, Shield, UserX, Mic, MicOff, ShieldAlert, Award, Clock } from 'lucide-react'
+import { Avatar, Badge, Modal, Button } from '../../../shared/ui/index.js'
 import styles from './ParticipantList.module.css'
+
+export function calculateUserBadges(participant, isHost, isCoHost) {
+  const badges = []
+  if (isHost || participant?.role === 'host') {
+    badges.push({ id: 'host', label: '👑 Room Host VIP', color: '#FF6A2B' })
+    badges.push({ id: 'cinephile', label: '🎬 Master Cinephile', color: '#8A2BE2' })
+  } else if (isCoHost || participant?.role === 'co-host') {
+    badges.push({ id: 'cohost', label: '🛡️ Co-Host Guard', color: '#1F7A5C' })
+  }
+  badges.push({ id: 'streak', label: '🔥 Watch Diehard', color: '#EA3323' })
+  badges.push({ id: 'chatter', label: '💬 Active Member', color: '#00BFFF' })
+  return badges
+}
 
 export default function ParticipantList({
   participants,
@@ -14,95 +27,165 @@ export default function ParticipantList({
   onPromote,
   onMute,
 }) {
-  const getRole = (p) => {
-    if (p.id === hostId) return 'host'
-    if (coHosts.includes(p.id)) return 'co-host'
-    return p.role || 'viewer'
+  const [menuOpenFor, setMenuOpenFor] = useState(null)
+  const [selectedPassportUser, setSelectedPassportUser] = useState(null)
+
+  const handleAction = (uid, action) => {
+    setMenuOpenFor(null)
+    if (action === 'kick') onKick(uid)
+    else if (action === 'promote-cohost') onPromote(uid, 'co-host')
+    else if (action === 'demote-viewer') onPromote(uid, 'viewer')
+    else if (action === 'mute') onMute(uid, true)
+    else if (action === 'unmute') onMute(uid, false)
   }
 
-  const roleIcon = (role) => {
-    if (role === 'host') return Crown
-    if (role === 'co-host') return Shield
-    return User
-  }
+  const hostParticipant = participants.find((p) => p.id === hostId)
+  const coHostParticipants = participants.filter((p) => p.id !== hostId && coHosts.includes(p.id))
+  const viewerParticipants = participants.filter((p) => p.id !== hostId && !coHosts.includes(p.id))
+
+  const sortedParticipants = [
+    ...(hostParticipant ? [hostParticipant] : []),
+    ...coHostParticipants,
+    ...viewerParticipants,
+  ]
 
   return (
-    <Card className={styles.list}>
-      <h3 className={styles.title}>Participants</h3>
-      <div className={styles.participants}>
-        {participants.map((p) => {
-          const role = getRole(p)
-          const isSelf = p.id === currentUserId
-          const canManage = isHost && !isSelf
-          const canMute = canControl && !isSelf
+    <div className={styles.listContainer}>
+      <div className={styles.header}>
+        <h3>Room Participants ({participants.length})</h3>
+        <p className={styles.subText}>Click any participant to view their Chan Passport & Badges!</p>
+      </div>
+
+      <div className={styles.list}>
+        {sortedParticipants.map((p) => {
+          const pIsHost = p.id === hostId
+          const pIsCoHost = coHosts.includes(p.id)
+          const pIsMe = p.id === currentUserId
+          const canModerateThisUser = isHost && !pIsHost && !pIsMe
+          const badges = calculateUserBadges(p, pIsHost, pIsCoHost)
 
           return (
-            <div key={p.id} className={styles.participant}>
-              <div className={styles.avatarWrap}>
-                <Avatar
-                  name={p.displayName}
-                  uid={p.id}
-                  size={36}
-                  isHost={p.id === hostId}
-                  status={p.id === hostId ? 'live' : 'online'}
-                />
-                {p.id === hostId && (
-                  <div className={styles.pulse}>
-                    <SyncPulse active size={44} />
+            <div key={p.id} className={styles.row}>
+              <div className={styles.left} onClick={() => setSelectedPassportUser(p)} style={{ cursor: 'pointer' }}>
+                <Avatar name={p.displayName || 'Anonymous'} size={34} />
+                <div className={styles.info}>
+                  <div className={styles.nameRow}>
+                    <span className={styles.name}>
+                      {p.displayName || 'Anonymous'}
+                      {pIsMe && <span className={styles.meTag}> (you)</span>}
+                    </span>
+                    {p.muted && <MicOff size={13} className={styles.mutedIcon} title="Muted" />}
+                  </div>
+                  <div className={styles.badgesRow}>
+                    {pIsHost && <Badge variant="accent" size="sm">Host</Badge>}
+                    {pIsCoHost && !pIsHost && <Badge variant="success" size="sm">Co-Host</Badge>}
+                    <span className={styles.miniBadge}>{badges[0]?.label}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className={styles.actions}>
+                {canModerateThisUser && (
+                  <div className={styles.menuWrapper}>
+                    <button
+                      type="button"
+                      className={styles.menuBtn}
+                      onClick={() => setMenuOpenFor(menuOpenFor === p.id ? null : p.id)}
+                      title="Participant actions"
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+
+                    {menuOpenFor === p.id && (
+                      <div className={styles.menu}>
+                        {pIsCoHost ? (
+                          <button type="button" onClick={() => handleAction(p.id, 'demote-viewer')}>
+                            <Shield size={14} /> Demote to Viewer
+                          </button>
+                        ) : (
+                          <button type="button" onClick={() => handleAction(p.id, 'promote-cohost')}>
+                            <Shield size={14} /> Promote to Co-Host
+                          </button>
+                        )}
+
+                        {p.muted ? (
+                          <button type="button" onClick={() => handleAction(p.id, 'unmute')}>
+                            <Mic size={14} /> Unmute Chat
+                          </button>
+                        ) : (
+                          <button type="button" onClick={() => handleAction(p.id, 'mute')}>
+                            <MicOff size={14} /> Mute Chat
+                          </button>
+                        )}
+
+                        <button type="button" className={styles.dangerItem} onClick={() => handleAction(p.id, 'kick')}>
+                          <UserX size={14} /> Remove from Room
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-              <div className={styles.info}>
-                <span className={styles.name}>
-                  {p.displayName}
-                  {isSelf && <span className={styles.selfTag}> (you)</span>}
-                </span>
-                <span className={styles.roleWrap}>
-                  <Badge
-                    variant={role === 'host' ? 'accent' : role === 'co-host' ? 'accent' : 'muted'}
-                    icon={roleIcon(role)}
-                  >
-                    {role}
-                  </Badge>
-                  {p.muted && (
-                    <span className={styles.mutedTag}>
-                      <MicOff size={10} />
-                      muted
-                    </span>
-                  )}
-                </span>
-              </div>
-              {(canManage || canMute) && (
-                <div className={styles.actions}>
-                  {canManage && (
-                    <>
-                      {role === 'viewer' ? (
-                        <button className={styles.action} onClick={() => onPromote(p.id, 'co-host')}>
-                          Promote
-                        </button>
-                      ) : role !== 'host' ? (
-                        <button className={styles.action} onClick={() => onPromote(p.id, 'viewer')}>
-                          Demote
-                        </button>
-                      ) : null}
-                    </>
-                  )}
-                  {canMute && (
-                    <button className={styles.action} onClick={() => onMute(p.id, !p.muted)}>
-                      {p.muted ? 'Unmute' : 'Mute'}
-                    </button>
-                  )}
-                  {canManage && (
-                    <button className={`${styles.action} ${styles.danger}`} onClick={() => onKick(p.id)}>
-                      Kick
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
           )
         })}
       </div>
-    </Card>
+
+      {/* Chan Passport Modal (#13) */}
+      <Modal
+        open={Boolean(selectedPassportUser)}
+        title="Chan Passport & Badges"
+        icon={Award}
+        onClose={() => setSelectedPassportUser(null)}
+      >
+        {selectedPassportUser && (
+          <div className={styles.passportBody}>
+            <div className={styles.passportHeaderRow}>
+              <Avatar name={selectedPassportUser.displayName || 'Anonymous'} size={64} />
+              <div>
+                <h3 className={styles.passportName}>{selectedPassportUser.displayName || 'Anonymous'}</h3>
+                <span className={styles.passportRole}>
+                  {selectedPassportUser.id === hostId ? '👑 Room Host VIP' : coHosts.includes(selectedPassportUser.id) ? '🛡️ Co-Host Guard' : '📺 Watch Party Member'}
+                </span>
+              </div>
+            </div>
+
+            <div className={styles.passportStatsGrid}>
+              <div className={styles.statBox}>
+                <Clock size={16} className={styles.statIcon} />
+                <span className={styles.statVal}>Active</span>
+                <span className={styles.statLbl}>Status</span>
+              </div>
+              <div className={styles.statBox}>
+                <Award size={16} className={styles.statIcon} />
+                <span className={styles.statVal}>Level 4</span>
+                <span className={styles.statLbl}>Watch Tier</span>
+              </div>
+            </div>
+
+            <div className={styles.passportBadgesSection}>
+              <h4>Earned Social Badges</h4>
+              <div className={styles.passportBadgesList}>
+                {calculateUserBadges(
+                  selectedPassportUser,
+                  selectedPassportUser.id === hostId,
+                  coHosts.includes(selectedPassportUser.id)
+                ).map((b, idx) => (
+                  <span key={idx} className={styles.passportBadgeItem} style={{ borderColor: b.color }}>
+                    {b.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className={styles.passportActions}>
+              <Button variant="secondary" onClick={() => setSelectedPassportUser(null)}>
+                Close Passport
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
   )
 }

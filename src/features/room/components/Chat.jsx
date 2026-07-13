@@ -1,14 +1,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Smile, X, ArrowDown, Bot, Loader2 } from 'lucide-react'
+import { Send, Smile, X, ArrowDown, Bot, Loader2, Sparkles, Brain, CheckCircle, Volume2 } from 'lucide-react'
 import { collection, addDoc, serverTimestamp, doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
-import { Input, Button, IconButton, useToast } from '../../../shared/ui/index.js'
+import { Input, Button, IconButton, Modal, useToast } from '../../../shared/ui/index.js'
 import ChatMessage from './ChatMessage.jsx'
 import styles from './Chat.module.css'
 
 const REACTIONS = ['heart', 'thumbs-up', 'laugh', 'fire', 'clap', 'wow']
 const REACTION_SYMBOLS = { heart: '\u2764', 'thumbs-up': '\ud83d\udc4d', laugh: '\ud83d\ude02', fire: '\ud83d\udd25', clap: '\ud83d\udc4f', wow: '\ud83d\ude2e' }
 const FLOATING_EMOJIS = ['\u2764', '\ud83d\udd25', '\ud83d\ude02', '\ud83d\udc4f', '\ud83d\ude2e', '\ud83d\udcaf']
+const SOUND_FX = {
+  airhorn: { name: 'Airhorn 📯', emoji: '📯', url: 'https://cdn.freesound.org/previews/435/435255_8863641-lq.mp3' },
+  cheer: { name: 'Stadium Cheer 👏', emoji: '👏', url: 'https://cdn.freesound.org/previews/337/337049_5121236-lq.mp3' },
+  boom: { name: 'Dramatic Boom 💥', emoji: '💥', url: 'https://cdn.freesound.org/previews/266/266105_4486188-lq.mp3' },
+  laugh: { name: 'Crowd Laugh 🤣', emoji: '🤣', url: 'https://cdn.freesound.org/previews/369/369515_6687700-lq.mp3' },
+  applause: { name: 'Applause 🎉', emoji: '🎉', url: 'https://cdn.freesound.org/previews/483/483652_1015240-lq.mp3' },
+}
+
 const TYPING_DEBOUNCE = 1200
 const TYPING_WRITE_INTERVAL = 2000
 const GROUP_WINDOW_MS = 60_000
@@ -27,11 +35,19 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   const [cooldown, setCooldown] = useState(false)
   const [replyTo, setReplyTo] = useState(null)
   const [showEmoji, setShowEmoji] = useState(false)
+  const [showFxMenu, setShowFxMenu] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
   const [unseen, setUnseen] = useState(0)
   const [optimistic, setOptimistic] = useState([])
+  
   const [aiLoading, setAiLoading] = useState(false)
+  const [catchupLoading, setCatchupLoading] = useState(false)
+  const [quizLoading, setQuizLoading] = useState(false)
   const [aiCooldownSec, setAiCooldownSec] = useState(0)
+  const [catchupModalData, setCatchupModalData] = useState(null)
+  const [activeQuiz, setActiveQuiz] = useState(null)
+  const [myQuizVote, setMyQuizVote] = useState(null)
+  const [revealQuizAnswer, setRevealQuizAnswer] = useState(false)
   
   const bottomRef = useRef(null)
   const listRef = useRef(null)
@@ -39,7 +55,6 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   const lastTypingWrite = useRef(0)
   const prevCount = useRef(0)
 
-  // Track AI Summary cooldown from Firestore so all users see when summary is ready/cooldown
   useEffect(() => {
     if (!roomId) return undefined
     const ref = doc(db, 'rooms', roomId, 'aiState', 'summary')
@@ -59,7 +74,31 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     })
   }, [roomId])
 
-  // Count down AI cooldown ticker every second
+  useEffect(() => {
+    if (!roomId) return undefined
+    const ref = doc(db, 'rooms', roomId, 'quiz', 'current')
+    return onSnapshot(ref, (snap) => {
+      if (!snap.exists() || !snap.data()?.active) {
+        setActiveQuiz(null)
+        setMyQuizVote(null)
+        return
+      }
+      const data = snap.data()
+      setActiveQuiz(data)
+      if (user?.uid && data.votes?.[user.uid] !== undefined) {
+        setMyQuizVote(data.votes[user.uid])
+      } else {
+        setMyQuizVote(null)
+      }
+      const createdMs = data.createdAt?.toMillis?.() || data.createdAtMs || Date.now()
+      if (Date.now() - createdMs > 45000 || (user?.uid && data.votes?.[user.uid] !== undefined)) {
+        setRevealQuizAnswer(true)
+      } else {
+        setRevealQuizAnswer(false)
+      }
+    })
+  }, [roomId, user?.uid])
+
   useEffect(() => {
     if (aiCooldownSec <= 0) return undefined
     const timer = setInterval(() => {
@@ -68,7 +107,6 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     return () => clearInterval(timer)
   }, [aiCooldownSec])
 
-  // Ensure typing status is cleared when unmounting
   useEffect(() => {
     return () => {
       clearTimeout(typingTimer.current)
@@ -157,6 +195,22 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     }
   }, [user, roomId])
 
+  const triggerSoundFx = useCallback(async (fxKey) => {
+    if (!user || !roomId) return
+    try {
+      setShowFxMenu(false)
+      await addDoc(collection(db, 'rooms', roomId, 'soundEffects'), {
+        soundKey: fxKey,
+        uid: user.uid,
+        displayName: user.displayName || 'Viewer',
+        createdAt: serverTimestamp(),
+        createdAtMs: Date.now(),
+      })
+    } catch (err) {
+      toast(err.message || 'Could not play sound effect', { variant: 'error' })
+    }
+  }, [user, roomId, toast])
+
   const requestAiSummary = useCallback(async () => {
     if (!user || !roomId) return
     if (aiCooldownSec > 0) {
@@ -188,6 +242,66 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
       setAiLoading(false)
     }
   }, [user, roomId, aiCooldownSec, toast])
+
+  const requestSmartCatchup = useCallback(async () => {
+    if (!user || !roomId) return
+    try {
+      setCatchupLoading(true)
+      const token = await user.getIdToken()
+      const res = await fetch('/api/room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'catchup', roomId, uid: user.uid }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data?.error || 'Could not generate recap')
+      }
+      setCatchupModalData(data)
+    } catch (err) {
+      toast(err.message || 'Smart Catch-Up failed', { variant: 'error' })
+    } finally {
+      setCatchupLoading(false)
+    }
+  }, [user, roomId, toast])
+
+  const requestGenerateQuiz = useCallback(async () => {
+    if (!user || !roomId) return
+    try {
+      setQuizLoading(true)
+      const token = await user.getIdToken()
+      const res = await fetch('/api/room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'quiz', roomId, uid: user.uid }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data?.error || data?.message || 'Could not generate room quiz')
+      }
+      toast('🧠 New Room Quiz generated!', { variant: 'success' })
+    } catch (err) {
+      toast(err.message || 'Quiz generation failed', { variant: 'error' })
+    } finally {
+      setQuizLoading(false)
+    }
+  }, [user, roomId, toast])
+
+  const voteQuizOption = useCallback(async (optionIndex) => {
+    if (!user || !roomId || myQuizVote !== null) return
+    try {
+      setMyQuizVote(optionIndex)
+      setRevealQuizAnswer(true)
+      const token = await user.getIdToken()
+      await fetch('/api/room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'votequiz', roomId, uid: user.uid, optionIndex }),
+      })
+    } catch {
+      /* ignore */
+    }
+  }, [user, roomId, myQuizVote])
 
   const onSubmit = async (e) => {
     e.preventDefault()
@@ -229,9 +343,17 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
 
   const nearLimit = text.length >= 400
 
+  const quizVoteCounts = (() => {
+    if (!activeQuiz || !activeQuiz.votes) return {}
+    const counts = {}
+    Object.values(activeQuiz.votes).forEach((idx) => {
+      counts[idx] = (counts[idx] || 0) + 1
+    })
+    return counts
+  })()
+
   return (
     <div className={styles.chat}>
-      {/* Top Actions: Floating Quick Reactions + Ask AI Summary */}
       <div className={styles.chatActionsBar}>
         <div className={styles.floatingReactionsBar}>
           {FLOATING_EMOJIS.map((emoji, idx) => (
@@ -245,19 +367,106 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
               {emoji}
             </button>
           ))}
+          
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className={styles.floatingReactionBtn}
+              onClick={() => setShowFxMenu(!showFxMenu)}
+              title="Room Sound Effects (#11)"
+            >
+              <Volume2 size={15} />
+            </button>
+            {showFxMenu && (
+              <div className={styles.emojiGrid} style={{ right: 'auto', left: 0, gridTemplateColumns: 'repeat(1, 1fr)', gap: '4px', minWidth: '150px' }}>
+                {Object.entries(SOUND_FX).map(([key, fx]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={styles.emojiButton}
+                    style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', textAlign: 'left', padding: '6px 8px' }}
+                    onClick={() => triggerSoundFx(key)}
+                  >
+                    <span>{fx.emoji}</span>
+                    <span>{fx.name.replace(fx.emoji, '').trim()}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        <button
-          type="button"
-          className={styles.aiButton}
-          onClick={requestAiSummary}
-          disabled={aiLoading || aiCooldownSec > 0}
-          title={aiCooldownSec > 0 ? `AI on cooldown (${Math.ceil(aiCooldownSec / 60)}m)` : 'Get AI Chat & Room Summary'}
-        >
-          {aiLoading ? <Loader2 size={13} className="spin" /> : <Bot size={14} />}
-          <span>{aiCooldownSec > 0 ? `AI (${Math.ceil(aiCooldownSec / 60)}m)` : 'AI Summary'}</span>
-        </button>
+        <div className={styles.aiToolsRow}>
+          <button
+            type="button"
+            className={styles.aiButton}
+            onClick={requestAiSummary}
+            disabled={aiLoading || aiCooldownSec > 0}
+            title={aiCooldownSec > 0 ? `AI on cooldown (${Math.ceil(aiCooldownSec / 60)}m)` : 'Get AI Chat & Room Summary'}
+          >
+            {aiLoading ? <Loader2 size={13} className="spin" /> : <Bot size={13} />}
+            <span>{aiCooldownSec > 0 ? `${Math.ceil(aiCooldownSec / 60)}m` : 'Summary'}</span>
+          </button>
+
+          <button
+            type="button"
+            className={styles.catchupButton}
+            onClick={requestSmartCatchup}
+            disabled={catchupLoading}
+            title="Smart Catch-Up: Get a 3-bullet spoiler-free timeline recap of what you missed"
+          >
+            {catchupLoading ? <Loader2 size={13} className="spin" /> : <Sparkles size={13} />}
+            <span>Catch-Up</span>
+          </button>
+
+          <button
+            type="button"
+            className={styles.quizButton}
+            onClick={requestGenerateQuiz}
+            disabled={quizLoading}
+            title="Generate AI Room Trivia Quiz"
+          >
+            {quizLoading ? <Loader2 size={13} className="spin" /> : <Brain size={13} />}
+            <span>Quiz</span>
+          </button>
+        </div>
       </div>
+
+      {activeQuiz && (
+        <div className={styles.quizCard}>
+          <div className={styles.quizHeader}>
+            <span className={styles.quizBadge}><Brain size={13} /> Room Trivia Quiz</span>
+            <span className={styles.quizAuthor}>by {activeQuiz.createdByName}</span>
+          </div>
+          <p className={styles.quizQuestion}>{activeQuiz.question}</p>
+          <div className={styles.quizOptionsGrid}>
+            {activeQuiz.options?.map((opt, idx) => {
+              const isSelected = myQuizVote === idx
+              const isCorrect = revealQuizAnswer && activeQuiz.correctIndex === idx
+              const isWrong = revealQuizAnswer && isSelected && !isCorrect
+              const count = quizVoteCounts[idx] || 0
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  className={`${styles.quizOptionBtn} ${isSelected ? styles.quizOptionSelected : ''} ${isCorrect ? styles.quizOptionCorrect : ''} ${isWrong ? styles.quizOptionWrong : ''}`}
+                  onClick={() => voteQuizOption(idx)}
+                  disabled={myQuizVote !== null && revealQuizAnswer}
+                >
+                  <span className={styles.quizOptionText}>{opt}</span>
+                  {(myQuizVote !== null || count > 0) && <span className={styles.quizVoteBadge}>{count}</span>}
+                  {isCorrect && <CheckCircle size={14} className={styles.correctIcon} style={{ color: '#00FF7F', marginLeft: 'auto' }} />}
+                </button>
+              )
+            })}
+          </div>
+          {revealQuizAnswer && activeQuiz.funFact && (
+            <div className={styles.funFactBox}>
+              <strong>Fun Fact:</strong> {activeQuiz.funFact}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className={styles.messages} ref={listRef} onScroll={onScroll}>
         {merged.length === 0 && (
@@ -366,6 +575,32 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
           </div>
         )}
       </form>
+
+      <Modal
+        open={Boolean(catchupModalData)}
+        title="✨ Smart Catch-Up Recap"
+        icon={Sparkles}
+        onClose={() => setCatchupModalData(null)}
+      >
+        {catchupModalData && (
+          <div className={styles.catchupBody}>
+            <div className={styles.catchupHeader}>
+              <h4>{catchupModalData.title || 'Video Timeline'}</h4>
+              <span className={styles.catchupTimeBadge}>~{catchupModalData.minutesIn} min in</span>
+            </div>
+            <div className={styles.catchupText}>
+              {catchupModalData.catchup?.split('\n').map((line, idx) => (
+                <p key={idx}>{line}</p>
+              ))}
+            </div>
+            <div className={styles.catchupActions}>
+              <Button variant="cta" onClick={() => setCatchupModalData(null)}>
+                Got It — Let&apos;s Watch!
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

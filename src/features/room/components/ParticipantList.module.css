@@ -1,116 +1,260 @@
+.listContainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.header h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--room-text-primary);
+  margin: 0 0 2px;
+  font-family: var(--font-display);
+}
+
+.subText {
+  font-size: 12px;
+  color: var(--room-text-secondary);
+  margin: 0;
+}
+
 .list {
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
+  gap: 8px;
 }
 
-.title {
-  font-size: 14px;
-  margin: 0 0 var(--s-2);
-  font-family: var(--font-display);
-  color: var(--room-text-primary);
-}
-
-.participants {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
-}
-
-.participant {
+.row {
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  padding: var(--s-2);
-  border-radius: var(--radius-sm);
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--room-surface-raised);
+  border: 1px solid var(--room-divider);
+  border-radius: var(--radius-card);
   transition: background 0.15s ease;
 }
 
-.participant:hover {
-  background: var(--room-surface-raised);
+.row:hover {
+  background: rgba(255, 255, 255, 0.05);
 }
 
-.avatarWrap {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.pulse {
-  position: absolute;
-  inset: -4px;
+.left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
 }
 
 .info {
-  flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 3px;
   min-width: 0;
-  gap: 2px;
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .name {
-  font-weight: 500;
-  font-size: 14px;
-  color: var(--room-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.selfTag {
-  font-weight: 400;
+.meTag {
   color: var(--room-text-secondary);
-  font-size: 12px;
+  font-weight: 400;
 }
 
-.roleWrap {
+.mutedIcon {
+  color: var(--live-red);
+}
+
+.badgesRow {
   display: flex;
   align-items: center;
-  gap: var(--s-1);
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.mutedTag {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  font-size: 10px;
-  color: var(--room-danger);
-  text-transform: uppercase;
-  font-weight: 600;
+.miniBadge {
+  font-size: 11px;
+  color: var(--room-text-secondary);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
 }
 
 .actions {
   display: flex;
-  gap: var(--s-1);
-  flex-shrink: 0;
-  opacity: 0;
-  transition: opacity 0.15s ease;
+  align-items: center;
+  position: relative;
 }
 
-.participant:hover .actions {
-  opacity: 1;
+.menuWrapper {
+  position: relative;
 }
 
-.action {
-  height: 24px;
-  padding: 0 var(--s-2);
-  font-size: 11px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--room-divider);
+.menuBtn {
   background: transparent;
+  border: none;
   color: var(--room-text-secondary);
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.15s ease;
+}
+
+.menuBtn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: rgba(18, 20, 26, 0.96);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-card);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6);
+  z-index: 50;
+  min-width: 170px;
+}
+
+.menu button {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
-  font-family: var(--font-body);
 }
 
-.action:hover {
+.menu button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.dangerItem {
+  color: var(--live-red) !important;
+}
+
+.dangerItem:hover {
+  background: rgba(234, 51, 35, 0.15) !important;
+}
+
+/* Chan Passport Modal Styling */
+.passportBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.passportHeaderRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
   background: var(--room-surface-raised);
-  color: var(--room-text-primary);
-  border-color: rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--room-divider);
 }
 
-.danger:hover {
-  color: var(--room-danger);
-  border-color: var(--room-danger);
+.passportName {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+}
+
+.passportRole {
+  font-size: 13px;
+  color: var(--accent-orange);
+  font-weight: 600;
+}
+
+.passportStatsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.statBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: var(--room-surface-raised);
+  border: 1px solid var(--room-divider);
+  border-radius: var(--radius-card);
+  gap: 4px;
+}
+
+.statIcon {
+  color: var(--accent-orange);
+}
+
+.statVal {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  font-family: var(--font-display);
+}
+
+.statLbl {
+  font-size: 11px;
+  color: var(--room-text-secondary);
+}
+
+.passportBadgesSection h4 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--room-text-primary);
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+}
+
+.passportBadgesList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.passportBadgeItem {
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1.5px solid #fff;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.passportActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
 }

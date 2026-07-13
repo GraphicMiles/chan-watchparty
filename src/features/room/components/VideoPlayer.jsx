@@ -3,13 +3,26 @@ import ReactPlayer from 'react-player'
 import Hls from 'hls.js'
 import {
   AlertTriangle, Radio, Play, Pause, RotateCcw, RotateCw,
-  Volume2, VolumeX, Maximize
+  Volume2, VolumeX, Maximize, Palette, PictureInPicture2, Bookmark, Settings
 } from 'lucide-react'
+import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore'
+import { db } from '../../../shared/lib/firebase.js'
+import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 import { normalizePlaybackUrl } from '../../../shared/lib/youtube.js'
+import { useToast } from '../../../shared/ui/index.js'
 import styles from './VideoPlayer.module.scss'
 
 const RETRY_ATTEMPTS = 3
 const RETRY_DELAY = 3000
+
+const VIDEO_FILTERS = {
+  none: { label: 'Normal', css: 'none' },
+  cinema: { label: 'Cinema Contrast', css: 'contrast(1.18) saturate(1.1) brightness(0.96)' },
+  vintage: { label: 'Vintage Film 🎞️', css: 'sepia(0.35) contrast(1.1) brightness(0.92)' },
+  cyberpunk: { label: 'Cyberpunk ⚡', css: 'hue-rotate(30deg) saturate(1.4) contrast(1.1)' },
+  night: { label: 'Night Vision 🌙', css: 'grayscale(0.9) contrast(1.2) brightness(1.15)' },
+  boost: { label: 'Brightness Boost 💡', css: 'brightness(1.25) contrast(1.05)' },
+}
 
 function youtubeUrl(videoId) {
   return videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : ''
@@ -28,15 +41,14 @@ function formatTime(seconds) {
 }
 
 export default function VideoPlayer({
-  // Existing room/player contract.
   videoId,
   videoUrl,
   videoType = 'youtube',
   canControl = false,
   onReady,
   onPlayerEvent,
+  roomId,
 
-  // Optional controlled-player contract for callers that use it.
   url,
   playing,
   played = 0,
@@ -51,6 +63,8 @@ export default function VideoPlayer({
   onError,
   isLive = false,
 }) {
+  const { user } = useAuth()
+  const { toast } = useToast()
   const rawUrl = url || videoUrl || (videoType === 'youtube' ? youtubeUrl(videoId) : '')
   const resolvedUrl = useMemo(() => normalizePlaybackUrl(rawUrl), [rawUrl])
   const isHLS = useMemo(() => /(?:\.m3u8|m3u8)/i.test(resolvedUrl), [resolvedUrl])
@@ -78,11 +92,14 @@ export default function VideoPlayer({
   const [localVolume, setLocalVolume] = useState(controlledVolume)
   const [localMuted, setLocalMuted] = useState(controlledMuted)
   const [showControls, setShowControls] = useState(true)
+  const [videoFilter, setVideoFilter] = useState('none')
+  const [showFilterMenu, setShowFilterMenu] = useState(false)
+  const [hlsLevels, setHlsLevels] = useState([])
+  const [currentLevel, setCurrentLevel] = useState(-1)
+  const [showQualityMenu, setShowQualityMenu] = useState(false)
+  const [stagePins, setStagePins] = useState([])
+  
   const controlsTimeoutRef = useRef(null)
-
-  useEffect(() => () => {
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
-  }, [])
 
   useEffect(() => {
     onReadyRef.current = onReady
@@ -95,6 +112,15 @@ export default function VideoPlayer({
       setIsPlayingState(Boolean(playing))
     }
   }, [playing])
+
+  useEffect(() => {
+    if (!roomId) return undefined
+    const q = query(collection(db, 'rooms', roomId, 'stagePins'), orderBy('timeSec', 'asc'), limit(30))
+    const unsub = onSnapshot(q, (snap) => {
+      setStagePins(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    })
+    return unsub
+  }, [roomId])
 
   const currentTime = useCallback(() => {
     if (isHLS) return videoRef.current?.currentTime || 0
@@ -231,7 +257,13 @@ export default function VideoPlayer({
       hlsRef.current = hls
       hls.loadSource(resolvedUrl)
       hls.attachMedia(video)
-      hls.on(Hls.Events.MANIFEST_PARSED, () => notifyReady())
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setHlsLevels(hls.levels || [])
+        notifyReady()
+      })
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+        setCurrentLevel(data.level)
+      })
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) return
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad()
@@ -273,7 +305,11 @@ export default function VideoPlayer({
     setShowControls(true)
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
     controlsTimeoutRef.current = setTimeout(() => {
-      if (playingRef.current) setShowControls(false)
+      if (playingRef.current) {
+        setShowControls(false)
+        setShowFilterMenu(false)
+        setShowQualityMenu(false)
+      }
     }, 3500)
   }, [])
 
@@ -318,6 +354,42 @@ export default function VideoPlayer({
     }
   }, [])
 
+  const togglePiP = useCallback((e) => {
+    e.stopPropagation()
+    const video = videoRef.current || playerWrapperRef.current?.querySelector('video')
+    if (!video) {
+      toast('Picture-in-Picture only supported on direct streams / native video elements', { variant: 'warning' })
+      return
+    }
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture?.().catch(() => {})
+    } else {
+      video.requestPictureInPicture?.().catch(() => {
+        toast('Could not enter Picture-in-Picture mode', { variant: 'error' })
+      })
+    }
+  }, [toast])
+
+  const addStagePin = useCallback(async (e) => {
+    e.stopPropagation()
+    if (!user || !roomId) return
+    const cur = currentTime()
+    const note = window.prompt(`Drop bookmark pin at ${formatTime(cur)} — Enter a quick note:`)
+    if (!note || !note.trim()) return
+    try {
+      await addDoc(collection(db, 'rooms', roomId, 'stagePins'), {
+        timeSec: cur,
+        text: note.trim().slice(0, 80),
+        uid: user.uid,
+        displayName: user.displayName || 'Viewer',
+        createdAt: serverTimestamp(),
+      })
+      toast('📌 Stage pin added to timeline!', { variant: 'success' })
+    } catch (err) {
+      toast(err.message || 'Could not save bookmark', { variant: 'error' })
+    }
+  }, [user, roomId, currentTime, toast])
+
   const toggleMute = useCallback((e) => {
     e.stopPropagation()
     setLocalMuted((prev) => !prev)
@@ -361,6 +433,7 @@ export default function VideoPlayer({
         <video
           ref={videoRef}
           className={styles.videoElement}
+          style={{ filter: VIDEO_FILTERS[videoFilter]?.css || 'none' }}
           autoPlay={playing}
           muted={localMuted}
           controls={false}
@@ -389,38 +462,40 @@ export default function VideoPlayer({
           }}
         />
       ) : (
-        <ReactPlayer
-          ref={playerRef}
-          url={resolvedUrl}
-          playing={isPlayingState}
-          volume={localVolume}
-          muted={localMuted}
-          playbackRate={playbackRate}
-          onProgress={(prog) => {
-            setCurrentSec(prog.playedSeconds || 0)
-            setLoadedPercent((prog.loaded || 0) * 100)
-            onProgress?.(prog)
-          }}
-          onDuration={(dur) => {
-            setDurationSec(dur || 0)
-            onDuration?.(dur || 0)
-          }}
-          onPlay={emitPlay}
-          onPause={emitPause}
-          onEnded={onEnded}
-          onError={handleError}
-          onReady={notifyReady}
-          width="100%"
-          height="100%"
-          controls={false}
-          config={{
-            file: { attributes: { playsInline: true }, forceVideo: true },
-            youtube: {
-              playerVars: { rel: 0, modestbranding: 1, playsInline: 1, controls: 0 },
-              embedOptions: { host: 'https://www.youtube-nocookie.com' },
-            },
-          }}
-        />
+        <div style={{ width: '100%', height: '100%', filter: VIDEO_FILTERS[videoFilter]?.css || 'none' }}>
+          <ReactPlayer
+            ref={playerRef}
+            url={resolvedUrl}
+            playing={isPlayingState}
+            volume={localVolume}
+            muted={localMuted}
+            playbackRate={playbackRate}
+            onProgress={(prog) => {
+              setCurrentSec(prog.playedSeconds || 0)
+              setLoadedPercent((prog.loaded || 0) * 100)
+              onProgress?.(prog)
+            }}
+            onDuration={(dur) => {
+              setDurationSec(dur || 0)
+              onDuration?.(dur || 0)
+            }}
+            onPlay={emitPlay}
+            onPause={emitPause}
+            onEnded={onEnded}
+            onError={handleError}
+            onReady={notifyReady}
+            width="100%"
+            height="100%"
+            controls={false}
+            config={{
+              file: { attributes: { playsInline: true }, forceVideo: true },
+              youtube: {
+                playerVars: { rel: 0, modestbranding: 1, playsInline: 1, controls: 0 },
+                embedOptions: { host: 'https://www.youtube-nocookie.com' },
+              },
+            }}
+          />
+        </div>
       )}
 
       {!isReady && <div className={styles.loadingOverlay}>Loading stream...</div>}
@@ -468,6 +543,24 @@ export default function VideoPlayer({
               <div className={styles.seekbarTrack}>
                 <div className={styles.seekbarLoaded} style={{ width: `${loadedPercent}%` }} />
                 <div className={styles.seekbarProgress} style={{ width: `${playedPercent}%` }} />
+                
+                {/* Stage Pins along Seekbar */}
+                {stagePins.map((pin) => {
+                  const pinPercent = durationSec > 0 ? (pin.timeSec / durationSec) * 100 : 0
+                  return (
+                    <div
+                      key={pin.id}
+                      className={styles.stagePinDot}
+                      style={{ left: `${pinPercent}%` }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (canControl) adapter.seekTo(pin.timeSec, 'seconds')
+                        toast(`📌 ${formatTime(pin.timeSec)} - ${pin.displayName}: "${pin.text}"`, { variant: 'info' })
+                      }}
+                      title={`📌 ${formatTime(pin.timeSec)} - ${pin.displayName}: ${pin.text}`}
+                    />
+                  )
+                })}
               </div>
               <input
                 type="range"
@@ -537,6 +630,94 @@ export default function VideoPlayer({
             </div>
 
             <div className={styles.rightControls}>
+              <button
+                type="button"
+                className={styles.controlIconBtn}
+                onClick={addStagePin}
+                title="📌 Drop timestamp bookmark pin"
+              >
+                <Bookmark size={16} />
+                <span>Pin</span>
+              </button>
+
+              <button
+                type="button"
+                className={styles.controlIconBtn}
+                onClick={togglePiP}
+                title="Picture-in-Picture"
+              >
+                <PictureInPicture2 size={16} />
+              </button>
+
+              {/* Cinema LUT Filters Menu */}
+              <button
+                type="button"
+                className={styles.controlIconBtn}
+                onClick={(e) => { e.stopPropagation(); setShowFilterMenu(!showFilterMenu); setShowQualityMenu(false) }}
+                title="Video LUT Filters"
+              >
+                <Palette size={16} />
+                <span>{VIDEO_FILTERS[videoFilter]?.label || 'Filter'}</span>
+              </button>
+              {showFilterMenu && (
+                <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
+                  {Object.entries(VIDEO_FILTERS).map(([key, item]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`${styles.popupMenuItem} ${videoFilter === key ? styles.popupMenuItemActive : ''}`}
+                      onClick={() => { setVideoFilter(key); setShowFilterMenu(false) }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* HLS Quality Selector Menu */}
+              {isHLS && hlsLevels.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    className={styles.controlIconBtn}
+                    onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); setShowFilterMenu(false) }}
+                    title="Stream Quality"
+                  >
+                    <Settings size={16} />
+                    <span>{currentLevel === -1 ? 'Auto' : `${hlsLevels[currentLevel]?.height || 'HD'}p`}</span>
+                  </button>
+                  {showQualityMenu && (
+                    <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className={`${styles.popupMenuItem} ${currentLevel === -1 ? styles.popupMenuItemActive : ''}`}
+                        onClick={() => {
+                          if (hlsRef.current) hlsRef.current.currentLevel = -1
+                          setCurrentLevel(-1)
+                          setShowQualityMenu(false)
+                        }}
+                      >
+                        Auto (Adaptive)
+                      </button>
+                      {hlsLevels.map((lvl, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          className={`${styles.popupMenuItem} ${currentLevel === index ? styles.popupMenuItemActive : ''}`}
+                          onClick={() => {
+                            if (hlsRef.current) hlsRef.current.currentLevel = index
+                            setCurrentLevel(index)
+                            setShowQualityMenu(false)
+                          }}
+                        >
+                          {lvl.height}p ({Math.round((lvl.bitrate || 0) / 1000)} kbps)
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
               <button
                 type="button"
                 className={styles.controlIconBtn}

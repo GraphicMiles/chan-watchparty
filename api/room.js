@@ -10,7 +10,7 @@ import { sendResponse } from './lib/response.js'
 import { deleteRoomAndSubcollections, runCleanupStaleRooms } from './lib/roomCleanup.js'
 import { kickParticipant, promoteParticipant, muteParticipant } from './lib/moderateHelper.js'
 import { generateLiveKitToken } from './lib/livekitHelper.js'
-import { generateAiSummary } from './lib/aiHelper.js'
+import { generateAiSummary, generateSmartCatchup, generateRoomQuiz, voteRoomQuiz } from './lib/aiHelper.js'
 
 async function requireUser(req, expectedUid) {
   const token = req.headers.authorization?.split('Bearer ')[1]
@@ -194,6 +194,15 @@ export default async function handler(req, res) {
     } else if (action === 'ai' || action === 'summary') {
       const decoded = await requireUser(req)
       result = await generateAiSummary(db, decoded, body)
+    } else if (action === 'catchup') {
+      const decoded = await requireUser(req)
+      result = await generateSmartCatchup(db, decoded, body)
+    } else if (action === 'quiz' || action === 'generatequiz') {
+      const decoded = await requireUser(req)
+      result = await generateRoomQuiz(db, decoded, body)
+    } else if (action === 'votequiz') {
+      const decoded = await requireUser(req)
+      result = await voteRoomQuiz(db, decoded, body)
     } else {
       return fail(res, 400, `Unknown action: ${action}`)
     }

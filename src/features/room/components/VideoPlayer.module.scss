@@ -13,6 +13,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
+  transition: filter 0.25s ease;
 }
 
 .loadingContainer,
@@ -215,7 +216,7 @@
   border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.25);
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .seekbarLoaded {
@@ -224,6 +225,7 @@
   top: 0;
   bottom: 0;
   background: rgba(255, 255, 255, 0.45);
+  border-radius: var(--radius-pill);
 }
 
 .seekbarProgress {
@@ -234,6 +236,26 @@
   background: #FF3B30;
   border-radius: var(--radius-pill);
   transition: width 0.1s linear;
+}
+
+.stagePinDot {
+  position: absolute;
+  top: -4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #F2B200;
+  border: 2px solid #fff;
+  cursor: pointer;
+  transform: translateX(-50%);
+  transition: transform 0.15s ease, background 0.15s ease;
+  z-index: 10;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+
+.stagePinDot:hover {
+  transform: translateX(-50%) scale(1.4);
+  background: #FF6A2B;
 }
 
 .seekbarContainer:hover .seekbarTrack {
@@ -247,6 +269,7 @@
   height: 100%;
   opacity: 0;
   cursor: pointer;
+  z-index: 5;
 }
 
 .bottomButtonsRow {
@@ -261,7 +284,8 @@
 .centerControls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  position: relative;
 }
 
 .centerControls {
@@ -274,7 +298,7 @@
   color: #fff;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   padding: 6px 10px;
   border-radius: var(--radius-pill);
   cursor: pointer;
@@ -288,24 +312,41 @@
   background: rgba(255, 255, 255, 0.18);
 }
 
-.downloadBtn {
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  font-family: var(--font-body);
-  transition: background 0.15s ease, transform 0.1s ease;
+.popupMenu {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: rgba(18, 20, 26, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-card);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  z-index: 40;
+  min-width: 140px;
+  margin-bottom: 8px;
 }
 
-.downloadBtn:hover {
-  background: rgba(255, 255, 255, 0.28);
+.popupMenuItem {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.popupMenuItem:hover,
+.popupMenuItemActive {
+  background: var(--accent-orange);
+  color: #fff;
 }
 
 .volumeSlider {
@@ -330,12 +371,6 @@
   .customBottomBar {
     padding: 20px 10px 10px;
     gap: 8px;
-  }
-  .downloadBtn span {
-    display: none;
-  }
-  .downloadBtn {
-    padding: 6px 10px;
   }
   .volumeSlider {
     width: 50px;
