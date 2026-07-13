@@ -276,22 +276,37 @@
 
 .bottomButtonsRow {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.centerControlsRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  width: 100%;
+}
+
+.toolsRow {
+  display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .leftControls,
-.rightControls,
-.centerControls {
+.rightControls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
   position: relative;
-}
-
-.centerControls {
-  gap: 16px;
 }
 
 .controlIconBtn {
@@ -388,10 +403,17 @@
     height: 56px;
   }
   .customBottomBar {
-    padding: 20px 10px 10px;
+    padding: 16px 10px 10px;
     gap: 8px;
   }
+  .centerControlsRow {
+    gap: 16px;
+    margin: 2px 0;
+  }
+  .toolsRow {
+    gap: 6px;
+  }
   .volumeSlider {
-    width: 50px;
+    width: 48px;
   }
 }

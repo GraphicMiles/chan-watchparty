@@ -319,6 +319,29 @@ export default function VideoPlayer({
     }, 3500)
   }, [])
 
+  const handleToggleControls = useCallback((e) => {
+    e.stopPropagation()
+    setShowControls((prev) => {
+      const next = !prev
+      if (!next) {
+        setShowFilterMenu(false)
+        setShowQualityMenu(false)
+      } else {
+        if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
+        if (playingRef.current) {
+          controlsTimeoutRef.current = setTimeout(() => {
+            if (playingRef.current) {
+              setShowControls(false)
+              setShowFilterMenu(false)
+              setShowQualityMenu(false)
+            }
+          }, 3500)
+        }
+      }
+      return next
+    })
+  }, [])
+
   const togglePlayPause = useCallback((e) => {
     e?.stopPropagation()
     if (!canControl) return
@@ -434,6 +457,7 @@ export default function VideoPlayer({
       className={styles.playerWrapper}
       onMouseMove={handleMouseMove}
       onTouchStart={handleMouseMove}
+      onClick={handleToggleControls}
     >
       {isHLS ? (
         <video
@@ -508,7 +532,10 @@ export default function VideoPlayer({
       {isLive && <div className={styles.liveIndicator}><Radio size={10} /> LIVE</div>}
 
       {/* Advanced Custom Controls Overlay (Watch Only, No Download) */}
-      <div className={`${styles.customControlsOverlay} ${showControls || !isPlayingState ? styles.controlsVisible : ''}`}>
+      <div
+        className={`${styles.customControlsOverlay} ${showControls || !isPlayingState ? styles.controlsVisible : ''}`}
+        onClick={handleToggleControls}
+      >
         <div className={styles.centerOverlayButtons}>
           <button
             type="button"
@@ -584,28 +611,8 @@ export default function VideoPlayer({
           </div>
 
           <div className={styles.bottomButtonsRow}>
-            <div className={styles.leftControls}>
-              <button
-                type="button"
-                className={styles.controlIconBtn}
-                onClick={toggleMute}
-                title={localMuted ? 'Unmute' : 'Mute'}
-              >
-                {localMuted || localVolume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-              </button>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={localMuted ? 0 : localVolume}
-                onChange={handleVolumeChange}
-                className={styles.volumeSlider}
-                title="Volume"
-              />
-            </div>
-
-            <div className={styles.centerControls}>
+            {/* Middle Row: Quick Jump Controls */}
+            <div className={styles.centerControlsRow} onClick={(e) => e.stopPropagation()}>
               <button
                 type="button"
                 className={styles.controlIconBtn}
@@ -635,16 +642,39 @@ export default function VideoPlayer({
               </button>
             </div>
 
-            <div className={styles.rightControls}>
-              <button
-                type="button"
-                className={styles.controlIconBtn}
-                onClick={addStagePin}
-                title="Drop timestamp bookmark pin"
-              >
-                <Bookmark size={16} />
-                <span>Pin</span>
-              </button>
+            {/* Bottom Row: Audio & Secondary Tools */}
+            <div className={styles.toolsRow} onClick={(e) => e.stopPropagation()}>
+              <div className={styles.leftControls}>
+                <button
+                  type="button"
+                  className={styles.controlIconBtn}
+                  onClick={toggleMute}
+                  title={localMuted ? 'Unmute' : 'Mute'}
+                >
+                  {localMuted || localVolume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                </button>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={localMuted ? 0 : localVolume}
+                  onChange={handleVolumeChange}
+                  className={styles.volumeSlider}
+                  title="Volume"
+                />
+              </div>
+
+              <div className={styles.rightControls}>
+                <button
+                  type="button"
+                  className={styles.controlIconBtn}
+                  onClick={addStagePin}
+                  title="Drop timestamp bookmark pin"
+                >
+                  <Bookmark size={16} />
+                  <span>Pin</span>
+                </button>
 
               <button
                 type="button"
@@ -737,6 +767,7 @@ export default function VideoPlayer({
           </div>
         </div>
       </div>
+    </div>
     </div>
   )
 }
