@@ -50,9 +50,25 @@ vercel --prod
 
 Add all environment variables in the Vercel dashboard → Project → Settings → Environment Variables.
 
+## IPTV catalog refresh
+
+The IPTV layer reads the Free-TV M3U playlist by default and filters to HTTPS stream URLs. To health-check and store channels in Firestore, configure a random `CRON_SECRET` in Vercel and call:
+
+```text
+POST https://your-app.vercel.app/api/refreshCatalog
+x-cron-secret: your-random-secret
+Content-Type: application/json
+
+{"action":"iptv","offset":0,"limit":50}
+```
+
+The endpoint checks a bounded batch of channels, writes results to `mediaCatalog/iptv/channels`, and returns `nextOffset` for the next scheduled batch. Use `IPTV_USE_FIRESTORE_CATALOG=true` only after the catalog has been populated. Never expose the cron secret in a URL.
+
+The cron endpoint is intended for an external scheduler such as cron-job.org because Vercel Hobby scheduling is limited. Use only channels you are authorized to distribute.
+
 ## Vercel free plan notes
 
-- **Serverless functions**: the Hobby plan gives you **12 functions per deployment**. The app has **5 core functions** (`room`, `moderate`, `createLiveKitToken`, `cleanupStaleRooms`, `media`) plus two backward-compatible aliases (`search`, `scrape`) that both delegate to `media` — **7 total**, still under the Hobby cap. Remove the aliases once no external clients use the legacy URLs.
+- **Serverless functions**: the Hobby plan gives you **12 functions per deployment**. The app has **5 core functions** (`room`, `moderate`, `createLiveKitToken`, `cleanupStaleRooms`, `media`) plus two backward-compatible aliases (`search`, `scrape`) and the catalog refresher (`refreshCatalog`) — **8 total**, still under the Hobby cap. Remove the aliases once no external clients use the legacy URLs.
 - **Cron jobs**: Vercel Hobby only allows **daily** cron jobs. The previous `vercel.json` included a 15-minute cron, which causes the deploy error you saw. I removed it. To run cleanup every 15 minutes on Hobby, use an external cron service (e.g., cron-job.org) and point it at `POST https://your-app.vercel.app/api/cleanupStaleRooms`. If you set a `CRON_SECRET` environment variable, add a matching `x-cron-secret` header in cron-job.org so only your cron can trigger the endpoint. If you upgrade to Pro later, you can re-add the cron in `vercel.json`.
 - **Function duration**: Hobby functions timeout at 10 seconds. `joinRoom`, `endRoom`, and `createLiveKitToken` are fast transactions. `cleanupStaleRooms` batches updates; if you have many stale rooms, it may need to be split into smaller batches.
 - **Firebase free plan**: Firestore has a generous free tier (50K reads/day, 20K writes/day, 1GB stored). A watch party mostly does small real-time writes (playerState heartbeat, chat). LiveKit Cloud has its own free tier but is the only bill that typically grows with usage; track participant minutes as you scale.

@@ -53,6 +53,11 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /mediaCatalog/{catalogId}/channels/{channelId} {
+      allow read: if isAuthed();
+      allow write: if false; // server Admin SDK / cron only
+    }
+
     match /rooms/{roomId} {
       allow read: if isAuthed()
         && resource.data.status == "live"
