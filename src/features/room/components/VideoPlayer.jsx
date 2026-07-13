@@ -17,6 +17,11 @@ const RETRY_DELAY = 3000
 
 const VIDEO_FILTERS = {
   none: { label: 'Normal / Original', css: 'none', desc: 'Default unaltered stream color' },
+  capcut_pro_4k: { label: 'CapCut Pro 4K HDR Pop', css: 'contrast(1.32) saturate(1.55) brightness(1.04) hue-rotate(-3deg) drop-shadow(0 0 1px rgba(255,255,255,0.18))', desc: 'Ultra-crisp 4K definition, punchy contrast & deep saturated colors' },
+  tiktok_120fps_sports: { label: 'TikTok 4K Sports Edit', css: 'contrast(1.38) saturate(1.68) brightness(1.06) sepia(0.08) hue-rotate(4deg)', desc: 'Crushed stadium shadows, glowing floodlights & hyper-vivid jersey colors' },
+  akira_anime_hdr: { label: 'Akira / Anime 120fps HDR', css: 'contrast(1.25) saturate(1.75) brightness(1.08) hue-rotate(-6deg)', desc: 'Vibrant sky blues, lush sunlit greens & crystal-clear 2D line contrast' },
+  brazil_samba_glow: { label: 'Brazil Samba Gold & Teal', css: 'contrast(1.3) saturate(1.62) brightness(1.03) sepia(0.18) hue-rotate(-14deg)', desc: 'Rich golden yellows and deep royal stadium blues for football edits' },
+  bellingham_madrid_noir: { label: 'Madrid Royal Blue Pop', css: 'contrast(1.34) saturate(1.48) brightness(0.96) hue-rotate(8deg)', desc: 'Deep royal indigo shadows with crisp golden highlight punch' },
   capcut_vibrant: { label: 'CapCut Vibrant', css: 'saturate(1.45) contrast(1.15) brightness(1.04) hue-rotate(-2deg)', desc: 'TikTok/CapCut punchy pop & high saturation' },
   capcut_dark_mood: { label: 'CapCut Dark Mood', css: 'contrast(1.3) saturate(1.25) brightness(0.88) hue-rotate(5deg)', desc: 'Deep crushed shadows & glowing highlights' },
   hollywood_teal_orange: { label: 'Hollywood Teal & Orange', css: 'contrast(1.22) saturate(1.35) brightness(0.95) hue-rotate(-12deg) sepia(0.12)', desc: 'Blockbuster cinema contrast and warm skin tones' },
