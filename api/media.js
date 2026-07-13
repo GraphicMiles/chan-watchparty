@@ -4,6 +4,7 @@ import { verifyIdToken } from './lib/firebaseAdmin.js'
 import { getSiteConfig, resolveUrl } from './lib/sources.js'
 import { getIptvChannels } from './lib/iptv.js'
 import { resolveDownloadwellaPage } from './lib/downloadwella.js'
+import { searchXVideos } from './lib/nsfw.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY
@@ -322,11 +323,18 @@ async function searchSports(query) {
 }
 
 async function searchNSFW(query, options = {}) {
-  if (!options.adultVerified) {
-    throw new Error('Age verification required. You must be 18+ to search this content.')
+  if (process.env.NSFW_ENABLED !== 'true') {
+    throw Object.assign(new Error('NSFW search is not enabled'), { status: 503 })
   }
-  
-  throw Object.assign(new Error('NSFW search is not configured'), { status: 501 })
+  if (!options.adultVerified) {
+    throw Object.assign(new Error('Age verification required. You must be 18+ to search this content.'), { status: 403 })
+  }
+
+  const provider = options.provider || process.env.NSFW_PROVIDER || 'xvideos'
+  if (provider !== 'xvideos') {
+    throw Object.assign(new Error(`Unsupported NSFW provider: ${provider}`), { status: 400 })
+  }
+  return searchXVideos(query, Math.min(20, Math.max(1, Number(options.limit) || 20)))
 }
 
 // ==================== SCRAPER HELPERS ====================
@@ -418,6 +426,12 @@ function extractDirectMedia(html, baseUrl, source) {
   const add = (rawUrl, title, meta = 'direct file') => {
     const link = resolveUrl(rawUrl, baseUrl)
     if (!link || !MEDIA_EXT_RE.test(link) || seen.has(link)) return
+    try {
+      const parsed = new URL(link)
+      if (parsed.hostname.includes('xvideos-cdn.com') && /preview/i.test(parsed.pathname)) return
+    } catch {
+      return
+    }
     seen.add(link)
     results.push({
       title: title || `${pageTitle} (direct video)`,
@@ -707,9 +721,24 @@ export default async function handler(req, res) {
         case 'sports':
           results = await searchSports(query)
           break
-        case 'nsfw':
-          results = await searchNSFW(query, options)
+        case 'nsfw': {
+          const searchResults = await searchNSFW(query, options)
+          if (options.resolve) {
+            const resolved = await Promise.all(searchResults.slice(0, 6).map(async (result) => {
+              const pageResults = await resolvePageChain(result.url, 'xvideos')
+              return pageResults.length ? pageResults : [result]
+            }))
+            results = resolved.flat().map((result) => ({
+              ...result,
+              source: result.source || 'xvideos',
+              type: 'nsfw',
+              isNSFW: true,
+            }))
+          } else {
+            results = searchResults
+          }
           break
+        }
         default:
           return fail(res, 400, `Unknown layer: ${layer}`)
       }
