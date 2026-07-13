@@ -4,13 +4,13 @@
  * POST /api/room
  * body: { action: 'join' | 'leave' | 'end' | 'kick' | 'promote' | 'mute' | 'livekit' | 'ai' | 'cleanup', ... }
  */
-import { getDb, FieldValue, verifyIdToken } from './lib/firebaseAdmin.js'
-import { preflight, ok, fail, statusForError, JSON_HEADERS } from './lib/http.js'
-import { sendResponse } from './lib/response.js'
-import { deleteRoomAndSubcollections, runCleanupStaleRooms } from './lib/roomCleanup.js'
-import { kickParticipant, promoteParticipant, muteParticipant } from './lib/moderateHelper.js'
-import { generateLiveKitToken } from './lib/livekitHelper.js'
-import { generateAiSummary, generateSmartCatchup, generateRoomQuiz, voteRoomQuiz } from './lib/aiHelper.js'
+import { getDb, FieldValue, verifyIdToken } from '../server-lib/firebaseAdmin.js'
+import { preflight, ok, fail, statusForError, JSON_HEADERS } from '../server-lib/http.js'
+import { sendResponse } from '../server-lib/response.js'
+import { deleteRoomAndSubcollections, runCleanupStaleRooms } from '../server-lib/roomCleanup.js'
+import { kickParticipant, promoteParticipant, muteParticipant } from '../server-lib/moderateHelper.js'
+import { generateLiveKitToken } from '../server-lib/livekitHelper.js'
+import { generateAiSummary, generateSmartCatchup, generateRoomQuiz, voteRoomQuiz } from '../server-lib/aiHelper.js'
 
 async function requireUser(req, expectedUid) {
   const token = req.headers.authorization?.split('Bearer ')[1]

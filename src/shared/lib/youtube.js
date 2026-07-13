@@ -159,7 +159,11 @@ export async function searchYouTube(query, maxResults = 10) {
     key: YOUTUBE_API_KEY,
   })
   
-  const res = await fetch(`${YOUTUBE_API_BASE}/search?${params}`)
+  const res = await fetch(`${YOUTUBE_API_BASE}/search?${params}`, {
+    headers: {
+      Referer: typeof window !== 'undefined' ? window.location.href : 'https://chan-yz3p.vercel.app/',
+    },
+  })
   if (!res.ok) {
     const error = await res.json().catch(() => ({}))
     throw new Error(error.error?.message || 'YouTube search failed')
@@ -187,7 +191,11 @@ export async function getVideoDetails(videoId) {
     key: YOUTUBE_API_KEY,
   })
   
-  const res = await fetch(`${YOUTUBE_API_BASE}/videos?${params}`)
+  const res = await fetch(`${YOUTUBE_API_BASE}/videos?${params}`, {
+    headers: {
+      Referer: typeof window !== 'undefined' ? window.location.href : 'https://chan-yz3p.vercel.app/',
+    },
+  })
   if (!res.ok) {
     const error = await res.json().catch(() => ({}))
     throw new Error(error.error?.message || 'Failed to get video details')

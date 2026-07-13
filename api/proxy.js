@@ -1,4 +1,4 @@
-import { preflight, fail } from './lib/http.js'
+import { preflight, fail } from '../server-lib/http.js'
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:'])
 const PRIVATE_IPV4_RE = /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|0\.0\.0\.0)/

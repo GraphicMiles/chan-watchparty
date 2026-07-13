@@ -1,11 +1,11 @@
 import * as cheerio from 'cheerio'
 import { createHash } from 'node:crypto'
-import { preflight, ok, fail, statusForError } from './lib/http.js'
-import { getDb, FieldValue, verifyIdToken } from './lib/firebaseAdmin.js'
-import { getSiteConfig, resolveUrl } from './lib/sources.js'
-import { checkIptvChannel, getIptvChannels, getPlaylistChannels } from './lib/iptv.js'
-import { resolveDownloadwellaPage } from './lib/downloadwella.js'
-import { searchNsfwProvider } from './lib/nsfw.js'
+import { preflight, ok, fail, statusForError } from '../server-lib/http.js'
+import { getDb, FieldValue, verifyIdToken } from '../server-lib/firebaseAdmin.js'
+import { getSiteConfig, resolveUrl } from '../server-lib/sources.js'
+import { checkIptvChannel, getIptvChannels, getPlaylistChannels } from '../server-lib/iptv.js'
+import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
+import { searchNsfwProvider } from '../server-lib/nsfw.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY
@@ -96,7 +96,12 @@ async function searchYouTube(query, limit = 20) {
     videoEmbeddable: 'true',
   })
 
-  const res = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`)
+  const res = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`, {
+    headers: {
+      Referer: 'https://chan-yz3p.vercel.app/',
+      'User-Agent': 'Mozilla/5.0 (compatible; ChanServer/1.0)',
+    },
+  })
   if (!res.ok) {
     const error = await res.json().catch(() => ({}))
     throw new Error(error.error?.message || `YouTube API error: ${res.status}`)
@@ -108,7 +113,13 @@ async function searchYouTube(query, limit = 20) {
   let statusById = {}
   if (ids.length) {
     const detailsRes = await fetch(
-      `https://www.googleapis.com/youtube/v3/videos?part=status,snippet,contentDetails,statistics&id=${ids.join(',')}&key=${YOUTUBE_API_KEY}`
+      `https://www.googleapis.com/youtube/v3/videos?part=status,snippet,contentDetails,statistics&id=${ids.join(',')}&key=${YOUTUBE_API_KEY}`,
+      {
+        headers: {
+          Referer: 'https://chan-yz3p.vercel.app/',
+          'User-Agent': 'Mozilla/5.0 (compatible; ChanServer/1.0)',
+        },
+      }
     )
     if (detailsRes.ok) {
       const detailsData = await detailsRes.json()
