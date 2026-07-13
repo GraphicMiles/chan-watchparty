@@ -66,6 +66,11 @@ The endpoint checks a bounded batch of channels, writes results to `mediaCatalog
 
 The cron endpoint is intended for an external scheduler such as cron-job.org because Vercel Hobby scheduling is limited. Use only channels you are authorized to distribute.
 
+## Provider extensibility
+
+- **IPTV** supports the default Free-TV playlist, `IPTV_PLAYLIST_URL`, `IPTV_PLAYLISTS_JSON` for multiple trusted M3U sources, and `IPTV_CHANNELS_JSON` for additional channels. Providers are normalized and deduplicated by stream URL.
+- **NSFW** uses a provider registry in `api/lib/nsfw.js`. `NSFW_PROVIDER=xvideos` selects the current adapter. Add a new provider adapter to that registry without changing the `/api/media` dispatcher. Adapters must use public, permitted pages/APIs and must not bypass login, paywall, CAPTCHA, or anti-bot controls.
+
 ## Vercel free plan notes
 
 - **Serverless functions**: the Hobby plan gives you **12 functions per deployment**. The app has **5 functions total**: `room`, `moderate`, `createLiveKitToken`, `cleanupStaleRooms`, and `media`. The legacy `/api/search`, `/api/scrape`, and `/api/refreshCatalog` paths are routed to `/api/media` or consolidated into its action dispatcher.

@@ -5,7 +5,7 @@ import { getDb, FieldValue, verifyIdToken } from './lib/firebaseAdmin.js'
 import { getSiteConfig, resolveUrl } from './lib/sources.js'
 import { checkIptvChannel, getIptvChannels, getPlaylistChannels } from './lib/iptv.js'
 import { resolveDownloadwellaPage } from './lib/downloadwella.js'
-import { searchXVideos } from './lib/nsfw.js'
+import { searchNsfwProvider } from './lib/nsfw.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY
@@ -197,8 +197,8 @@ async function searchDirectLinks(query, options = {}) {
   }
 }
 
-async function searchIPTV(query, userChannels = []) {
-  const channels = await getIptvChannels(userChannels)
+async function searchIPTV(query, userChannels = [], provider = '') {
+  const channels = await getIptvChannels(userChannels, provider)
   const term = query.toLowerCase()
 
   return channels
@@ -216,6 +216,7 @@ async function searchIPTV(query, userChannels = []) {
       channel: channel.name,
       group: channel.group,
       country: channel.country,
+      provider: channel.provider,
       source: 'iptv',
       type: 'iptv',
       isDirect: true,
@@ -332,10 +333,7 @@ async function searchNSFW(query, options = {}) {
   }
 
   const provider = options.provider || process.env.NSFW_PROVIDER || 'xvideos'
-  if (provider !== 'xvideos') {
-    throw Object.assign(new Error(`Unsupported NSFW provider: ${provider}`), { status: 400 })
-  }
-  return searchXVideos(query, Math.min(20, Math.max(1, Number(options.limit) || 20)))
+  return searchNsfwProvider(provider, query, Math.min(20, Math.max(1, Number(options.limit) || 20)))
 }
 
 // ==================== SCRAPER HELPERS ====================
@@ -652,8 +650,8 @@ async function refreshIptvCatalog(req, body) {
     const id = createHash('sha1').update(channel.url).digest('hex')
     batch.set(collection.doc(id), {
       ...channel,
-      source: 'free-tv-iptv-playlist',
-      playlistUrl: process.env.IPTV_PLAYLIST_URL || 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8',
+      source: channel.provider || 'iptv-playlist',
+      playlistUrl: channel.playlistUrl || process.env.IPTV_PLAYLIST_URL || 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8',
       healthy: health.healthy,
       healthStatus: health.status,
       contentType: health.contentType,
@@ -797,7 +795,7 @@ export default async function handler(req, res) {
           break
         }
         case 'iptv':
-          results = await searchIPTV(query, options.userChannels || [])
+          results = await searchIPTV(query, options.userChannels || [], options.provider || '')
           break
         case 'sports':
           results = await searchSports(query)
@@ -805,8 +803,9 @@ export default async function handler(req, res) {
         case 'nsfw': {
           const searchResults = await searchNSFW(query, options)
           if (options.resolve) {
+            const provider = options.provider || process.env.NSFW_PROVIDER || 'xvideos'
             const resolved = await Promise.all(searchResults.slice(0, 6).map(async (result) => {
-              const pageResults = await resolvePageChain(result.url, 'xvideos')
+              const pageResults = await resolvePageChain(result.url, provider)
               return pageResults.length ? pageResults : [result]
             }))
             results = resolved.flat().map((result) => ({
