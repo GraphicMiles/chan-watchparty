@@ -1,8 +1,9 @@
 import * as cheerio from 'cheerio'
+import { createHash } from 'node:crypto'
 import { preflight, ok, fail, statusForError } from './lib/http.js'
-import { verifyIdToken } from './lib/firebaseAdmin.js'
+import { getDb, FieldValue, verifyIdToken } from './lib/firebaseAdmin.js'
 import { getSiteConfig, resolveUrl } from './lib/sources.js'
-import { getIptvChannels } from './lib/iptv.js'
+import { checkIptvChannel, getIptvChannels, getPlaylistChannels } from './lib/iptv.js'
 import { resolveDownloadwellaPage } from './lib/downloadwella.js'
 import { searchXVideos } from './lib/nsfw.js'
 
@@ -604,13 +605,93 @@ async function requireUser(req) {
   }
 }
 
+function requireCronSecret(req) {
+  const expected = process.env.CRON_SECRET
+  if (!expected) throw Object.assign(new Error('CRON_SECRET is not configured'), { status: 503 })
+  const actual = req.headers?.['x-cron-secret'] || req.headers?.['X-Cron-Secret']
+  if (actual !== expected) throw Object.assign(new Error('Unauthorized'), { status: 401 })
+}
+
+function clampInteger(value, fallback, max) {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(parsed, 0), max)
+}
+
+async function mapConcurrent(items, concurrency, worker) {
+  const results = new Array(items.length)
+  let cursor = 0
+  async function run() {
+    while (true) {
+      const index = cursor++
+      if (index >= items.length) return
+      results[index] = await worker(items[index], index)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run))
+  return results
+}
+
+async function refreshIptvCatalog(req, body) {
+  requireCronSecret(req)
+  const offset = clampInteger(body.offset, 0, 100000)
+  const limit = clampInteger(body.limit, clampInteger(process.env.IPTV_HEALTH_CHECK_LIMIT, 50, 100), 100) || 50
+  const channels = await getPlaylistChannels({ force: true })
+  const batchChannels = channels.slice(offset, offset + limit)
+  if (!batchChannels.length) {
+    return { action: 'iptv', total: channels.length, offset, checked: 0, healthy: 0, nextOffset: null, complete: true }
+  }
+
+  const checks = await mapConcurrent(batchChannels, 8, (channel) => checkIptvChannel(channel.url))
+  const db = getDb()
+  const batch = db.batch()
+  const collection = db.collection('mediaCatalog').doc('iptv').collection('channels')
+  const checkedAt = FieldValue.serverTimestamp()
+  batchChannels.forEach((channel, index) => {
+    const health = checks[index]
+    const id = createHash('sha1').update(channel.url).digest('hex')
+    batch.set(collection.doc(id), {
+      ...channel,
+      source: 'free-tv-iptv-playlist',
+      playlistUrl: process.env.IPTV_PLAYLIST_URL || 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8',
+      healthy: health.healthy,
+      healthStatus: health.status,
+      contentType: health.contentType,
+      healthError: health.error,
+      checkedAt,
+    }, { merge: true })
+  })
+  await batch.commit()
+
+  const healthy = checks.filter((check) => check.healthy).length
+  const nextOffset = offset + batchChannels.length < channels.length ? offset + batchChannels.length : null
+  return {
+    action: 'iptv',
+    total: channels.length,
+    offset,
+    checked: batchChannels.length,
+    healthy,
+    unhealthy: batchChannels.length - healthy,
+    nextOffset,
+    complete: nextOffset === null,
+  }
+}
+
 export default async function handler(req, res) {
   if (preflight(req, res)) return
   if (req.method !== 'POST') return fail(res, 405, 'Method not allowed')
 
   try {
+    const body = req.body || {}
+    const action = body.action || req.query?.legacy || 'search'
+    if (action === 'refreshCatalog') {
+      const catalog = await refreshIptvCatalog(req, body)
+      return ok(res, catalog)
+    }
+
     await requireUser(req)
-    const { action = 'search', layer = 'youtube', query, options = {}, url, site } = req.body || {}
+    const layer = body.layer || body.source || 'youtube'
+    const { query, options = {}, url, site } = body
     
     // Legacy scrape endpoint
     if (action === 'scrape') {
