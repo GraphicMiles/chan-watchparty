@@ -1,84 +1,110 @@
 :root {
-  /* === Six Brand Tokens (from design brief) === */
-  --depth: #0C0E16;
-  --ash: #161821;
-  --ember: #FF6B47;
-  --drift: #7C89F7;
-  --fog: #9AA0AE;
-  --paper: #F5F3EF;
+  /* ================================================================
+     LIGHT THEME (landing / home / discover feed)
+     ================================================================ */
+  --bg-light: #F3F4F1;
+  --bg-grid-line: #E7E8E4;
+  --surface-white: #FFFFFF;
+  --text-black: #111111;
+  --text-body-grey: #6B7069;
+  --text-muted-grey: #8B8F87;
+  --brand-green: #1F7A5C;
+  --accent-orange: #FF6A2B;
+  --pill-black: #111111;
+  --pill-black-text: #FFFFFF;
+  --pill-outline-border: #111111;
+  --live-red: #EA3323;
+  --border-hairline: #E7E8E4;
 
-  /* === Semantic Aliases === */
-  --bg-base: var(--depth);
-  --bg-surface: var(--ash);
-  --bg-surface-raised: rgba(22, 24, 33, 0.88);
-  --bg-surface-raised-hover: rgba(30, 33, 45, 0.92);
+  /* ================================================================
+     DARK THEME (in-room view)
+     ================================================================ */
+  --room-bg: #0B0B0C;
+  --room-surface: #17181A;
+  --room-surface-raised: #1E1F22;
+  --room-avatar-bg: #2A2B2E;
+  --room-text-primary: #FFFFFF;
+  --room-text-secondary: #9A9C9F;
+  --room-divider: #232426;
+  --room-danger: #E4463A;
+  --room-danger-bg: rgba(228, 70, 58, 0.12);
+  --pulse-red-core: #FF3B30;
+  --pulse-red-ring: rgba(255, 59, 48, 0.15);
 
-  /* Accents */
-  --accent: var(--drift);
-  --accent-hover: #95a1ff;
-  --accent-muted: rgba(124, 137, 247, 0.12);
-  --danger: var(--ember);
-  --danger-hover: #ff8a6f;
-  --danger-muted: rgba(255, 107, 71, 0.1);
-  --success: #34d399;
-  --success-muted: rgba(52, 211, 153, 0.12);
-  --warning: #fbbf24;
-  --warning-muted: rgba(251, 191, 36, 0.12);
-
-  /* Text */
-  --text-primary: var(--paper);
-  --text-secondary: var(--fog);
-  --text-muted: #6b7280;
-  --text-on-accent: var(--depth);
-  --text-on-danger: var(--depth);
-  --text-on-success: var(--depth);
-  --text-on-warning: var(--depth);
-
-  /* Borders */
-  --border: rgba(255, 255, 255, 0.06);
-  --border-strong: rgba(255, 255, 255, 0.1);
-  --border-focus: rgba(124, 137, 247, 0.5);
-
-  /* Shadows — layered for premium depth */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35), 0 1px 4px rgba(0, 0, 0, 0.25);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3);
-  --shadow-xl: 0 24px 64px rgba(0, 0, 0, 0.6), 0 8px 20px rgba(0, 0, 0, 0.4);
-
-  /* Glows — signal only */
-  --glow-ember: 0 0 24px rgba(255, 107, 71, 0.2), 0 0 48px rgba(255, 107, 71, 0.08);
-  --glow-drift: 0 0 24px rgba(124, 137, 247, 0.2), 0 0 48px rgba(124, 137, 247, 0.08);
-  --glow-ember-sm: 0 0 12px rgba(255, 107, 71, 0.15);
-  --glow-drift-sm: 0 0 12px rgba(124, 137, 247, 0.15);
-
-  /* Radius — exactly four tokens */
+  /* ================================================================
+     SHAPE TOKENS
+     ================================================================ */
+  --radius-pill: 999px;
+  --radius-card: 16px;
+  --radius-thumb: 16px;
   --radius-sm: 8px;
+
+  /* ================================================================
+     TYPOGRAPHY
+     ================================================================ */
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* ================================================================
+     SPACING
+     ================================================================ */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ================================================================
+     SHADOWS
+     ================================================================ */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-card-hover: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-pill: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-nav: 0 1px 3px rgba(0, 0, 0, 0.05);
+
+  /* ================================================================
+     LEGACY ALIASES (for components that haven't migrated yet)
+     ================================================================ */
+  --accent: var(--accent-orange);
+  --danger: var(--live-red);
+  --bg-base: var(--bg-light);
+  --bg-surface: var(--surface-white);
+  --text-primary: var(--text-black);
+  --text-secondary: var(--text-body-grey);
+  --text-muted: var(--text-muted-grey);
+  --border: var(--border-hairline);
+  --border-strong: var(--border-hairline);
+  --accent-muted: rgba(255, 106, 43, 0.1);
+  --danger-muted: rgba(234, 51, 35, 0.08);
+  --success: #1F7A5C;
+  --success-muted: rgba(31, 122, 92, 0.08);
+  --warning: #F2B200;
+  --warning-muted: rgba(242, 178, 0, 0.1);
+  --accent-hover: #e85e22;
+  --danger-hover: #d42d1e;
+  --text-on-accent: #FFFFFF;
+  --text-on-danger: #FFFFFF;
+  --text-on-success: #FFFFFF;
+  --text-on-warning: #111111;
+  --border-focus: rgba(255, 106, 43, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.08);
+
+  --radius-sm-old: 8px;
   --radius-md: 16px;
-  --radius-lg: 24px;
-  --radius-full: 9999px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
 
-  /* Spacing */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.25rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
-  --space-10: 2.5rem;
-  --space-12: 3rem;
-  --space-16: 4rem;
-
-  /* Typography */
-  --font-display: 'Bricolage Grotesque', sans-serif;
-  --font-body: 'IBM Plex Sans', sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
-
-  /* Sanctioned gradient: Drift -> Ember — only 2 uses */
-  --gradient-cta: linear-gradient(135deg, var(--drift) 0%, var(--ember) 100%);
-
-  /* Premium surface inner highlight */
-  --inner-glow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-
-  color-scheme: dark;
+  --gradient-cta: linear-gradient(135deg, var(--accent-orange), var(--live-red));
+  --inner-glow: none;
+  --glow-ember-sm: none;
+  --glow-drift-sm: none;
+  --glow-ember: none;
+  --glow-drift: none;
 }

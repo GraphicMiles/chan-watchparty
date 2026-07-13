@@ -3,16 +3,15 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  border: none;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.1s ease, opacity 0.15s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.25s ease;
+  transition: transform 0.1s ease, opacity 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
   font-family: var(--font-body);
   line-height: 1.25;
   white-space: nowrap;
-  letter-spacing: 0.01em;
-  position: relative;
+  text-decoration: none;
 }
 
 .button:disabled {
@@ -24,92 +23,77 @@
   transform: scale(0.97);
 }
 
-/* Primary */
+/* Primary = black pill */
 .primary {
-  background: var(--accent);
-  color: var(--text-on-accent);
-  box-shadow: var(--glow-drift-sm), inset 0 1px 0 rgba(255,255,255,0.1);
+  background: var(--pill-black);
+  color: var(--pill-black-text);
+  box-shadow: var(--shadow-pill);
 }
 
 .primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  box-shadow: var(--glow-drift), inset 0 1px 0 rgba(255,255,255,0.15);
+  background: #2a2a2a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
-/* Secondary */
+/* Secondary = white with hairline border */
 .secondary {
-  background: rgba(22, 24, 33, 0.6);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  color: var(--text-primary);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: var(--inner-glow);
+  background: var(--surface-white);
+  color: var(--text-black);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-pill);
 }
 
 .secondary:hover:not(:disabled) {
-  background: rgba(30, 33, 45, 0.8);
-  border-color: rgba(255, 255, 255, 0.15);
-  box-shadow: var(--inner-glow), var(--shadow-sm);
+  border-color: var(--text-muted-grey);
 }
 
-/* Danger */
+/* Danger = red outline */
 .danger {
   background: transparent;
-  color: var(--danger);
-  border-color: rgba(255, 107, 71, 0.3);
+  color: var(--live-red);
+  border: 1.5px solid var(--live-red);
 }
 
 .danger:hover:not(:disabled) {
-  background: var(--danger-muted);
-  border-color: rgba(255, 107, 71, 0.5);
-  box-shadow: var(--glow-ember-sm);
+  background: rgba(234, 51, 35, 0.06);
 }
 
 /* Ghost */
 .ghost {
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--text-body-grey);
 }
 
 .ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-black);
 }
 
-/* CTA — gradient button (sanctioned use #1) */
+/* CTA = orange accent */
 .cta {
-  background: var(--gradient-cta);
+  background: var(--accent-orange);
   color: #fff;
-  box-shadow: var(--glow-drift), inset 0 1px 0 rgba(255,255,255,0.15);
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  box-shadow: var(--shadow-pill);
 }
 
 .cta:hover:not(:disabled) {
-  box-shadow: 0 0 32px rgba(124, 137, 247, 0.3), 0 0 32px rgba(255, 107, 71, 0.15), inset 0 1px 0 rgba(255,255,255,0.2);
-  transform: translateY(-1px);
-}
-
-.cta:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
+  background: #e85e22;
 }
 
 /* Sizes */
 .sm {
-  padding: 0.4rem 0.75rem;
+  padding: 0.45rem 0.9rem;
   font-size: 0.82rem;
-  border-radius: var(--radius-sm);
 }
 
 .md {
-  padding: 0.65rem 1.15rem;
-  font-size: 0.95rem;
+  padding: 0.6rem 1.25rem;
+  font-size: 0.9rem;
 }
 
 .lg {
   padding: 0.85rem 1.75rem;
-  font-size: 1.05rem;
-  border-radius: var(--radius-md);
+  font-size: 1rem;
 }
 
 .fullWidth {
@@ -125,6 +109,36 @@
 }
 
 .button:focus-visible {
-  outline: 2px solid var(--border-focus);
+  outline: 2px solid var(--accent-orange);
   outline-offset: 2px;
+}
+
+/* ===== DARK THEME (room) button overrides ===== */
+.room-theme .primary {
+  background: var(--room-surface);
+  color: var(--room-text-primary);
+  border: 1px solid var(--room-divider);
+}
+
+.room-theme .primary:hover:not(:disabled) {
+  background: var(--room-surface-raised);
+}
+
+.room-theme .secondary {
+  background: var(--room-surface);
+  color: var(--room-text-secondary);
+  border: 1px solid var(--room-divider);
+}
+
+.room-theme .secondary:hover:not(:disabled) {
+  color: var(--room-text-primary);
+}
+
+.room-theme .ghost {
+  color: var(--room-text-secondary);
+}
+
+.room-theme .ghost:hover:not(:disabled) {
+  background: var(--room-surface);
+  color: var(--room-text-primary);
 }

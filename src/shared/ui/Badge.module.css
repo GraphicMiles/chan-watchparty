@@ -1,48 +1,40 @@
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.25rem 0.65rem;
-  border-radius: var(--radius-full);
-  font-size: 0.72rem;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.7rem;
   font-weight: 700;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   line-height: 1;
-  border: 1px solid transparent;
 }
 
 .live {
-  background: rgba(255, 107, 71, 0.1);
-  color: var(--danger);
-  border-color: rgba(255, 107, 71, 0.2);
-  box-shadow: var(--glow-ember-sm);
+  background: var(--live-red);
+  color: #fff;
 }
 
 .accent {
-  background: rgba(124, 137, 247, 0.1);
-  color: var(--accent);
-  border-color: rgba(124, 137, 247, 0.15);
-  box-shadow: var(--glow-drift-sm);
+  background: var(--accent-orange);
+  color: #fff;
 }
 
 .muted {
-  background: rgba(22, 24, 33, 0.6);
-  color: var(--text-secondary);
-  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-body-grey);
 }
 
 .success {
   background: var(--success-muted);
-  color: var(--success);
-  border-color: rgba(52, 211, 153, 0.15);
+  color: var(--brand-green);
 }
 
 .warning {
   background: var(--warning-muted);
-  color: var(--warning);
-  border-color: rgba(251, 191, 36, 0.15);
+  color: #b8860b;
 }
 
 .icon {
@@ -52,12 +44,12 @@
 }
 
 .icon svg {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
 }
 
 .pulse {
-  animation: badge-pulse 5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: badge-pulse 2s ease-in-out infinite;
 }
 
 @keyframes badge-pulse {
@@ -66,7 +58,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pulse {
-    animation: none;
-  }
+  .pulse { animation: none; }
 }

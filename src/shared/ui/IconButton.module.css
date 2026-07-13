@@ -4,27 +4,34 @@
   justify-content: center;
   width: 2.25rem;
   height: 2.25rem;
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  border: none;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--text-body-grey);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .button:hover:not(:disabled) {
-  background: rgba(22, 24, 33, 0.7);
-  color: var(--text-primary);
-  border-color: var(--border);
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-black);
 }
 
 .button:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .active {
-  background: var(--accent-muted);
-  color: var(--accent);
-  border-color: rgba(124, 137, 247, 0.2);
+  background: var(--accent-orange);
+  color: #fff;
+}
+
+.room-theme .button {
+  color: var(--room-text-secondary);
+}
+
+.room-theme .button:hover:not(:disabled) {
+  background: var(--room-surface);
+  color: var(--room-text-primary);
 }

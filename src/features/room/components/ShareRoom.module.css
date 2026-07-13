@@ -6,19 +6,18 @@
 }
 
 .qr {
-  width: 160px;
-  height: 160px;
-  border-radius: var(--radius-md);
-  background: var(--depth);
-  padding: 0.75rem;
-  border: 1px solid var(--border);
+  width: 150px;
+  height: 150px;
+  border-radius: var(--radius-card);
+  background: var(--bg-light);
+  padding: 0.6rem;
+  border: 1px solid var(--border-hairline);
 }
 
 .link {
   text-align: center;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--text-body-grey);
 }
 
 .actions {
@@ -27,38 +26,34 @@
   width: 100%;
 }
 
-.actions > * {
-  flex: 1;
-}
+.actions > * { flex: 1; }
 
 .code {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  margin: 0;
-  text-align: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--text-body-grey);
   padding: 0.5rem 0.75rem;
-  background: rgba(22, 24, 33, 0.6);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-hairline);
+  width: 100%;
+  justify-content: center;
 }
 
 .copyCode {
   margin-left: auto;
   background: transparent;
   border: none;
-  color: var(--accent);
+  color: var(--accent-orange);
   cursor: pointer;
   display: flex;
   align-items: center;
-  padding: 0.25rem;
+  padding: 0.2rem;
   border-radius: var(--radius-sm);
-  transition: background 0.15s ease;
 }
 
 .copyCode:hover {
-  background: var(--accent-muted);
+  background: rgba(255, 106, 43, 0.08);
 }

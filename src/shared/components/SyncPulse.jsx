@@ -11,10 +11,10 @@ export function SyncPulse({ active = true, size = 40, className = '' }) {
         className={`${styles.ring} ${active && !prefersReduced ? 'sync-pulse' : ''}`}
         style={{
           borderRadius: '50%',
-          border: '2px solid var(--ember)',
+          border: '2px solid var(--live-red)',
           position: 'absolute',
           inset: 0,
-          opacity: prefersReduced ? 0.6 : 0.8,
+          opacity: prefersReduced ? 0.5 : 0.8,
         }}
       />
     </div>

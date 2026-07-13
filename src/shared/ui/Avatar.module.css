@@ -3,41 +3,43 @@
   flex-shrink: 0;
   width: var(--size, 2.5rem);
   height: var(--size, 2.5rem);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-pill);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: calc(var(--size, 2.5rem) * 0.4);
+  font-family: var(--font-display);
+  font-size: calc(var(--size, 2.5rem) * 0.38);
   color: #fff;
   user-select: none;
-  border: 2px solid transparent;
 }
 
 .hostRing {
-  border: 2.5px solid var(--drift);
-  box-shadow: var(--glow-drift-sm);
+  box-shadow: 0 0 0 2px var(--accent-orange);
 }
 
 .status {
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 0.7rem;
-  height: 0.7rem;
-  border-radius: var(--radius-full);
-  border: 2px solid var(--ash);
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--surface-white);
 }
 
 .statusLive {
-  background: var(--ember);
-  box-shadow: var(--glow-ember-sm);
+  background: var(--live-red);
 }
 
 .statusOnline {
-  background: var(--success);
+  background: var(--brand-green);
 }
 
 .statusIdle {
-  background: var(--fog);
+  background: var(--text-muted-grey);
+}
+
+.room-theme .status {
+  border-color: var(--room-bg);
 }

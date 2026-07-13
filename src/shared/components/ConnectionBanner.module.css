@@ -3,17 +3,17 @@
   top: 0;
   z-index: 40;
   width: 100%;
-  padding: 0.55rem 1rem;
+  padding: 0.5rem 1rem;
   text-align: center;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 600;
-  color: var(--depth);
-  background: var(--warning);
+  color: #7A5C00;
+  background: #FFF3CD;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  box-shadow: 0 2px 8px rgba(251, 191, 36, 0.2);
+  gap: 0.45rem;
+  border-bottom: 1px solid rgba(242, 178, 0, 0.2);
 }
 
 .spin {
