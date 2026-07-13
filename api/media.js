@@ -389,6 +389,38 @@ async function fetchHtml(targetUrl) {
   }
 }
 
+function extractDirectMedia(html, baseUrl, source) {
+  const $ = cheerio.load(html)
+  const results = []
+  const seen = new Set()
+  const pageTitle = $('meta[property="og:title"]').attr('content') || $('title').text().trim() || 'Video'
+
+  const add = (rawUrl, title, meta = 'direct file') => {
+    const link = resolveUrl(rawUrl, baseUrl)
+    if (!link || !MEDIA_EXT_RE.test(link) || seen.has(link)) return
+    seen.add(link)
+    results.push({
+      title: title || `${pageTitle} (direct video)`,
+      image: $('meta[property="og:image"]').attr('content') || null,
+      link,
+      url: link,
+      meta,
+      source,
+      isDirect: true,
+      playableInRoom: true,
+    })
+  }
+
+  $('video[src], video source[src], source[src], a[href]').each((_, el) => {
+    const raw = $(el).attr('src') || $(el).attr('href')
+    add(raw, $(el).text().trim() || pageTitle)
+  })
+
+  const rawUrls = html.match(/https?:[^\s"'<>]+\.(?:mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(?:\?[^\s"'<>]*)?/gi) || []
+  rawUrls.forEach((raw) => add(raw.replace(/&amp;/g, '&'), pageTitle, 'direct URL found on page'))
+  return results
+}
+
 function parseListing(html, baseUrl, config) {
   const $ = cheerio.load(html)
   const results = []
@@ -396,7 +428,12 @@ function parseListing(html, baseUrl, config) {
   
   $(config.items).each((_, el) => {
     const $el = $(el)
-    const title = $el.find(config.title).first().text().trim() || 'Untitled'
+    const title =
+      $el.find(config.title).first().text().trim() ||
+      $el.attr('title') ||
+      ($el.is('a') ? $el.text().trim() : '') ||
+      $el.find('img').first().attr('alt') ||
+      'Untitled'
     const rawImg = $el.find(config.image).first().attr('src') || $el.find(config.image).first().attr('data-src')
     const img = resolveUrl(rawImg, baseUrl)
     const rawLink = $el.find(config.link).first().attr('href') || $el.closest('a').attr('href')
@@ -462,14 +499,38 @@ export default async function handler(req, res) {
         })
       }
       
-      // Scrape HTML page
+      const target = new URL(url)
+      if (target.hostname.toLowerCase().endsWith('downloadwella.com')) {
+        return ok(res, {
+          results: [{
+            title: decodeURIComponent(target.pathname.split('/').pop() || 'Download page'),
+            url,
+            link: url,
+            source: 'downloadwella',
+            isDirect: false,
+            requiresUserAction: true,
+            meta: 'Open this download page and complete its own download step. Chan will not bypass provider controls.',
+          }],
+          count: 1,
+          requiresUserAction: true,
+          url,
+          site: 'downloadwella',
+        })
+      }
+
+      // Scrape HTML page and prefer direct media URLs when the page exposes
+      // them. Otherwise return page links for the next user-approved step.
       const html = await fetchHtml(url)
       const config = getSiteConfig(site) || getSiteConfig('custom')
-      const results = parseListing(html, url, config)
+      const directResults = extractDirectMedia(html, url, site || 'custom')
+      const pageResults = parseListing(html, url, config)
+      const merged = [...directResults, ...pageResults]
+      const results = [...new Map(merged.filter((item) => item.url).map((item) => [item.url, item])).values()]
       
-      return ok(res, { 
-        results, 
+      return ok(res, {
+        results,
         count: results.length,
+        directCount: directResults.length,
         url,
         site: site || 'custom',
       })

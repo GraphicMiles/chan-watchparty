@@ -79,6 +79,7 @@ export function useScraper() {
           meta: item.meta || null,
           source: item.source || site || 'unknown',
           isDirect: playable,
+          requiresUserAction: item.requiresUserAction === true,
           quality: item.quality || extractQualityFromText(`${item.title || ''} ${item.meta || ''}`),
           playableInRoom: playable,
         }
