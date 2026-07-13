@@ -1,226 +1,282 @@
-import { useEffect, useRef, useState } from 'react'
-import YouTube from 'react-youtube'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
+import ReactPlayer from 'react-player'
+import Hls from 'hls.js'
+import styles from './VideoPlayer.module.scss'
 
-const EMBED_ERROR_CODES = new Set([101, 150, 100, 2, 5])
+const RETRY_ATTEMPTS = 3
+const RETRY_DELAY = 3000
 
 export default function VideoPlayer({
-  videoId,
-  videoUrl,
-  videoType = 'youtube',
-  canControl,
+  url,
+  playing,
+  played,
+  volume,
+  muted,
+  playbackRate,
+  onProgress,
+  onDuration,
+  onPlay,
+  onPause,
+  onEnded,
+  onError,
   onReady,
-  onPlayerEvent,
+  isLive = false,
 }) {
   const playerRef = useRef(null)
+  const hlsRef = useRef(null)
   const videoRef = useRef(null)
-  const [ytError, setYtError] = useState(null)
-  const [directError, setDirectError] = useState(null)
+  const retryCountRef = useRef(0)
+  const retryTimeoutRef = useRef(null)
+  
+  const [isHLS, setIsHLS] = useState(false)
+  const [isDirect, setIsDirect] = useState(false)
+  const [error, setError] = useState(null)
+  const [isReady, setIsReady] = useState(false)
 
+  // Detect video type
   useEffect(() => {
-    setYtError(null)
-    setDirectError(null)
-  }, [videoId, videoUrl, videoType])
-
-  // Direct / HTML5 video
-  useEffect(() => {
-    if (videoType !== 'direct' || !videoUrl || !videoRef.current) return
-
-    const video = videoRef.current
-
-    const handlePlay = () => {
-      onPlayerEvent?.({ isPlaying: true, currentTime: video.currentTime || 0 })
-    }
-    const handlePause = () => {
-      onPlayerEvent?.({ isPlaying: false, currentTime: video.currentTime || 0 })
-    }
-    const handleSeeked = () => {
-      onPlayerEvent?.({
-        isPlaying: !video.paused,
-        currentTime: video.currentTime || 0,
-      })
-    }
-    const handleError = () => {
-      setDirectError(
-        'Could not play this file in the browser (bad URL, format, or the host blocks embedding). Try another direct .mp4 link.'
-      )
-    }
-
-    video.addEventListener('play', handlePlay)
-    video.addEventListener('pause', handlePause)
-    video.addEventListener('seeked', handleSeeked)
-    video.addEventListener('error', handleError)
-
-    onReady?.({
-      playVideo: () => video.play(),
-      pauseVideo: () => video.pause(),
-      seekTo: (time) => {
-        video.currentTime = time
-      },
-      getCurrentTime: () => video.currentTime || 0,
-      getDuration: () => video.duration || 0,
-      getPlayerState: () => (video.paused ? 2 : 1),
-    })
-
+    if (!url) return
+    
+    const isM3U8 = url.includes('.m3u8') || url.includes('m3u8')
+    const isMP4 = url.match(/\.(mp4|mkv|avi|mov|webm|ogg|flv)(\?|#|$)/i)
+    const isYouTube = url.includes('youtube.com') || url.includes('youtu.be')
+    
+    setIsHLS(isM3U8)
+    setIsDirect(isM3U8 || isMP4)
+    setError(null)
+    setIsReady(false)
+    retryCountRef.current = 0
+    
     return () => {
-      video.removeEventListener('play', handlePlay)
-      video.removeEventListener('pause', handlePause)
-      video.removeEventListener('seeked', handleSeeked)
-      video.removeEventListener('error', handleError)
+      clearTimeout(retryTimeoutRef.current)
     }
-  }, [videoType, videoUrl, onPlayerEvent, onReady])
+  }, [url])
 
-  const handleYouTubeReady = (e) => {
-    playerRef.current = e.target
-    setYtError(null)
-    onReady?.(e.target)
-  }
+  // Cleanup HLS on unmount or URL change
+  useEffect(() => {
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy()
+        hlsRef.current = null
+      }
+    }
+  }, [url])
 
-  const handleYouTubePlay = () => {
-    onPlayerEvent?.({ isPlaying: true, currentTime: playerRef.current?.getCurrentTime?.() || 0 })
-  }
-
-  const handleYouTubePause = () => {
-    onPlayerEvent?.({ isPlaying: false, currentTime: playerRef.current?.getCurrentTime?.() || 0 })
-  }
-
-  const handleYouTubeError = (e) => {
-    const code = e?.data
-    if (code === 101 || code === 150) {
-      setYtError(
-        'This video cannot be embedded (often Vevo or label restriction). Open it on YouTube or pick another video.'
-      )
-    } else if (code === 100) {
-      setYtError('Video not found or private.')
-    } else if (EMBED_ERROR_CODES.has(code)) {
-      setYtError(`YouTube player error (${code}). Try another video.`)
+  // HLS.js setup
+  useEffect(() => {
+    if (!isHLS || !videoRef.current || !url) return
+    
+    setIsReady(false)
+    
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: isLive,
+        backBufferLength: 90,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 600,
+        manifestLoadingTimeOut: 10000,
+        manifestLoadingMaxRetry: 2,
+        levelLoadingTimeOut: 10000,
+        levelLoadingMaxRetry: 2,
+        fragLoadingTimeOut: 20000,
+        fragLoadingMaxRetry: 3,
+      })
+      
+      hls.loadSource(url)
+      hls.attachMedia(videoRef.current)
+      
+      hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+        console.log('HLS manifest parsed, levels:', data.levels.length)
+        setIsReady(true)
+        onReady?.()
+      })
+      
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        console.error('HLS error:', data)
+        
+        if (data.fatal) {
+          switch(data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.log('Fatal network error, trying to recover...')
+              hls.startLoad()
+              break
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.log('Fatal media error, trying to recover...')
+              hls.recoverMediaError()
+              break
+            default:
+              destroyHls()
+              handleError(new Error(`HLS fatal error: ${data.details}`))
+              break
+          }
+        }
+      })
+      
+      hlsRef.current = hls
+      
+      return () => {
+        destroyHls()
+      }
+    } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+      // Native HLS support (Safari)
+      videoRef.current.src = url
+      videoRef.current.addEventListener('loadedmetadata', () => {
+        setIsReady(true)
+        onReady?.()
+      })
     } else {
-      setYtError('Could not play this YouTube video here. Try another one.')
+      handleError(new Error('HLS not supported in this browser'))
     }
-  }
+  }, [isHLS, url, isLive, onReady])
 
-  if (videoType === 'direct' && videoUrl) {
+  const destroyHls = useCallback(() => {
+    if (hlsRef.current) {
+      hlsRef.current.destroy()
+      hlsRef.current = null
+    }
+  }, [])
+
+  const handleError = useCallback((err) => {
+    console.error('Video error:', err)
+    setError(err.message)
+    
+    if (retryCountRef.current < RETRY_ATTEMPTS) {
+      retryCountRef.current++
+      console.log(`Retrying... Attempt ${retryCountRef.current}/${RETRY_ATTEMPTS}`)
+      
+      retryTimeoutRef.current = setTimeout(() => {
+        // Force reload
+        if (isHLS && hlsRef.current) {
+          hlsRef.current.startLoad()
+        } else if (playerRef.current) {
+          playerRef.current.seekTo(played || 0, 'fraction')
+        }
+      }, RETRY_DELAY)
+    } else {
+      onError?.(err)
+    }
+  }, [isHLS, played, onError])
+
+  const handleVideoError = useCallback((e) => {
+    const video = e.target
+    const errorMsg = video.error?.message || `Video error: ${video.error?.code}`
+    handleError(new Error(errorMsg))
+  }, [handleError])
+
+  // Sync playback state for ReactPlayer
+  useEffect(() => {
+    if (!playerRef.current || isHLS) return
+    
+    // Only seek if difference is significant (> 2 seconds)
+    const currentTime = playerRef.current.getCurrentTime()
+    const duration = playerRef.current.getDuration()
+    if (duration && Math.abs(currentTime - played * duration) > 2) {
+      playerRef.current.seekTo(played, 'fraction')
+    }
+  }, [played, isHLS])
+
+  // Error display
+  if (error) {
     return (
-      <div
-        style={{
-          position: 'relative',
-          width: '100%',
-          aspectRatio: '16/9',
-          background: 'black',
-          borderRadius: '0.75rem',
-          overflow: 'hidden',
-        }}
-      >
-        <video
-          ref={videoRef}
-          src={videoUrl}
-          controls={canControl}
-          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-          playsInline
-          preload="metadata"
-        >
-          Your browser does not support the video tag.
-        </video>
-        {directError && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '1rem',
-              textAlign: 'center',
-              background: 'rgba(0,0,0,0.85)',
-              color: 'var(--paper, #f5f3ef)',
-              fontSize: '0.9rem',
-            }}
-          >
-            {directError}
-          </div>
-        )}
+      <div className={styles.errorContainer}>
+        <div className={styles.errorIcon}>⚠️</div>
+        <h3>Playback Error</h3>
+        <p>{error}</p>
+        <button onClick={() => { setError(null); retryCountRef.current = 0; window.location.reload(); }}>
+          Retry
+        </button>
       </div>
     )
   }
 
-  return (
-    <div
-      style={{
-        position: 'relative',
-        width: '100%',
-        aspectRatio: '16/9',
-        background: 'black',
-        borderRadius: '0.75rem',
-        overflow: 'hidden',
-      }}
-    >
-      {videoId ? (
-        <>
-          <YouTube
-            videoId={videoId}
-            opts={{
-              width: '100%',
-              height: '100%',
-              playerVars: {
-                autoplay: 0,
-                controls: canControl ? 1 : 0,
-                rel: 0,
-                modestbranding: 1,
-                disablekb: canControl ? 0 : 1,
-                origin: typeof window !== 'undefined' ? window.location.origin : undefined,
-              },
-            }}
-            onReady={handleYouTubeReady}
-            onPlay={handleYouTubePlay}
-            onPause={handleYouTubePause}
-            onError={handleYouTubeError}
-            style={{ width: '100%', height: '100%' }}
-          />
-          {ytError && (
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.75rem',
-                padding: '1.25rem',
-                textAlign: 'center',
-                background: 'rgba(12,14,22,0.92)',
-                color: 'var(--paper, #f5f3ef)',
-                zIndex: 2,
-              }}
-            >
-              <strong style={{ fontSize: '1.05rem' }}>Video unavailable in Chan</strong>
-              <span style={{ color: 'var(--fog, #9aa0ae)', fontSize: '0.9rem', maxWidth: 360 }}>
-                {ytError}
-              </span>
-              <a
-                href={`https://www.youtube.com/watch?v=${videoId}`}
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: 'var(--drift, #7c89f7)', fontWeight: 600 }}
-              >
-                Open on YouTube
-              </a>
-            </div>
-          )}
-        </>
-      ) : (
-        <div
-          style={{
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#666',
+  // Loading state
+  if (!isReady && isHLS) {
+    return (
+      <div className={styles.loadingContainer}>
+        <div className={styles.spinner}></div>
+        <p>Loading stream...</p>
+      </div>
+    )
+  }
+
+  // HLS Player (native video element)
+  if (isHLS) {
+    return (
+      <div className={styles.playerWrapper}>
+        <video
+          ref={videoRef}
+          className={styles.videoElement}
+          autoPlay={playing}
+          muted={muted}
+          controls
+          playsInline
+          onPlay={onPlay}
+          onPause={onPause}
+          onEnded={onEnded}
+          onError={handleVideoError}
+          onTimeUpdate={(e) => {
+            const video = e.target
+            if (video.duration) {
+              onProgress?.({ 
+                played: video.currentTime / video.duration,
+                playedSeconds: video.currentTime,
+                loaded: video.buffered.length > 0 ? video.buffered.end(0) / video.duration : 0
+              })
+            }
           }}
-        >
-          No video selected
-        </div>
-      )}
+          onLoadedMetadata={(e) => {
+            onDuration?.(e.target.duration)
+          }}
+          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+        />
+        {isLive && <div className={styles.liveIndicator}>● LIVE</div>}
+      </div>
+    )
+  }
+
+  // Standard ReactPlayer for YouTube and other URLs
+  return (
+    <div className={styles.playerWrapper}>
+      <ReactPlayer
+        ref={playerRef}
+        url={url}
+        playing={playing}
+        volume={volume}
+        muted={muted}
+        playbackRate={playbackRate}
+        onProgress={onProgress}
+        onDuration={onDuration}
+        onPlay={onPlay}
+        onPause={onPause}
+        onEnded={onEnded}
+        onError={handleError}
+        onReady={() => { setIsReady(true); onReady?.(); }}
+        width="100%"
+        height="100%"
+        controls
+        config={{
+          file: {
+            attributes: {
+              crossOrigin: 'anonymous',
+              playsInline: true,
+            },
+            forceVideo: true,
+            forceHLS: false,
+          },
+          youtube: {
+            playerVars: {
+              rel: 0,
+              modestbranding: 1,
+              playsInline: 1,
+            },
+            embedOptions: {
+              host: 'https://www.youtube-nocookie.com',
+            },
+          },
+        }}
+      />
+      {isLive && <div className={styles.liveIndicator}>● LIVE</div>}
     </div>
   )
-}
+          }
