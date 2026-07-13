@@ -166,10 +166,10 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     try {
       setAiLoading(true)
       const token = await user.getIdToken()
-      const res = await fetch('/api/ai', {
+      const res = await fetch('/api/room', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'summary', roomId, uid: user.uid }),
+        body: JSON.stringify({ action: 'ai', roomId, uid: user.uid }),
       })
       const data = await res.json()
       if (!res.ok || !data.success) {

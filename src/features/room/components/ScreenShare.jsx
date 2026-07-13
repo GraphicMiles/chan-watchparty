@@ -16,10 +16,11 @@ export default function ScreenShare({ roomId, isHost, user }) {
 
     const setup = async () => {
       try {
-        const res = await fetch('/api/createLiveKitToken', {
+        const token = await user.getIdToken()
+        const res = await fetch('/api/room', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roomId, uid: user.uid, role: isHost ? 'host' : 'viewer' }),
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ action: 'livekit', roomId, uid: user.uid, role: isHost ? 'host' : 'viewer' }),
         })
         const data = await parseJsonResponse(res)
         if (!res.ok) throw new Error(data.error || 'Could not get LiveKit token')

@@ -68,10 +68,12 @@ export function useScraper() {
       const normalized = (data.results || []).map((item, index) => {
         const link = normalizePlaybackUrl(item.url || item.link || '')
         const playable = item.isDirect === true || isDirectVideoUrl(link)
+        const thumb = item.thumbnail || item.image || null
         return {
           id: index,
           title: item.title || 'Untitled',
-          image: item.image || item.thumbnail || null,
+          thumbnail: thumb,
+          image: thumb,
           link,
           url: link,
           meta: item.meta || null,

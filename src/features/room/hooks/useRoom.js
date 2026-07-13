@@ -143,17 +143,17 @@ export function useRoom(roomId, inviteCode = null) {
 
   const kickParticipant = useCallback(async (uid) => {
     if (!roomId) return
-    await authFetch('/api/moderate', { action: 'kick', roomId, uid })
+    await authFetch('/api/room', { action: 'kick', roomId, uid })
   }, [roomId, authFetch])
 
   const promoteParticipant = useCallback(async (uid, role) => {
     if (!roomId) return
-    await authFetch('/api/moderate', { action: 'promote', roomId, uid, role })
+    await authFetch('/api/room', { action: 'promote', roomId, uid, role })
   }, [roomId, authFetch])
 
   const muteParticipant = useCallback(async (uid, muted) => {
     if (!roomId) return
-    await authFetch('/api/moderate', { action: 'mute', roomId, uid, muted })
+    await authFetch('/api/room', { action: 'mute', roomId, uid, muted })
   }, [roomId, authFetch])
 
   // Room listener
