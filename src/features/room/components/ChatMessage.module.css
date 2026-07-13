@@ -3,7 +3,7 @@
   flex-direction: column;
   gap: 0.25rem;
   padding: 0.5rem 0.65rem;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: transparent;
   transition: background 0.15s ease;
 }
@@ -21,7 +21,7 @@
 }
 
 .message:hover {
-  background: var(--bg-surface);
+  background: rgba(22, 24, 33, 0.5);
 }
 
 .reactWrap {
@@ -34,12 +34,15 @@
   left: 0;
   display: flex;
   gap: 0.25rem;
-  padding: 0.35rem;
-  background: var(--bg-surface-raised);
+  padding: 0.4rem;
+  background: rgba(22, 24, 33, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
   z-index: 5;
+  margin-bottom: 0.35rem;
 }
 
 .emojiBtn {
@@ -47,8 +50,15 @@
   border: none;
   cursor: pointer;
   font-size: 1.1rem;
+  padding: 0.25rem;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease;
+  line-height: 1;
 }
 
+.emojiBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
 
 .replySnippet {
   padding: 0.4rem 0.6rem;
@@ -64,6 +74,7 @@
   color: var(--accent);
   font-weight: 600;
   font-size: 0.75rem;
+  margin-right: 0.35rem;
 }
 
 .meta {
@@ -89,6 +100,7 @@
   font-size: 0.95rem;
   color: var(--text-primary);
   word-break: break-word;
+  line-height: 1.45;
 }
 
 .actions {
@@ -96,10 +108,19 @@
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.15rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.message:hover .actions {
+  opacity: 1;
 }
 
 .actionButton {
-  padding: 0.15rem 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.45rem;
   font-size: 0.75rem;
   color: var(--text-muted);
   background: transparent;
@@ -107,11 +128,12 @@
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition: color 0.15s ease, background 0.15s ease;
+  font-family: var(--font-body);
 }
 
 .actionButton:hover {
   color: var(--text-primary);
-  background: var(--bg-surface-raised);
+  background: rgba(22, 24, 33, 0.7);
 }
 
 .reactions {
@@ -125,13 +147,14 @@
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
-  padding: 0.15rem 0.4rem;
+  padding: 0.15rem 0.45rem;
   border-radius: var(--radius-full);
-  background: var(--bg-surface);
+  background: rgba(22, 24, 33, 0.6);
   border: 1px solid var(--border);
   font-size: 0.8rem;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
+  line-height: 1;
 }
 
 .reaction:hover {
@@ -140,10 +163,11 @@
 
 .reactionActive {
   background: var(--accent-muted);
-  border-color: var(--accent-muted);
+  border-color: rgba(124, 137, 247, 0.25);
 }
 
 .reactionCount {
   font-size: 0.75rem;
   color: var(--text-secondary);
+  font-family: var(--font-mono);
 }

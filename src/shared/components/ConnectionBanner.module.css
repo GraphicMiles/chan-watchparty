@@ -9,4 +9,16 @@
   font-weight: 600;
   color: var(--text-on-warning);
   background: var(--warning);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

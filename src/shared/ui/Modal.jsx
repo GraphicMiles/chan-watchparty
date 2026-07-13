@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { Card } from './Card.jsx'
+import { X } from 'lucide-react'
 import { IconButton } from './IconButton.jsx'
 import styles from './Modal.module.css'
 
-export function Modal({ children, title, onClose, open }) {
+export function Modal({ children, title, icon: Icon, onClose, open }) {
   const contentRef = useRef(null)
 
   useEffect(() => {
@@ -12,7 +12,6 @@ export function Modal({ children, title, onClose, open }) {
       if (e.key === 'Escape') onClose?.()
     }
     window.addEventListener('keydown', onKey)
-    // Focus first focusable control inside modal
     const root = contentRef.current
     const focusable = root?.querySelector(
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -32,13 +31,22 @@ export function Modal({ children, title, onClose, open }) {
         aria-label={title || 'Dialog'}
         ref={contentRef}
       >
-        <Card>
+        <div className={styles.card}>
           <div className={styles.header}>
-            <h2 className={styles.title}>{title}</h2>
-            <IconButton onClick={onClose} aria-label="Close">✕</IconButton>
+            <div className={styles.headerLeft}>
+              {Icon && (
+                <div className={styles.iconWrap}>
+                  <Icon size={20} />
+                </div>
+              )}
+              <h2 className={styles.title}>{title}</h2>
+            </div>
+            <IconButton onClick={onClose} aria-label="Close">
+              <X size={18} />
+            </IconButton>
           </div>
           {children}
-        </Card>
+        </div>
       </div>
     </div>
   )

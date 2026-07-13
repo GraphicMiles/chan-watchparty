@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
+import { Send, Smile, X, ArrowDown } from 'lucide-react'
 import { Input, Button, IconButton } from '../../../shared/ui/index.js'
 import ChatMessage from './ChatMessage.jsx'
 import styles from './Chat.module.css'
 
-const EMOJIS = ['😀', '😂', '😍', '🔥', '👍', '❤️', '👏', '😮', '🎉', '🤔', '😢', '😡']
+const REACTIONS = ['heart', 'thumbs-up', 'laugh', 'fire', 'clap', 'wow']
+const REACTION_SYMBOLS = { heart: '\u2764', 'thumbs-up': '\ud83d\udc4d', laugh: '\ud83d\ude02', fire: '\ud83d\udd25', clap: '\ud83d\udc4f', wow: '\ud83d\ude2e' }
 const TYPING_DEBOUNCE = 1200
 const TYPING_WRITE_INTERVAL = 2000
 const GROUP_WINDOW_MS = 60_000
@@ -36,7 +38,6 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   })()
 
   useEffect(() => {
-    // Drop optimistic entries once server has them (match by local text+uid within 10s)
     setOptimistic((list) =>
       list.filter((opt) => {
         const found = messages.some(
@@ -91,8 +92,8 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     typingTimer.current = setTimeout(() => setTyping(false), TYPING_DEBOUNCE)
   }
 
-  const insertEmoji = (emoji) => {
-    setText((t) => (t + emoji).slice(0, 500))
+  const insertEmoji = (key) => {
+    setText((t) => (t + REACTION_SYMBOLS[key]).slice(0, 500))
     setShowEmoji(false)
   }
 
@@ -140,7 +141,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     <div className={styles.chat}>
       <div className={styles.messages} ref={listRef} onScroll={onScroll}>
         {merged.length === 0 && (
-          <span className={styles.empty}>No messages yet — say hi</span>
+          <span className={styles.empty}>No messages yet -- say hi</span>
         )}
         {merged.map((m, i) => {
           if (m.type === 'system') {
@@ -171,8 +172,8 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
             <div className={styles.typingDot} />
             <span>
               {typingNames.length === 1
-                ? `${typingNames[0]} is typing…`
-                : `${typingNames.slice(0, 2).join(', ')}${typingNames.length > 2 ? ` +${typingNames.length - 2}` : ''} are typing…`}
+                ? `${typingNames[0]} is typing...`
+                : `${typingNames.slice(0, 2).join(', ')}${typingNames.length > 2 ? ` +${typingNames.length - 2}` : ''} are typing...`}
             </span>
           </div>
         )}
@@ -180,6 +181,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
 
       {unseen > 0 && (
         <button type="button" className={styles.newPill} onClick={jumpToLatest}>
+          <ArrowDown size={12} />
           {unseen} new message{unseen === 1 ? '' : 's'}
         </button>
       )}
@@ -189,7 +191,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
           <div className={styles.replyPreview}>
             <span>
               Replying to {replyTo.displayName}: {replyTo.text.slice(0, 60)}
-              {replyTo.text.length > 60 ? '…' : ''}
+              {replyTo.text.length > 60 ? '...' : ''}
             </span>
             <button
               type="button"
@@ -197,7 +199,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
               className={styles.clearReply}
               aria-label="Cancel reply"
             >
-              ✕
+              <X size={14} />
             </button>
           </div>
         )}
@@ -205,31 +207,37 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
           <Input
             value={text}
             onChange={(e) => handleInputChange(e.target.value)}
-            placeholder={replyTo ? 'Write a reply…' : 'Send a message…'}
+            placeholder={replyTo ? 'Write a reply...' : 'Send a message...'}
             maxLength={500}
             className={styles.input}
           />
           <div className={styles.emojiPicker}>
-            <IconButton type="button" onClick={() => setShowEmoji((s) => !s)} active={showEmoji}>
-              😊
+            <IconButton type="button" onClick={() => setShowEmoji((s) => !s)} active={showEmoji} aria-label="Insert emoji">
+              <Smile size={18} />
             </IconButton>
             {showEmoji && (
               <div className={styles.emojiGrid}>
-                {EMOJIS.map((emoji) => (
+                {REACTIONS.map((key) => (
                   <button
-                    key={emoji}
+                    key={key}
                     type="button"
                     className={styles.emojiButton}
-                    onClick={() => insertEmoji(emoji)}
+                    onClick={() => insertEmoji(key)}
                   >
-                    {emoji}
+                    {REACTION_SYMBOLS[key]}
                   </button>
                 ))}
               </div>
             )}
           </div>
-          <Button type="submit" disabled={cooldown || !text.trim()} size="sm">
-            Send
+          <Button
+            type="submit"
+            disabled={cooldown || !text.trim()}
+            size="sm"
+            className={styles.sendButton}
+            variant="cta"
+          >
+            <Send size={16} />
           </Button>
         </div>
         {nearLimit && (

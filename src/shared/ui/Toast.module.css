@@ -19,30 +19,38 @@
   padding: 0.85rem 1rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-strong);
-  background: var(--bg-surface-raised);
+  background: rgba(22, 24, 33, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: var(--text-primary);
   box-shadow: var(--shadow-lg);
   animation: slideUp 0.18s ease;
 }
 
+.icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.info .icon { color: var(--accent); }
+.success .icon { color: var(--success); }
+.error .icon { color: var(--danger); }
+.warning .icon { color: var(--warning); }
+
 .info {
-  border-color: var(--border-strong);
+  border-color: rgba(124, 137, 247, 0.2);
 }
 
 .success {
-  border-color: rgba(52, 211, 153, 0.35);
-  background: linear-gradient(180deg, rgba(52, 211, 153, 0.12), var(--bg-surface-raised));
+  border-color: rgba(52, 211, 153, 0.25);
 }
 
 .error {
-  border-color: rgba(255, 107, 71, 0.4);
-  background: linear-gradient(180deg, rgba(255, 107, 71, 0.12), var(--bg-surface-raised));
-  color: var(--paper);
+  border-color: rgba(255, 107, 71, 0.3);
 }
 
 .warning {
-  border-color: rgba(251, 191, 36, 0.35);
-  background: linear-gradient(180deg, rgba(251, 191, 36, 0.12), var(--bg-surface-raised));
+  border-color: rgba(251, 191, 36, 0.25);
 }
 
 .message {
@@ -59,11 +67,18 @@
   cursor: pointer;
   padding: 0;
   line-height: 1;
-  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .close:hover {
   color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 @keyframes slideUp {

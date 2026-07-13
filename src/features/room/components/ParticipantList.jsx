@@ -1,4 +1,5 @@
-import { Card, Avatar } from '../../../shared/ui/index.js'
+import { Crown, Shield, User, MicOff } from 'lucide-react'
+import { Card, Avatar, Badge } from '../../../shared/ui/index.js'
 import { SyncPulse } from '../../../shared/components/SyncPulse.jsx'
 import styles from './ParticipantList.module.css'
 
@@ -8,7 +9,7 @@ export default function ParticipantList({
   coHosts = [],
   currentUserId,
   isHost,
-  canControl, // true for host + co-hosts; used for mute which the API allows for both
+  canControl,
   onKick,
   onPromote,
   onMute,
@@ -19,6 +20,12 @@ export default function ParticipantList({
     return p.role || 'viewer'
   }
 
+  const roleIcon = (role) => {
+    if (role === 'host') return Crown
+    if (role === 'co-host') return Shield
+    return User
+  }
+
   return (
     <Card className={styles.list}>
       <h3 className={styles.title}>Participants</h3>
@@ -26,13 +33,19 @@ export default function ParticipantList({
         {participants.map((p) => {
           const role = getRole(p)
           const isSelf = p.id === currentUserId
-          const canManage = isHost && !isSelf   // kick + promote: host only
-          const canMute = canControl && !isSelf  // mute: host + co-hosts
+          const canManage = isHost && !isSelf
+          const canMute = canControl && !isSelf
 
           return (
             <div key={p.id} className={styles.participant}>
               <div className={styles.avatarWrap}>
-                <Avatar name={p.displayName} uid={p.id} size={36} status={p.id === hostId ? 'live' : undefined} />
+                <Avatar
+                  name={p.displayName}
+                  uid={p.id}
+                  size={36}
+                  isHost={p.id === hostId}
+                  status={p.id === hostId ? 'live' : 'online'}
+                />
                 {p.id === hostId && (
                   <div className={styles.pulse}>
                     <SyncPulse active size={44} />
@@ -40,10 +53,23 @@ export default function ParticipantList({
                 )}
               </div>
               <div className={styles.info}>
-                <span className={styles.name}>{p.displayName}</span>
-                <span className={styles.role}>
-                  {role}
-                  {p.muted && <span className={styles.mutedTag}> · muted</span>}
+                <span className={styles.name}>
+                  {p.displayName}
+                  {isSelf && <span className={styles.selfTag}> (you)</span>}
+                </span>
+                <span className={styles.roleWrap}>
+                  <Badge
+                    variant={role === 'host' ? 'accent' : role === 'co-host' ? 'accent' : 'muted'}
+                    icon={roleIcon(role)}
+                  >
+                    {role}
+                  </Badge>
+                  {p.muted && (
+                    <span className={styles.mutedTag}>
+                      <MicOff size={10} />
+                      muted
+                    </span>
+                  )}
                 </span>
               </div>
               {(canManage || canMute) && (
@@ -54,11 +80,11 @@ export default function ParticipantList({
                         <button className={styles.action} onClick={() => onPromote(p.id, 'co-host')}>
                           Promote
                         </button>
-                      ) : (
+                      ) : role !== 'host' ? (
                         <button className={styles.action} onClick={() => onPromote(p.id, 'viewer')}>
                           Demote
                         </button>
-                      )}
+                      ) : null}
                     </>
                   )}
                   {canMute && (

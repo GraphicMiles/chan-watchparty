@@ -9,25 +9,35 @@
   justify-content: center;
   font-weight: 700;
   font-size: calc(var(--size, 2.5rem) * 0.4);
-  color: var(--text-on-accent);
-  background: var(--accent);
+  color: #fff;
   user-select: none;
+  border: 2px solid transparent;
+}
+
+.hostRing {
+  border: 2.5px solid var(--drift);
+  box-shadow: var(--glow-drift-sm);
 }
 
 .status {
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 0.65rem;
-  height: 0.65rem;
+  width: 0.7rem;
+  height: 0.7rem;
   border-radius: var(--radius-full);
-  border: 2px solid var(--bg-surface-raised);
+  border: 2px solid var(--ash);
 }
 
 .statusLive {
-  background: var(--danger);
+  background: var(--ember);
+  box-shadow: var(--glow-ember-sm);
 }
 
 .statusOnline {
   background: var(--success);
+}
+
+.statusIdle {
+  background: var(--fog);
 }

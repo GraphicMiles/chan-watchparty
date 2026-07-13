@@ -46,12 +46,8 @@
 }
 
 @keyframes bounce {
-  0%, 80%, 100% {
-    transform: translateY(0);
-  }
-  40% {
-    transform: translateY(-4px);
-  }
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-4px); }
 }
 
 .form {
@@ -66,16 +62,18 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.4rem 0.65rem;
+  padding: 0.45rem 0.75rem;
   background: var(--accent-muted);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: 0.85rem;
   color: var(--text-secondary);
+  border-left: 3px solid var(--accent);
 }
 
 .inputRow {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.4rem;
+  align-items: center;
 }
 
 .input {
@@ -84,6 +82,7 @@
 
 .emojiPicker {
   position: relative;
+  flex-shrink: 0;
 }
 
 .emojiGrid {
@@ -91,15 +90,18 @@
   bottom: 100%;
   right: 0;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 0.25rem;
-  padding: 0.35rem;
-  background: var(--bg-surface-raised);
+  padding: 0.5rem;
+  background: rgba(22, 24, 33, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
   z-index: 5;
   width: max-content;
+  margin-bottom: 0.5rem;
 }
 
 .emojiButton {
@@ -107,18 +109,27 @@
   border: none;
   cursor: pointer;
   font-size: 1.2rem;
-  padding: 0.25rem;
+  padding: 0.3rem;
   border-radius: var(--radius-sm);
   transition: background 0.15s ease;
+  line-height: 1;
 }
 
 .emojiButton:hover {
-  background: var(--bg-surface);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sendButton {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: var(--radius-sm);
 }
 
 .system {
   text-align: center;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-size: 0.82rem;
   padding: 0.45rem 0.5rem;
   margin: 0.25rem 0;
@@ -127,7 +138,7 @@
 .newPill {
   align-self: center;
   margin: 0.35rem 0;
-  border: 1px solid var(--border-strong);
+  border: 1px solid rgba(124, 137, 247, 0.3);
   background: var(--accent);
   color: var(--text-on-accent);
   border-radius: var(--radius-full);
@@ -135,6 +146,9 @@
   font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .clearReply {
@@ -142,6 +156,14 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0.15rem;
+  border-radius: var(--radius-sm);
+}
+
+.clearReply:hover {
+  color: var(--text-primary);
 }
 
 .counter {
@@ -150,4 +172,3 @@
   font-size: 0.75rem;
   color: var(--text-muted);
 }
-

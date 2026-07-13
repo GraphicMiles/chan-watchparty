@@ -13,7 +13,7 @@
 }
 
 .button:hover:not(:disabled) {
-  background: var(--bg-surface-raised);
+  background: rgba(22, 24, 33, 0.7);
   color: var(--text-primary);
   border-color: var(--border);
 }
@@ -26,5 +26,5 @@
 .active {
   background: var(--accent-muted);
   color: var(--accent);
-  border-color: var(--accent-muted);
+  border-color: rgba(124, 137, 247, 0.2);
 }

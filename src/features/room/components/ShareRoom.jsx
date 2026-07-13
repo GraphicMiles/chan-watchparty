@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Copy, Share2, Hash } from 'lucide-react'
 import QRCode from 'qrcode'
 import { Button, Input, Modal, useToast } from '../../../shared/ui/index.js'
 import styles from './ShareRoom.module.css'
@@ -15,7 +16,7 @@ export default function ShareRoom({ room, roomId, open, onClose }) {
     QRCode.toDataURL(url, {
       width: 200,
       margin: 2,
-      color: { dark: '#7c89f7', light: '#0f111a' },
+      color: { dark: '#7c89f7', light: '#0C0E16' },
     })
       .then(setQr)
       .catch(() => setQr(''))
@@ -57,21 +58,28 @@ export default function ShareRoom({ room, roomId, open, onClose }) {
   }
 
   return (
-    <Modal open={open} title="Share room" onClose={onClose}>
+    <Modal open={open} title="Share Room" onClose={onClose}>
       <div className={styles.share}>
         {qr && <img src={qr} alt="QR code" className={styles.qr} />}
         <Input value={url} readOnly className={styles.link} />
         <div className={styles.actions}>
-          <Button onClick={copy} variant="secondary">Copy invite link</Button>
-          <Button onClick={share}>Share</Button>
+          <Button onClick={copy} variant="secondary">
+            <Copy size={14} />
+            Copy Link
+          </Button>
+          <Button onClick={share}>
+            <Share2 size={14} />
+            Share
+          </Button>
         </div>
         {room?.inviteCode && (
-          <p className={styles.code}>
-            Invite code: <strong>{room.inviteCode}</strong>{' '}
+          <div className={styles.code}>
+            <Hash size={14} />
+            <span>Invite code: <strong>{room.inviteCode}</strong></span>
             <button type="button" className={styles.copyCode} onClick={copyCode}>
-              Copy code
+              <Copy size={12} />
             </button>
-          </p>
+          </div>
         )}
       </div>
     </Modal>

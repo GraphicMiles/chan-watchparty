@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { WifiOff, Loader2 } from 'lucide-react'
 import styles from './ConnectionBanner.module.css'
 
 export function ConnectionBanner() {
@@ -17,8 +18,6 @@ export function ConnectionBanner() {
   }, [])
 
   useEffect(() => {
-    // Best-effort Firestore connectivity signal via browser events + periodic probe.
-    // Firestore itself doesn't expose a public "connected" boolean in modular web SDK.
     let cancelled = false
     const tick = () => {
       if (cancelled) return
@@ -40,7 +39,17 @@ export function ConnectionBanner() {
 
   return (
     <div className={styles.banner} role="status">
-      {online ? 'Reconnecting…' : 'You are offline. Changes will sync when the network returns.'}
+      {online ? (
+        <>
+          <Loader2 size={16} className={styles.spin} />
+          <span>Reconnecting...</span>
+        </>
+      ) : (
+        <>
+          <WifiOff size={16} />
+          <span>You are offline. Changes will sync when the network returns.</span>
+        </>
+      )}
     </div>
   )
 }

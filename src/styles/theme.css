@@ -1,15 +1,24 @@
 :root {
+  /* === Six Brand Tokens (from design brief) === */
+  --depth: #0C0E16;       /* Background — deep navy-black */
+  --ash: #161821;          /* Surfaces — cards, panels, chat bg */
+  --ember: #FF6B47;        /* Live/signal accent */
+  --drift: #7C89F7;        /* Host/interactive accent */
+  --fog: #9AA0AE;          /* Secondary text, metadata */
+  --paper: #F5F3EF;        /* Primary text — warm off-white */
+
+  /* === Semantic Aliases === */
   /* Backgrounds */
-  --bg-base: #07080f;
-  --bg-surface: #0f111a;
-  --bg-surface-raised: #161923;
-  --bg-surface-raised-hover: #1c1f2b;
+  --bg-base: var(--depth);
+  --bg-surface: var(--ash);
+  --bg-surface-raised: rgba(22, 24, 33, 0.88);
+  --bg-surface-raised-hover: rgba(30, 33, 45, 0.92);
 
   /* Accents */
-  --accent: #7c89f7;
+  --accent: var(--drift);
   --accent-hover: #95a1ff;
   --accent-muted: rgba(124, 137, 247, 0.15);
-  --danger: #ff6b47;
+  --danger: var(--ember);
   --danger-hover: #ff8a6f;
   --danger-muted: rgba(255, 107, 71, 0.15);
   --success: #34d399;
@@ -18,13 +27,13 @@
   --warning-muted: rgba(251, 191, 36, 0.15);
 
   /* Text */
-  --text-primary: #f5f3ef;
-  --text-secondary: #9aa0ae;
+  --text-primary: var(--paper);
+  --text-secondary: var(--fog);
   --text-muted: #6b7280;
-  --text-on-accent: #07080f;
-  --text-on-danger: #07080f;
-  --text-on-success: #07080f;
-  --text-on-warning: #07080f;
+  --text-on-accent: var(--depth);
+  --text-on-danger: var(--depth);
+  --text-on-success: var(--depth);
+  --text-on-warning: var(--depth);
 
   /* Borders */
   --border: rgba(255, 255, 255, 0.06);
@@ -36,11 +45,16 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
 
-  /* Radius */
-  --radius-sm: 0.5rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
-  --radius-xl: 1.5rem;
+  /* Glows */
+  --glow-ember: 0 0 20px rgba(255, 107, 71, 0.25);
+  --glow-drift: 0 0 20px rgba(124, 137, 247, 0.25);
+  --glow-ember-sm: 0 0 10px rgba(255, 107, 71, 0.2);
+  --glow-drift-sm: 0 0 10px rgba(124, 137, 247, 0.2);
+
+  /* Radius — exactly four tokens per brief */
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
   --radius-full: 9999px;
 
   /* Spacing */
@@ -59,13 +73,8 @@
   --font-body: 'IBM Plex Sans', sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 
-  /* Legacy aliases for compatibility during migration */
-  --depth: var(--bg-base);
-  --ash: var(--bg-surface-raised);
-  --ember: var(--danger);
-  --drift: var(--accent);
-  --fog: var(--text-secondary);
-  --paper: var(--text-primary);
+  /* Sanctioned gradient: Drift → Ember — only 2 uses */
+  --gradient-cta: linear-gradient(135deg, var(--drift), var(--ember));
 
   color-scheme: dark;
 }

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { doc, collection, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore'
+import { CornerUpLeft, SmilePlus } from 'lucide-react'
 import { db } from '../../../shared/lib/firebase.js'
 import styles from './ChatMessage.module.css'
 
-const REACTION_EMOJIS = ['❤️', '👍', '😂', '🔥', '👏', '😮']
+const REACTION_KEYS = ['heart', 'thumbs-up', 'laugh', 'fire', 'clap', 'wow']
+const REACTION_SYMBOLS = { heart: '\u2764', 'thumbs-up': '\ud83d\udc4d', laugh: '\ud83d\ude02', fire: '\ud83d\udd25', clap: '\ud83d\udc4f', wow: '\ud83d\ude2e' }
 
 export default function ChatMessage({ message, user, roomId, onReply, grouped = false }) {
   const [reactions, setReactions] = useState([])
@@ -56,22 +58,24 @@ export default function ChatMessage({ message, user, roomId, onReply, grouped = 
       {!message.pending && (
         <div className={styles.actions}>
           <button type="button" className={styles.actionButton} onClick={() => onReply(message)}>
+            <CornerUpLeft size={12} />
             Reply
           </button>
           <div className={styles.reactWrap}>
             <button type="button" className={styles.actionButton} onClick={() => setShowEmoji((s) => !s)}>
+              <SmilePlus size={12} />
               React
             </button>
             {showEmoji && (
               <div className={styles.emojiMenu}>
-                {REACTION_EMOJIS.map((emoji) => (
+                {REACTION_KEYS.map((key) => (
                   <button
-                    key={emoji}
+                    key={key}
                     type="button"
                     className={styles.emojiBtn}
-                    onClick={() => react(emoji)}
+                    onClick={() => react(REACTION_SYMBOLS[key])}
                   >
-                    {emoji}
+                    {REACTION_SYMBOLS[key]}
                   </button>
                 ))}
               </div>
