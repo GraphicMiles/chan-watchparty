@@ -1,0 +1,7 @@
+.playerWrapper { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: .75rem; background: #000; }
+.videoElement { width: 100%; height: 100%; object-fit: contain; }
+.loadingContainer, .errorContainer { display: flex; min-height: 240px; flex-direction: column; align-items: center; justify-content: center; gap: .75rem; padding: 1rem; border-radius: .75rem; background: #101116; color: var(--paper, #f5f3ef); text-align: center; }
+.spinner { width: 1.5rem; height: 1.5rem; border: 3px solid rgba(255,255,255,.25); border-top-color: currentColor; border-radius: 50%; animation: spin .8s linear infinite; }
+.errorContainer button { border: 0; border-radius: .5rem; padding: .6rem .9rem; background: var(--drift, #7c89f7); color: white; cursor: pointer; }
+.liveIndicator { position: absolute; top: .75rem; left: .75rem; padding: .25rem .45rem; border-radius: .35rem; background: #b5263d; color: white; font-size: .75rem; font-weight: 700; }
+@keyframes spin { to { transform: rotate(360deg); } }

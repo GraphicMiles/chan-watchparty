@@ -1,126 +1,142 @@
 import { useState, useCallback, useRef } from 'react'
+import { useAuth } from '../shared/auth/hooks/useAuth.jsx'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
 export function useUnifiedSearch() {
+  const { user } = useAuth()
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [hasMore, setHasMore] = useState(false)
-  const [offset, setOffset] = useState(0)
-  
+
   const cacheRef = useRef(new Map())
   const abortControllerRef = useRef(null)
+  const resultsRef = useRef([])
+  const offsetRef = useRef(0)
+  const lastSearchRef = useRef(null)
 
   const clear = useCallback(() => {
     setResults([])
+    resultsRef.current = []
     setError(null)
     setHasMore(false)
-    setOffset(0)
+    offsetRef.current = 0
+    lastSearchRef.current = null
     abortControllerRef.current?.abort()
   }, [])
 
   const search = useCallback(async ({ layer, query, options = {}, append = false }) => {
-    if (!query?.trim()) {
+    const trimmedQuery = query?.trim()
+    if (!trimmedQuery) {
       setError('Please enter a search query')
       return []
     }
 
-    // Cancel previous request
-    abortControllerRef.current?.abort()
-    abortControllerRef.current = new AbortController()
+    const normalizedOptions = { ...options }
+    const cacheKey = `${layer}:${trimmedQuery}:${JSON.stringify(normalizedOptions)}`
+    const cached = !append ? cacheRef.current.get(cacheKey) : null
 
-    const cacheKey = `${layer}:${query}:${JSON.stringify(options)}`
-    const cached = cacheRef.current.get(cacheKey)
-    
+    lastSearchRef.current = { layer, query: trimmedQuery, options: normalizedOptions }
+
     if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      resultsRef.current = cached.data
+      offsetRef.current = cached.data.length
       setResults(cached.data)
       setHasMore(cached.hasMore)
       setError(null)
       return cached.data
     }
 
+    abortControllerRef.current?.abort()
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+    const requestOffset = append ? offsetRef.current : 0
+
     setLoading(true)
     setError(null)
 
     try {
+      if (!user) throw new Error('Sign in to search media')
+      const token = await user.getIdToken()
       const res = await fetch(`${API_URL}/api/media`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
           action: 'search',
-          layer, 
-          query: query.trim(),
+          layer,
+          query: trimmedQuery,
           options: {
-            ...options,
+            ...normalizedOptions,
             limit: 20,
-            offset: append ? offset : 0
-          }
+            offset: requestOffset,
+          },
         }),
-        signal: abortControllerRef.current.signal,
+        signal: controller.signal,
       })
-      
+
       const data = await res.json()
-      
-      if (!res.ok) {
-        throw new Error(data.error || `HTTP ${res.status}`)
-      }
-      
-      if (!data.success) {
-        throw new Error(data.error || 'Search failed')
-      }
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      if (!data.success) throw new Error(data.error || 'Search failed')
 
       const newResults = data.results || []
-      const finalResults = append ? [...results, ...newResults] : newResults
-      
-      // Cache results
-      cacheRef.current.set(cacheKey, {
-        data: finalResults,
-        hasMore: newResults.length === 20,
-        timestamp: Date.now()
-      })
-      
+      const finalResults = append ? [...resultsRef.current, ...newResults] : newResults
+      const nextHasMore = data.hasMore === true
+
+      resultsRef.current = finalResults
+      offsetRef.current = requestOffset + newResults.length
       setResults(finalResults)
-      setHasMore(newResults.length === 20)
-      setOffset(append ? offset + newResults.length : newResults.length)
-      
+      setHasMore(nextHasMore)
+
+      if (!append) {
+        cacheRef.current.set(cacheKey, {
+          data: finalResults,
+          hasMore: nextHasMore,
+          timestamp: Date.now(),
+        })
+      }
+
       return finalResults
     } catch (err) {
-      if (err.name === 'AbortError') {
-        return []
-      }
+      if (err.name === 'AbortError') return []
       setError(err.message || 'Search failed')
       if (!append) {
+        resultsRef.current = []
         setResults([])
       }
       return []
     } finally {
-      setLoading(false)
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null
+        setLoading(false)
+      }
     }
-  }, [offset, results])
+  }, [user])
 
   const loadMore = useCallback(() => {
-    if (!loading && hasMore) {
-      // Need to get current search params from state or ref
-      // This is a simplified version - in practice you'd store the current query
-      return search({ layer: 'current', query: 'current', append: true })
-    }
+    if (loading || !hasMore || !lastSearchRef.current) return Promise.resolve([])
+    return search({ ...lastSearchRef.current, append: true })
   }, [loading, hasMore, search])
 
   const refresh = useCallback(() => {
+    const current = lastSearchRef.current
     cacheRef.current.clear()
-    // Re-run current search if exists
-  }, [])
+    if (!current) return Promise.resolve([])
+    return search(current)
+  }, [search])
 
-  return { 
-    results, 
-    loading, 
-    error, 
+  return {
+    results,
+    loading,
+    error,
     hasMore,
-    search, 
+    search,
     loadMore,
     clear,
-    refresh
+    refresh,
   }
-        }
+}

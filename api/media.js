@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio'
-import { preflight, ok, fail } from './lib/http.js'
+import { preflight, ok, fail, statusForError } from './lib/http.js'
+import { verifyIdToken } from './lib/firebaseAdmin.js'
 import { getSiteConfig, resolveUrl } from './lib/sources.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
@@ -136,7 +137,10 @@ async function searchOMDb(query) {
 
 async function searchDirectLinks(query, options = {}) {
   const results = []
-  const scrapers = ['nkiri', 'netnaija', 'fzmovies', 'o2tv']
+  const requestedSite = options.site && options.site !== 'custom' ? options.site : null
+  const scrapers = requestedSite
+    ? [requestedSite]
+    : ['nkiri', 'netnaija', 'fzmovies', 'o2tv']
   
   await Promise.all(scrapers.map(async (siteKey) => {
     try {
@@ -151,7 +155,10 @@ async function searchDirectLinks(query, options = {}) {
         ...r,
         source: siteKey,
         type: 'direct',
-        isDirect: true,
+        // A listing/page URL is not playable. Preserve the parser's
+        // classification instead of claiming every result is a direct file.
+        isDirect: r.isDirect === true,
+        playableInRoom: r.isDirect === true,
         quality: extractQuality(r.title),
       })))
     } catch (err) {
@@ -159,7 +166,12 @@ async function searchDirectLinks(query, options = {}) {
     }
   }))
   
-  return results.slice(0, options.limit || 30)
+  const offset = Math.max(0, Number(options.offset) || 0)
+  const limit = Math.min(50, Math.max(1, Number(options.limit) || 30))
+  return {
+    results: results.slice(offset, offset + limit),
+    hasMore: offset + limit < results.length,
+  }
 }
 
 async function searchIPTV(query, userChannels = []) {
@@ -308,28 +320,81 @@ async function searchNSFW(query, options = {}) {
 
 // ==================== SCRAPER HELPERS ====================
 
+function isPrivateIpv4(hostname) {
+  const parts = hostname.split('.').map(Number)
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false
+  }
+  const [a, b] = parts
+  return a === 10 || a === 127 || a === 0 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254)
+}
+
+function validateFetchTarget(rawUrl) {
+  let parsed
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    throw new Error('Invalid URL')
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('Only http(s) URLs are allowed')
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('URLs with embedded credentials are not allowed')
+  }
+
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.local') ||
+    hostname === '::1' ||
+    isPrivateIpv4(hostname)
+  ) {
+    throw new Error('Private and local network URLs are not allowed')
+  }
+
+  return parsed
+}
+
 async function fetchHtml(targetUrl) {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 15000)
-  
+  const timeout = setTimeout(() => controller.abort(), 9000)
+  let currentUrl = validateFetchTarget(targetUrl)
+
   try {
-    const res = await fetch(targetUrl, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Referer': new URL(targetUrl).origin,
-      },
-    })
-    
-    clearTimeout(timeout)
-    
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    return await res.text()
+    for (let redirect = 0; redirect <= 3; redirect += 1) {
+      const res = await fetch(currentUrl, {
+        signal: controller.signal,
+        redirect: 'manual',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Referer': currentUrl.origin,
+        },
+      })
+
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get('location')
+        if (!location || redirect === 3) throw new Error('Too many or invalid redirects')
+        currentUrl = validateFetchTarget(new URL(location, currentUrl).href)
+        continue
+      }
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return await res.text()
+    }
+    throw new Error('Too many redirects')
   } catch (e) {
-    clearTimeout(timeout)
+    if (e.name === 'AbortError') throw new Error('Remote site timed out')
     throw e
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
@@ -365,11 +430,26 @@ function parseListing(html, baseUrl, config) {
 
 // ==================== MAIN HANDLER ====================
 
+async function requireUser(req) {
+  const authorization = req.headers?.authorization || ''
+  const token = authorization.startsWith('Bearer ')
+    ? authorization.slice('Bearer '.length).trim()
+    : ''
+  if (!token) throw Object.assign(new Error('Missing token'), { status: 401 })
+
+  try {
+    return await verifyIdToken(token)
+  } catch {
+    throw Object.assign(new Error('Invalid or expired token'), { status: 401 })
+  }
+}
+
 export default async function handler(req, res) {
   if (preflight(req, res)) return
   if (req.method !== 'POST') return fail(res, 405, 'Method not allowed')
 
   try {
+    await requireUser(req)
     const { action = 'search', layer = 'youtube', query, options = {}, url, site } = req.body || {}
     
     // Legacy scrape endpoint
@@ -409,18 +489,22 @@ export default async function handler(req, res) {
       if (!query) return fail(res, 400, 'Query is required')
       
       let results = []
+      let hasMore = false
       
       switch (layer) {
         case 'youtube':
-          results = await searchYouTube(query, options.limit)
+          results = await searchYouTube(query, Math.min(50, Math.max(1, Number(options.limit) || 20)))
           break
         case 'omdb':
         case 'movies':
           results = await searchOMDb(query)
           break
-        case 'direct':
-          results = await searchDirectLinks(query, options)
+        case 'direct': {
+          const page = await searchDirectLinks(query, options)
+          results = page.results
+          hasMore = page.hasMore
           break
+        }
         case 'iptv':
           results = await searchIPTV(query, options.userChannels || [])
           break
@@ -439,6 +523,7 @@ export default async function handler(req, res) {
         layer,
         query,
         count: results.length,
+        hasMore,
         results,
       })
     }
@@ -446,6 +531,6 @@ export default async function handler(req, res) {
     return fail(res, 400, `Unknown action: ${action}`)
   } catch (err) {
     console.error('Media API error:', err)
-    return fail(res, 500, err.message || 'Request failed')
+    return fail(res, statusForError(err), err.message || 'Request failed')
   }
 }
