@@ -381,16 +381,17 @@ async function searchDirectLinks(query, options = {}) {
   }
 }
 
-async function searchIPTV(query, userChannels = [], provider = '') {
+async function searchIPTV(query, userChannels = [], provider = '', limit = 100) {
   const channels = await getIptvChannels(userChannels, provider)
-  const term = query.toLowerCase()
+  const term = String(query || '').trim().toLowerCase()
 
   return channels
     .filter((channel) => {
+      if (!term) return true
       const searchable = `${channel.name} ${channel.group} ${channel.country}`.toLowerCase()
       return searchable.includes(term)
     })
-    .slice(0, 20)
+    .slice(0, Math.max(1, Number(limit) || 100))
     .map((channel) => ({
       id: `iptv-${channel.name.replace(/\s+/g, '-').toLowerCase()}`,
       title: channel.name,
