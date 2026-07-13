@@ -22,18 +22,7 @@ body {
   overflow-x: hidden;
 }
 
-/* Graph-paper grid background */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background-image:
-    linear-gradient(var(--bg-grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--bg-grid-line) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
+/* Graph-paper grid removed for clean solid background */
 
 /* Dark theme body (room pages) */
 body.room-theme {

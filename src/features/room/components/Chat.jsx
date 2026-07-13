@@ -10,11 +10,11 @@ const REACTIONS = ['heart', 'thumbs-up', 'laugh', 'fire', 'clap', 'wow']
 const REACTION_SYMBOLS = { heart: '\u2764', 'thumbs-up': '\ud83d\udc4d', laugh: '\ud83d\ude02', fire: '\ud83d\udd25', clap: '\ud83d\udc4f', wow: '\ud83d\ude2e' }
 const FLOATING_EMOJIS = ['\u2764', '\ud83d\udd25', '\ud83d\ude02', '\ud83d\udc4f', '\ud83d\ude2e', '\ud83d\udcaf']
 const SOUND_FX = {
-  airhorn: { name: 'Airhorn 📯', emoji: '📯', url: 'https://cdn.freesound.org/previews/435/435255_8863641-lq.mp3' },
-  cheer: { name: 'Stadium Cheer 👏', emoji: '👏', url: 'https://cdn.freesound.org/previews/337/337049_5121236-lq.mp3' },
-  boom: { name: 'Dramatic Boom 💥', emoji: '💥', url: 'https://cdn.freesound.org/previews/266/266105_4486188-lq.mp3' },
-  laugh: { name: 'Crowd Laugh 🤣', emoji: '🤣', url: 'https://cdn.freesound.org/previews/369/369515_6687700-lq.mp3' },
-  applause: { name: 'Applause 🎉', emoji: '🎉', url: 'https://cdn.freesound.org/previews/483/483652_1015240-lq.mp3' },
+  airhorn: { name: 'Airhorn', emoji: '📯', url: 'https://cdn.freesound.org/previews/435/435255_8863641-lq.mp3' },
+  cheer: { name: 'Stadium Cheer', emoji: '👏', url: 'https://cdn.freesound.org/previews/337/337049_5121236-lq.mp3' },
+  boom: { name: 'Dramatic Boom', emoji: '💥', url: 'https://cdn.freesound.org/previews/266/266105_4486188-lq.mp3' },
+  laugh: { name: 'Crowd Laugh', emoji: '🤣', url: 'https://cdn.freesound.org/previews/369/369515_6687700-lq.mp3' },
+  applause: { name: 'Applause', emoji: '🎉', url: 'https://cdn.freesound.org/previews/483/483652_1015240-lq.mp3' },
 }
 
 const TYPING_DEBOUNCE = 1200
@@ -279,7 +279,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
       if (!res.ok || !data.success) {
         throw new Error(data?.error || data?.message || 'Could not generate room quiz')
       }
-      toast('🧠 New Room Quiz generated!', { variant: 'success' })
+      toast('New Room Quiz generated!', { variant: 'success' })
     } catch (err) {
       toast(err.message || 'Quiz generation failed', { variant: 'error' })
     } finally {
@@ -578,7 +578,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
 
       <Modal
         open={Boolean(catchupModalData)}
-        title="✨ Smart Catch-Up Recap"
+        title="Smart Catch-Up Recap"
         icon={Sparkles}
         onClose={() => setCatchupModalData(null)}
       >

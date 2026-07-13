@@ -17,17 +17,17 @@ const RETRY_DELAY = 3000
 
 const VIDEO_FILTERS = {
   none: { label: 'Normal / Original', css: 'none', desc: 'Default unaltered stream color' },
-  capcut_vibrant: { label: 'CapCut Vibrant 🌈', css: 'saturate(1.45) contrast(1.15) brightness(1.04) hue-rotate(-2deg)', desc: 'TikTok/CapCut punchy pop & high saturation' },
-  capcut_dark_mood: { label: 'CapCut Dark Mood 🔥', css: 'contrast(1.3) saturate(1.25) brightness(0.88) hue-rotate(5deg)', desc: 'Deep crushed shadows & glowing highlights' },
-  hollywood_teal_orange: { label: 'Hollywood Teal & Orange 🎬', css: 'contrast(1.22) saturate(1.35) brightness(0.95) hue-rotate(-12deg) sepia(0.12)', desc: 'Blockbuster cinema contrast and warm skin tones' },
-  imax_hdr: { label: 'IMAX Cinema HDR 📽️', css: 'contrast(1.28) saturate(1.18) brightness(1.02) drop-shadow(0 0 1px rgba(255,255,255,0.1))', desc: 'High dynamic range clarity with crisp definition' },
-  tiktok_golden: { label: 'TikTok Golden Hour ☀️', css: 'saturate(1.3) brightness(1.06) contrast(1.1) sepia(0.22) hue-rotate(-8deg)', desc: 'Sun-drenched warm glow for aesthetic edits' },
-  cyberpunk_neon: { label: 'Cyberpunk Neon Glow ⚡', css: 'saturate(1.65) contrast(1.25) brightness(0.98) hue-rotate(35deg)', desc: 'Futuristic electric pinks, purples & cyan' },
-  anime_vivid: { label: 'Anime Vivid Pop 🌸', css: 'saturate(1.55) contrast(1.12) brightness(1.08) hue-rotate(-5deg)', desc: 'Super bright candy-colored pop perfect for 2D' },
-  vintage_kodak: { label: 'Vintage Kodak 35mm 🎞️', css: 'sepia(0.38) contrast(1.14) saturate(0.88) brightness(0.94) hue-rotate(10deg)', desc: 'Retro analog film look with nostalgic warmth' },
-  clean_boost: { label: 'Clean Clarity Boost 💎', css: 'brightness(1.15) contrast(1.12) saturate(1.12)', desc: 'Lifts dull scenes while keeping colors crisp' },
-  night_owl: { label: 'Night Owl Low-Light 🦉', css: 'brightness(1.35) contrast(1.18) saturate(1.1)', desc: 'Lifts deep shadows so dark movie scenes are crystal clear' },
-  moody_noir: { label: 'Moody Noir Film 🖤', css: 'grayscale(0.85) contrast(1.4) brightness(0.92)', desc: 'High-contrast monochrome with deep dramatic feel' },
+  capcut_vibrant: { label: 'CapCut Vibrant', css: 'saturate(1.45) contrast(1.15) brightness(1.04) hue-rotate(-2deg)', desc: 'TikTok/CapCut punchy pop & high saturation' },
+  capcut_dark_mood: { label: 'CapCut Dark Mood', css: 'contrast(1.3) saturate(1.25) brightness(0.88) hue-rotate(5deg)', desc: 'Deep crushed shadows & glowing highlights' },
+  hollywood_teal_orange: { label: 'Hollywood Teal & Orange', css: 'contrast(1.22) saturate(1.35) brightness(0.95) hue-rotate(-12deg) sepia(0.12)', desc: 'Blockbuster cinema contrast and warm skin tones' },
+  imax_hdr: { label: 'IMAX Cinema HDR', css: 'contrast(1.28) saturate(1.18) brightness(1.02) drop-shadow(0 0 1px rgba(255,255,255,0.1))', desc: 'High dynamic range clarity with crisp definition' },
+  tiktok_golden: { label: 'TikTok Golden Hour', css: 'saturate(1.3) brightness(1.06) contrast(1.1) sepia(0.22) hue-rotate(-8deg)', desc: 'Sun-drenched warm glow for aesthetic edits' },
+  cyberpunk_neon: { label: 'Cyberpunk Neon Glow', css: 'saturate(1.65) contrast(1.25) brightness(0.98) hue-rotate(35deg)', desc: 'Futuristic electric pinks, purples & cyan' },
+  anime_vivid: { label: 'Anime Vivid Pop', css: 'saturate(1.55) contrast(1.12) brightness(1.08) hue-rotate(-5deg)', desc: 'Super bright candy-colored pop perfect for 2D' },
+  vintage_kodak: { label: 'Vintage Kodak 35mm', css: 'sepia(0.38) contrast(1.14) saturate(0.88) brightness(0.94) hue-rotate(10deg)', desc: 'Retro analog film look with nostalgic warmth' },
+  clean_boost: { label: 'Clean Clarity Boost', css: 'brightness(1.15) contrast(1.12) saturate(1.12)', desc: 'Lifts dull scenes while keeping colors crisp' },
+  night_owl: { label: 'Night Owl Low-Light', css: 'brightness(1.35) contrast(1.18) saturate(1.1)', desc: 'Lifts deep shadows so dark movie scenes are crystal clear' },
+  moody_noir: { label: 'Moody Noir Film', css: 'grayscale(0.85) contrast(1.4) brightness(0.92)', desc: 'High-contrast monochrome with deep dramatic feel' },
 }
 
 function youtubeUrl(videoId) {
@@ -390,7 +390,7 @@ export default function VideoPlayer({
         displayName: user.displayName || 'Viewer',
         createdAt: serverTimestamp(),
       })
-      toast('📌 Stage pin added to timeline!', { variant: 'success' })
+      toast('Stage pin added to timeline!', { variant: 'success' })
     } catch (err) {
       toast(err.message || 'Could not save bookmark', { variant: 'error' })
     }
@@ -561,9 +561,9 @@ export default function VideoPlayer({
                       onClick={(e) => {
                         e.stopPropagation()
                         if (canControl) adapter.seekTo(pin.timeSec, 'seconds')
-                        toast(`📌 ${formatTime(pin.timeSec)} - ${pin.displayName}: "${pin.text}"`, { variant: 'info' })
+                        toast(`${formatTime(pin.timeSec)} - ${pin.displayName}: "${pin.text}"`, { variant: 'info' })
                       }}
-                      title={`📌 ${formatTime(pin.timeSec)} - ${pin.displayName}: ${pin.text}`}
+                      title={`Stage pin at ${formatTime(pin.timeSec)} - ${pin.displayName}: ${pin.text}`}
                     />
                   )
                 })}
@@ -640,7 +640,7 @@ export default function VideoPlayer({
                 type="button"
                 className={styles.controlIconBtn}
                 onClick={addStagePin}
-                title="📌 Drop timestamp bookmark pin"
+                title="Drop timestamp bookmark pin"
               >
                 <Bookmark size={16} />
                 <span>Pin</span>

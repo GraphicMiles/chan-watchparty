@@ -13,6 +13,8 @@
   white-space: nowrap;
   text-decoration: none;
   flex-shrink: 0;
+  width: fit-content;
+  flex: 0 0 auto;
 }
 
 .button:disabled {
@@ -81,24 +83,24 @@
   background: #e85e22;
 }
 
-/* Sizes — touch-friendly heights from scale */
+/* Sizes — exact 20px padding and fit sizing */
 .sm {
-  height: var(--btn-height-sm);
-  padding: 0 var(--s-4);
+  height: 38px;
+  padding: 0 20px !important;
   font-size: 13px;
   gap: var(--s-1);
 }
 
 .md {
-  height: var(--btn-height-md);
-  padding: 0 var(--s-5);
+  height: 44px;
+  padding: 0 20px !important;
   font-size: 14px;
   gap: var(--s-2);
 }
 
 .lg {
-  height: var(--btn-height-lg);
-  padding: 0 var(--s-6);
+  height: 52px;
+  padding: 0 20px !important;
   font-size: 15px;
   gap: var(--s-2);
 }
