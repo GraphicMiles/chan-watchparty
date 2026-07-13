@@ -9,7 +9,7 @@ hry
 
 ## 1. What the app is
 
-**Chan** is a real-time watch-party web app:
+**Chan** is a real-time watch party web app:
 
 - Anonymous Firebase Auth  
 - Create/join rooms around **YouTube** video (host/co-host authoritative sync)  
