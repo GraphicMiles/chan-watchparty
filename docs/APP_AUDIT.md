@@ -2,7 +2,7 @@
 hry
 **Audit date:** 2026-07-12  
 **Git HEAD at audit:** `7c9ed16` (`Refactor export of ScraperPage component`)  
-**Scope:** Read-only inventory of every folder, file, export/import graph, runtime interactions, and observed bugs.  
+**Scope:** Read-only inventory of every folder, file, export/import graph, runtime interactions, and obserd bugs.  
 **Actions taken for this doc:** `git pull` only + file inspection. **No application source was modified or deleted for this audit.**
 
 ---
