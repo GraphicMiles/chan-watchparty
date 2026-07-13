@@ -40,6 +40,7 @@ export function useUnifiedSearch() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [hasMore, setHasMore] = useState(false)
+  const [searchMeta, setSearchMeta] = useState(null)
 
   const cacheRef = useRef(new Map())
   const abortControllerRef = useRef(null)
@@ -52,6 +53,7 @@ export function useUnifiedSearch() {
     resultsRef.current = []
     setError(null)
     setHasMore(false)
+    setSearchMeta(null)
     offsetRef.current = 0
     lastSearchRef.current = null
     abortControllerRef.current?.abort()
@@ -122,6 +124,10 @@ export function useUnifiedSearch() {
       offsetRef.current = requestOffset + newResults.length
       setResults(finalResults)
       setHasMore(nextHasMore)
+      setSearchMeta({
+        searchedSites: data.searchedSites || [],
+        multiLayerCascaded: data.multiLayerCascaded === true,
+      })
 
       if (!append) {
         cacheRef.current.set(cacheKey, {
@@ -165,6 +171,7 @@ export function useUnifiedSearch() {
     loading,
     error,
     hasMore,
+    searchMeta,
     search,
     loadMore,
     clear,

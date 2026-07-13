@@ -8,6 +8,11 @@ export const SITE_CONFIGS = {
     link: 'a[href*="downloadwella.com"], a[href], .download-link a, a[href*="/download/"]',
     meta: '.meta, .date, .year, .quality',
     buildSearchUrl: (q) => `https://thenkiri.com/?s=${encodeURIComponent(q)}`,
+    buildSearchUrls: (q) => [
+      `https://thenkiri.com/?s=${encodeURIComponent(q)}`,
+      `https://thenkiri.com/search/${encodeURIComponent(q)}`,
+      `https://thenkiri.com/?q=${encodeURIComponent(q)}`,
+    ],
   },
   netnaija: {
     label: 'NetNaija',
@@ -18,6 +23,11 @@ export const SITE_CONFIGS = {
     link: 'a[href*="/download/"], a[href*=".mp4"], a[href*=".mkv"], a.dlm-button',
     meta: '.file-meta, .post-meta, .category',
     buildSearchUrl: (q) => `https://thenetnaija.ng/search?q=${encodeURIComponent(q)}`,
+    buildSearchUrls: (q) => [
+      `https://thenetnaija.ng/search?q=${encodeURIComponent(q)}`,
+      `https://thenetnaija.ng/videos/search?q=${encodeURIComponent(q)}`,
+      `https://thenetnaija.ng/?s=${encodeURIComponent(q)}`,
+    ],
   },
   fzmovies: {
     label: 'FZMovies',
@@ -27,6 +37,12 @@ export const SITE_CONFIGS = {
     image: 'img[src], .movieimg img, .poster img',
     link: 'a[href], .downloadlink a, a[href*="/download/"]',
     meta: '.movieinfo, .meta, small, .year',
+    buildSearchUrl: (q) => `https://fzmovies.net/csearch.php?searchname=${encodeURIComponent(q)}`,
+    buildSearchUrls: (q) => [
+      `https://fzmovies.net/csearch.php?searchname=${encodeURIComponent(q)}`,
+      `https://fzmovies.net/search.php?q=${encodeURIComponent(q)}`,
+      `https://fzmovies.net/?s=${encodeURIComponent(q)}`,
+    ],
   },
   o2tv: {
     label: 'O2TV Series',
@@ -38,6 +54,10 @@ export const SITE_CONFIGS = {
     meta: '.info',
     isDirectListing: true,
     buildSearchUrl: (q) => null,
+    buildSearchUrls: (q) => [
+      `http://d6.o2tv.org/search.php?q=${encodeURIComponent(q)}`,
+      `http://d6.o2tv.org/?s=${encodeURIComponent(q)}`,
+    ],
     constructDirectUrl: (show, season = 1, episode = 1) => {
       const cleanShow = String(show || '')
         .replace(/^Download-/i, '')

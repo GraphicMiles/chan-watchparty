@@ -189,22 +189,53 @@ async function searchOMDb(query) {
 
 async function searchDirectLinks(query, options = {}) {
   const results = []
-  const requestedSite = options.site && options.site !== 'custom' ? options.site : null
+  const requestedSite = options.site && options.site !== 'custom' && options.site !== 'all' ? options.site : null
   const scrapers = requestedSite
-    ? [requestedSite]
+    ? [requestedSite, ...['nkiri', 'netnaija', 'fzmovies', 'o2tv'].filter((k) => k !== requestedSite)]
     : ['nkiri', 'netnaija', 'fzmovies', 'o2tv']
   
-  await Promise.all(scrapers.map(async (siteKey) => {
+  const searchedSites = []
+  
+  for (const siteKey of scrapers) {
+    searchedSites.push(siteKey)
     try {
       const config = getSiteConfig(siteKey)
-      if (!config?.buildSearchUrl) return
+      const queryUrls = config?.buildSearchUrls ? config.buildSearchUrls(query) : (config?.buildSearchUrl ? [config.buildSearchUrl(query)] : [])
       
-      const searchUrl = config.buildSearchUrl(query)
-      const html = await fetchHtml(searchUrl)
-      const siteResults = parseListing(html, searchUrl, config)
+      let siteCandidates = []
+      for (const searchUrl of queryUrls) {
+        if (!searchUrl) continue
+        try {
+          const html = await fetchHtml(searchUrl)
+          const items = parseListing(html, searchUrl, config)
+          if (items && items.length > 0) {
+            siteCandidates.push(...items)
+            break
+          }
+        } catch {
+          /* try next query syntax for this site */
+        }
+      }
+
+      if (siteKey === 'o2tv' && siteCandidates.length === 0 && query && query.trim().length > 2) {
+        const constructed = config.constructDirectUrl?.(query.trim(), 1, 1)
+        if (constructed) {
+          siteCandidates.push({
+            title: `${query.trim()} - S01E01`,
+            url: constructed,
+            link: constructed,
+            isDirect: true,
+          })
+        }
+      }
+
+      if (siteCandidates.length === 0) {
+        continue
+      }
+
       const candidates = options.resolve
-        ? siteResults.slice(0, Math.min(6, Math.max(1, Number(options.resolveLimit) || 4)))
-        : siteResults
+        ? siteCandidates.slice(0, Math.min(6, Math.max(1, Number(options.resolveLimit) || 4)))
+        : siteCandidates
 
       const enriched = await Promise.all(candidates.map(async (result) => {
         if (options.resolve && !result.isDirect) {
@@ -237,11 +268,15 @@ async function searchDirectLinks(query, options = {}) {
           quality: extractQuality(result.title),
         }]
       }))
+      
       results.push(...enriched.flat())
+      if (results.length > 0) {
+        break
+      }
     } catch (err) {
       console.error(`${siteKey} search failed:`, err.message)
     }
-  }))
+  }
   
   const deduplicated = deduplicateAndEnrich(results)
   const offset = Math.max(0, Number(options.offset) || 0)
@@ -249,6 +284,8 @@ async function searchDirectLinks(query, options = {}) {
   return {
     results: deduplicated.slice(offset, offset + limit),
     hasMore: offset + limit < deduplicated.length,
+    searchedSites,
+    multiLayerCascaded: searchedSites.length > 1,
   }
 }
 
