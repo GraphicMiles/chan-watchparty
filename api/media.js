@@ -2,6 +2,7 @@ import * as cheerio from 'cheerio'
 import { preflight, ok, fail, statusForError } from './lib/http.js'
 import { verifyIdToken } from './lib/firebaseAdmin.js'
 import { getSiteConfig, resolveUrl } from './lib/sources.js'
+import { getIptvChannels } from './lib/iptv.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY
@@ -174,44 +175,15 @@ async function searchDirectLinks(query, options = {}) {
   }
 }
 
-function getConfiguredIptvChannels() {
-  const raw = process.env.IPTV_CHANNELS_JSON
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    console.error('IPTV_CHANNELS_JSON is not valid JSON')
-    return []
-  }
-}
-
-function isValidChannelUrl(value) {
-  try {
-    const url = new URL(value)
-    return ['http:', 'https:'].includes(url.protocol) && !value.includes('...')
-  } catch {
-    return false
-  }
-}
-
 async function searchIPTV(query, userChannels = []) {
-  // Do not return fake or placeholder streams. Configure real, licensed/public
-  // channels through IPTV_CHANNELS_JSON or the authenticated request payload.
-  const allChannels = [...getConfiguredIptvChannels(), ...userChannels]
-    .filter((channel) => channel?.name && isValidChannelUrl(channel.url))
-    .map((channel) => ({
-      name: String(channel.name),
-      url: channel.url,
-      group: channel.group || 'Live TV',
-      logo: channel.logo || null,
-    }))
-
-  const uniqueChannels = [...new Map(allChannels.map((channel) => [channel.url, channel])).values()]
+  const channels = await getIptvChannels(userChannels)
   const term = query.toLowerCase()
 
-  return uniqueChannels
-    .filter((channel) => channel.name.toLowerCase().includes(term) || channel.group.toLowerCase().includes(term))
+  return channels
+    .filter((channel) => {
+      const searchable = `${channel.name} ${channel.group} ${channel.country}`.toLowerCase()
+      return searchable.includes(term)
+    })
     .slice(0, 20)
     .map((channel) => ({
       id: `iptv-${channel.name.replace(/\s+/g, '-').toLowerCase()}`,
@@ -221,6 +193,7 @@ async function searchIPTV(query, userChannels = []) {
       url: channel.url,
       channel: channel.name,
       group: channel.group,
+      country: channel.country,
       source: 'iptv',
       type: 'iptv',
       isDirect: true,
