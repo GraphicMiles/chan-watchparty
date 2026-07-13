@@ -199,15 +199,18 @@ async function searchDirectLinks(query, options = {}) {
         if (options.resolve && !result.isDirect) {
           const resolved = await resolvePageChain(result.url, siteKey)
           if (resolved.length) {
-            return resolved.map((item) => ({
-              ...item,
-              title: item.title || result.title,
-              thumbnail: item.thumbnail || item.image || result.thumbnail || result.image || null,
-              image: item.image || item.thumbnail || result.image || result.thumbnail || null,
-              source: item.source || siteKey,
-              type: 'direct',
-              quality: extractQuality(item.title || result.title),
-            }))
+            return resolved.map((item) => {
+              const thumb = item.thumbnail || item.image || result.thumbnail || result.image || null
+              return {
+                ...item,
+                title: item.title || result.title,
+                thumbnail: thumb,
+                image: thumb,
+                source: item.source || siteKey,
+                type: 'direct',
+                quality: extractQuality(item.title || result.title),
+              }
+            })
           }
         }
 
@@ -465,7 +468,8 @@ function extractDirectMedia(html, baseUrl, source) {
   const results = []
   const seen = new Set()
   const pageTitle = $('meta[property="og:title"]').attr('content') || $('title').text().trim() || 'Video'
-  const pageImg = $('meta[property="og:image"]').attr('content') || null
+  const pageImg = $('meta[property="og:image"]').attr('content') || $('meta[name="twitter:image"]').attr('content') || $('.post-thumbnail img, .poster img, article img').first().attr('src') || null
+  const resolvedPageImg = resolveUrl(pageImg, baseUrl)
 
   const add = (rawUrl, title, meta = 'direct file') => {
     const link = resolveUrl(rawUrl, baseUrl)
@@ -479,8 +483,8 @@ function extractDirectMedia(html, baseUrl, source) {
     seen.add(link)
     results.push({
       title: title || `${pageTitle} (direct video)`,
-      thumbnail: pageImg,
-      image: pageImg,
+      thumbnail: resolvedPageImg,
+      image: resolvedPageImg,
       link,
       url: link,
       meta,
@@ -549,6 +553,8 @@ export async function resolvePageChain(startUrl, site) {
           title: decodeURIComponent(new URL(url).pathname.split('/').pop() || 'Video'),
           url,
           link: url,
+          thumbnail: resolved.thumbnail || null,
+          image: resolved.thumbnail || null,
           source: 'downloadwella',
           isDirect: true,
           playableInRoom: true,
@@ -602,6 +608,11 @@ function parseListing(html, baseUrl, config) {
   const $ = cheerio.load(html)
   const results = []
   const seen = new Set()
+  const pagePoster = $('meta[property="og:image"]').attr('content') ||
+                     $('meta[name="twitter:image"]').attr('content') ||
+                     $('.post-thumbnail img, .featured-image img, article img, .entry-content img, .poster img').first().attr('src') ||
+                     $('.post-thumbnail img, .featured-image img, article img, .entry-content img, .poster img').first().attr('data-src') || null
+  const resolvedPagePoster = resolveUrl(pagePoster, baseUrl)
   
   $(config.items).each((_, el) => {
     const $el = $(el)
@@ -611,12 +622,20 @@ function parseListing(html, baseUrl, config) {
       ($el.is('a') ? $el.text().trim() : '') ||
       $el.find('img').first().attr('alt') ||
       'Untitled'
-    const rawImg = $el.find(config.image).first().attr('src') ||
-                   $el.find(config.image).first().attr('data-src') ||
-                   $el.find('img').first().attr('src') ||
-                   $el.find('img').first().attr('data-src') ||
-                   $el.find('img').first().attr('data-lazy-src')
-    const img = resolveUrl(rawImg, baseUrl)
+    
+    let rawImg = $el.find(config.image).first().attr('src') ||
+                 $el.find(config.image).first().attr('data-src') ||
+                 $el.find('img').first().attr('src') ||
+                 $el.find('img').first().attr('data-src') ||
+                 $el.find('img').first().attr('data-lazy-src')
+    
+    if (!rawImg) {
+      const parentCard = $el.closest('article, .post, .item, .card, .movie-item, .entry-content, main, .container, .movies-list')
+      rawImg = parentCard.find('img[src], img[data-src]').first().attr('src') ||
+               parentCard.find('img[src], img[data-src]').first().attr('data-src')
+    }
+
+    const img = resolveUrl(rawImg, baseUrl) || resolvedPagePoster
     const rawLink = $el.find(config.link).first().attr('href') || $el.closest('a').attr('href')
     const link = resolveUrl(rawLink, baseUrl)
     const meta = $el.find(config.meta).first().text().trim() || null
@@ -769,6 +788,8 @@ export default async function handler(req, res) {
               title: decodeURIComponent(new URL(mediaUrl).pathname.split('/').pop() || 'Video'),
               url: mediaUrl,
               link: mediaUrl,
+              thumbnail: resolved.thumbnail || null,
+              image: resolved.thumbnail || null,
               source: 'downloadwella',
               isDirect: true,
               playableInRoom: true,
@@ -778,6 +799,8 @@ export default async function handler(req, res) {
               title: decodeURIComponent(target.pathname.split('/').pop() || 'Download page'),
               url,
               link: url,
+              thumbnail: resolved.thumbnail || null,
+              image: resolved.thumbnail || null,
               source: 'downloadwella',
               isDirect: false,
               requiresUserAction: true,

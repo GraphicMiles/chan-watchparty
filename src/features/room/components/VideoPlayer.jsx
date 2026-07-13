@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactPlayer from 'react-player'
 import Hls from 'hls.js'
-import { AlertTriangle, Radio } from 'lucide-react'
+import {
+  AlertTriangle, Radio, Play, Pause, RotateCcw, RotateCw,
+  Volume2, VolumeX, Maximize, Download
+} from 'lucide-react'
 import { normalizePlaybackUrl } from '../../../shared/lib/youtube.js'
 import styles from './VideoPlayer.module.scss'
 
@@ -10,6 +13,18 @@ const RETRY_DELAY = 3000
 
 function youtubeUrl(videoId) {
   return videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : ''
+}
+
+function formatTime(seconds) {
+  if (!seconds || isNaN(seconds) || !isFinite(seconds)) return '00:00'
+  const sec = Math.max(0, Math.floor(seconds))
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = sec % 60
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
 export default function VideoPlayer({
@@ -25,8 +40,8 @@ export default function VideoPlayer({
   url,
   playing,
   played = 0,
-  volume = 1,
-  muted = false,
+  volume: controlledVolume = 1,
+  muted: controlledMuted = false,
   playbackRate = 1,
   onProgress,
   onDuration,
@@ -44,22 +59,38 @@ export default function VideoPlayer({
     [resolvedUrl]
   )
 
+  const playerWrapperRef = useRef(null)
   const playerRef = useRef(null)
   const hlsRef = useRef(null)
   const videoRef = useRef(null)
   const retryCountRef = useRef(0)
   const retryTimeoutRef = useRef(null)
-  const playingRef = useRef(false)
+  const playingRef = useRef(Boolean(playing))
   const onReadyRef = useRef(onReady)
   const onPlayerEventRef = useRef(onPlayerEvent)
 
   const [error, setError] = useState(null)
   const [isReady, setIsReady] = useState(false)
+  const [isPlayingState, setIsPlayingState] = useState(Boolean(playing))
+  const [currentSec, setCurrentSec] = useState(0)
+  const [durationSec, setDurationSec] = useState(0)
+  const [loadedPercent, setLoadedPercent] = useState(0)
+  const [localVolume, setLocalVolume] = useState(controlledVolume)
+  const [localMuted, setLocalMuted] = useState(controlledMuted)
+  const [showControls, setShowControls] = useState(true)
+  const controlsTimeoutRef = useRef(null)
 
   useEffect(() => {
     onReadyRef.current = onReady
     onPlayerEventRef.current = onPlayerEvent
   }, [onReady, onPlayerEvent])
+
+  useEffect(() => {
+    if (playing !== undefined) {
+      playingRef.current = Boolean(playing)
+      setIsPlayingState(Boolean(playing))
+    }
+  }, [playing])
 
   const currentTime = useCallback(() => {
     if (isHLS) return videoRef.current?.currentTime || 0
@@ -71,33 +102,48 @@ export default function VideoPlayer({
   const adapter = useMemo(() => ({
     getCurrentTime: () => currentTime(),
     getDuration: () => {
-      if (isHLS) return videoRef.current?.duration || 0
-      return playerRef.current?.getDuration?.() || 0
+      if (isHLS) return videoRef.current?.duration || durationSec || 0
+      return playerRef.current?.getDuration?.() || durationSec || 0
     },
     getPlayerState: () => playerState(),
     playVideo: () => {
-      if (isHLS) return videoRef.current?.play()
-      return playerRef.current?.getInternalPlayer?.()?.playVideo?.() || playerRef.current?.getInternalPlayer?.()?.play?.()
+      if (isHLS) {
+        videoRef.current?.play()
+      } else {
+        playerRef.current?.getInternalPlayer?.()?.playVideo?.() || playerRef.current?.getInternalPlayer?.()?.play?.()
+      }
+      playingRef.current = true
+      setIsPlayingState(true)
     },
     pauseVideo: () => {
-      if (isHLS) return videoRef.current?.pause()
-      return playerRef.current?.getInternalPlayer?.()?.pauseVideo?.() || playerRef.current?.getInternalPlayer?.()?.pause?.()
+      if (isHLS) {
+        videoRef.current?.pause()
+      } else {
+        playerRef.current?.getInternalPlayer?.()?.pauseVideo?.() || playerRef.current?.getInternalPlayer?.()?.pause?.()
+      }
+      playingRef.current = false
+      setIsPlayingState(false)
     },
     seekTo: (value, type = 'seconds') => {
+      const dur = (isHLS ? videoRef.current?.duration : playerRef.current?.getDuration?.()) || durationSec || 0
       if (isHLS) {
-        if (videoRef.current) videoRef.current.currentTime = type === 'fraction'
-          ? value * (videoRef.current.duration || 0)
-          : value
+        if (videoRef.current) {
+          const targetSec = type === 'fraction' ? value * dur : value
+          videoRef.current.currentTime = targetSec
+          setCurrentSec(targetSec)
+        }
         return
       }
-      // The legacy hook passes true as the second argument for seconds.
       const seekType = type === true ? 'seconds' : type
       playerRef.current?.seekTo?.(value, seekType === 'fraction' ? 'fraction' : 'seconds')
+      if (seekType === 'fraction' && dur) {
+        setCurrentSec(value * dur)
+      } else if (seekType !== 'fraction') {
+        setCurrentSec(value)
+      }
     },
-    loadVideoById: () => {
-      // The room document controls the URL; ReactPlayer reloads when it changes.
-    },
-  }), [currentTime, isHLS, playerState])
+    loadVideoById: () => {},
+  }), [currentTime, durationSec, isHLS, playerState])
 
   const notifyReady = useCallback(() => {
     setIsReady(true)
@@ -106,19 +152,21 @@ export default function VideoPlayer({
 
   const emitPlay = useCallback(() => {
     playingRef.current = true
+    setIsPlayingState(true)
     onPlay?.()
     onPlayerEventRef.current?.({ isPlaying: true, currentTime: currentTime() })
   }, [currentTime, onPlay])
 
   const emitPause = useCallback(() => {
     playingRef.current = false
+    setIsPlayingState(false)
     onPause?.()
     onPlayerEventRef.current?.({ isPlaying: false, currentTime: currentTime() })
   }, [currentTime, onPause])
 
-  const emitSeek = useCallback(() => {
-    onPlayerEventRef.current?.({ isPlaying: playingRef.current, currentTime: currentTime() })
-  }, [currentTime])
+  const emitSeek = useCallback((newTimeSec) => {
+    onPlayerEventRef.current?.({ isPlaying: playingRef.current, currentTime: newTimeSec })
+  }, [])
 
   const handleError = useCallback((err) => {
     const nextError = err instanceof Error ? err : new Error(String(err || 'Video playback failed'))
@@ -150,7 +198,6 @@ export default function VideoPlayer({
     setError(null)
     setIsReady(false)
     retryCountRef.current = 0
-    playingRef.current = false
     clearTimeout(retryTimeoutRef.current)
     destroyHls()
 
@@ -158,7 +205,9 @@ export default function VideoPlayer({
 
     const video = videoRef.current
     const onLoadedMetadata = () => {
-      onDuration?.(video.duration || 0)
+      const dur = video.duration || 0
+      setDurationSec(dur)
+      onDuration?.(dur)
       notifyReady()
     }
     const onNativeError = () => {
@@ -209,12 +258,85 @@ export default function VideoPlayer({
 
   useEffect(() => {
     if (!playerRef.current || isHLS || played == null) return
-    const duration = playerRef.current.getDuration?.() || 0
-    const current = playerRef.current.getCurrentTime?.() || 0
-    if (duration && Math.abs(current - played * duration) > 2) {
+    const dur = playerRef.current.getDuration?.() || 0
+    const cur = playerRef.current.getCurrentTime?.() || 0
+    if (dur && Math.abs(cur - played * dur) > 2) {
       playerRef.current.seekTo(played, 'fraction')
     }
   }, [isHLS, played])
+
+  const handleMouseMove = useCallback(() => {
+    setShowControls(true)
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (playingRef.current) setShowControls(false)
+    }, 3500)
+  }, [])
+
+  const togglePlayPause = useCallback((e) => {
+    e?.stopPropagation()
+    if (!canControl) return
+    if (playingRef.current) {
+      adapter.pauseVideo()
+    } else {
+      adapter.playVideo()
+    }
+  }, [canControl, adapter])
+
+  const jumpSeconds = useCallback((delta, e) => {
+    e?.stopPropagation()
+    if (!canControl) return
+    const cur = currentTime()
+    const target = Math.max(0, Math.min(durationSec || 999999, cur + delta))
+    adapter.seekTo(target, 'seconds')
+    emitSeek(target)
+  }, [canControl, currentTime, durationSec, adapter, emitSeek])
+
+  const handleSeekSlider = useCallback((e) => {
+    e.stopPropagation()
+    if (!canControl) return
+    const fraction = Number(e.target.value) / 1000
+    const dur = adapter.getDuration() || durationSec || 0
+    const targetSec = fraction * dur
+    adapter.seekTo(fraction, 'fraction')
+    setCurrentSec(targetSec)
+    emitSeek(targetSec)
+  }, [canControl, adapter, durationSec, emitSeek])
+
+  const toggleFullscreen = useCallback((e) => {
+    e.stopPropagation()
+    const root = playerWrapperRef.current
+    if (!root) return
+    if (!document.fullscreenElement) {
+      root.requestFullscreen?.() || root.webkitRequestFullscreen?.()
+    } else {
+      document.exitFullscreen?.() || document.webkitExitFullscreen?.()
+    }
+  }, [])
+
+  const handleDownload = useCallback((e) => {
+    e.stopPropagation()
+    const targetUrl = resolvedUrl || rawUrl || videoUrl || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : '')
+    if (!targetUrl) return
+    if (typeof window !== 'undefined') {
+      window.open(targetUrl, '_blank', 'noopener,noreferrer')
+    }
+  }, [resolvedUrl, rawUrl, videoUrl, videoId])
+
+  const toggleMute = useCallback((e) => {
+    e.stopPropagation()
+    setLocalMuted((prev) => !prev)
+  }, [])
+
+  const handleVolumeChange = useCallback((e) => {
+    e.stopPropagation()
+    const val = Number(e.target.value)
+    setLocalVolume(val)
+    if (val > 0 && localMuted) setLocalMuted(false)
+  }, [localMuted])
+
+  const playedPercent = durationSec > 0 ? Math.min(100, Math.max(0, (currentSec / durationSec) * 100)) : 0
+  const seekbarValue = durationSec > 0 ? Math.round((currentSec / durationSec) * 1000) : 0
 
   if (error || isMixedContent) {
     return (
@@ -233,65 +355,214 @@ export default function VideoPlayer({
     )
   }
 
-  if (isHLS) {
-    return (
-      <div className={styles.playerWrapper}>
+  return (
+    <div
+      ref={playerWrapperRef}
+      className={styles.playerWrapper}
+      onMouseMove={handleMouseMove}
+      onTouchStart={handleMouseMove}
+    >
+      {isHLS ? (
         <video
           ref={videoRef}
           className={styles.videoElement}
           autoPlay={playing}
-          muted={muted}
-          controls={canControl}
+          muted={localMuted}
+          controls={false}
           playsInline
           onPlay={emitPlay}
           onPause={emitPause}
-          onSeeked={emitSeek}
+          onSeeked={() => emitSeek(currentTime())}
           onEnded={onEnded}
           onTimeUpdate={(event) => {
             const video = event.currentTarget
-            const duration = video.duration || 0
+            const dur = video.duration || 0
+            if (dur && dur !== durationSec) setDurationSec(dur)
+            setCurrentSec(video.currentTime || 0)
+            const loaded = video.buffered.length && dur ? (video.buffered.end(0) / dur) * 100 : 0
+            setLoadedPercent(loaded)
             onProgress?.({
-              played: duration ? video.currentTime / duration : 0,
+              played: dur ? video.currentTime / dur : 0,
               playedSeconds: video.currentTime,
-              loaded: video.buffered.length ? video.buffered.end(0) / duration : 0,
+              loaded: loaded / 100,
             })
           }}
-          onLoadedMetadata={(event) => onDuration?.(event.currentTarget.duration || 0)}
+          onLoadedMetadata={(event) => {
+            const dur = event.currentTarget.duration || 0
+            setDurationSec(dur)
+            onDuration?.(dur)
+          }}
         />
-        {!isReady && <div className={styles.loadingOverlay}>Loading stream...</div>}
-        {isLive && <div className={styles.liveIndicator}><Radio size={10} /> LIVE</div>}
-      </div>
-    )
-  }
+      ) : (
+        <ReactPlayer
+          ref={playerRef}
+          url={resolvedUrl}
+          playing={isPlayingState}
+          volume={localVolume}
+          muted={localMuted}
+          playbackRate={playbackRate}
+          onProgress={(prog) => {
+            setCurrentSec(prog.playedSeconds || 0)
+            setLoadedPercent((prog.loaded || 0) * 100)
+            onProgress?.(prog)
+          }}
+          onDuration={(dur) => {
+            setDurationSec(dur || 0)
+            onDuration?.(dur || 0)
+          }}
+          onPlay={emitPlay}
+          onPause={emitPause}
+          onEnded={onEnded}
+          onError={handleError}
+          onReady={notifyReady}
+          width="100%"
+          height="100%"
+          controls={false}
+          config={{
+            file: { attributes: { playsInline: true }, forceVideo: true },
+            youtube: {
+              playerVars: { rel: 0, modestbranding: 1, playsInline: 1, controls: 0 },
+              embedOptions: { host: 'https://www.youtube-nocookie.com' },
+            },
+          }}
+        />
+      )}
 
-  return (
-    <div className={styles.playerWrapper}>
-      <ReactPlayer
-        ref={playerRef}
-        url={resolvedUrl}
-        playing={playing}
-        volume={volume}
-        muted={muted}
-        playbackRate={playbackRate}
-        onProgress={onProgress}
-        onDuration={onDuration}
-        onPlay={emitPlay}
-        onPause={emitPause}
-        onEnded={onEnded}
-        onError={handleError}
-        onReady={notifyReady}
-        width="100%"
-        height="100%"
-        controls={canControl}
-        config={{
-          file: { attributes: { playsInline: true }, forceVideo: true },
-          youtube: {
-            playerVars: { rel: 0, modestbranding: 1, playsInline: 1 },
-            embedOptions: { host: 'https://www.youtube-nocookie.com' },
-          },
-        }}
-      />
+      {!isReady && <div className={styles.loadingOverlay}>Loading stream...</div>}
       {isLive && <div className={styles.liveIndicator}><Radio size={10} /> LIVE</div>}
+
+      {/* Advanced Custom Controls Overlay */}
+      <div className={`${styles.customControlsOverlay} ${showControls || !isPlayingState ? styles.controlsVisible : ''}`}>
+        <div className={styles.centerOverlayButtons}>
+          <button
+            type="button"
+            className={styles.centerCircleBtn}
+            onClick={(e) => jumpSeconds(-10, e)}
+            disabled={!canControl}
+            title="Rewind 10 seconds"
+          >
+            <RotateCcw size={22} />
+          </button>
+
+          <button
+            type="button"
+            className={styles.centerMainPlayBtn}
+            onClick={togglePlayPause}
+            disabled={!canControl}
+            title={isPlayingState ? 'Pause' : 'Play'}
+          >
+            {isPlayingState ? <Pause size={34} /> : <Play size={34} style={{ marginLeft: '4px' }} />}
+          </button>
+
+          <button
+            type="button"
+            className={styles.centerCircleBtn}
+            onClick={(e) => jumpSeconds(10, e)}
+            disabled={!canControl}
+            title="Forward 10 seconds"
+          >
+            <RotateCw size={22} />
+          </button>
+        </div>
+
+        <div className={styles.customBottomBar}>
+          <div className={styles.trackRow}>
+            <span className={styles.timeText}>{formatTime(currentSec)}</span>
+            
+            <div className={styles.seekbarContainer}>
+              <div className={styles.seekbarTrack}>
+                <div className={styles.seekbarLoaded} style={{ width: `${loadedPercent}%` }} />
+                <div className={styles.seekbarProgress} style={{ width: `${playedPercent}%` }} />
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1000"
+                value={seekbarValue}
+                onChange={handleSeekSlider}
+                disabled={!canControl || isLive}
+                className={styles.rangeInput}
+                title="Seek position"
+              />
+            </div>
+
+            <span className={styles.timeText}>{formatTime(durationSec)}</span>
+          </div>
+
+          <div className={styles.bottomButtonsRow}>
+            <div className={styles.leftControls}>
+              <button
+                type="button"
+                className={styles.controlIconBtn}
+                onClick={toggleMute}
+                title={localMuted ? 'Unmute' : 'Mute'}
+              >
+                {localMuted || localVolume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              </button>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={localMuted ? 0 : localVolume}
+                onChange={handleVolumeChange}
+                className={styles.volumeSlider}
+                title="Volume"
+              />
+            </div>
+
+            <div className={styles.centerControls}>
+              <button
+                type="button"
+                className={styles.controlIconBtn}
+                onClick={(e) => jumpSeconds(-10, e)}
+                disabled={!canControl}
+                title="Rewind 10s"
+              >
+                <RotateCcw size={16} />
+              </button>
+              <button
+                type="button"
+                className={styles.controlIconBtn}
+                onClick={togglePlayPause}
+                disabled={!canControl}
+                title={isPlayingState ? 'Pause' : 'Play'}
+              >
+                {isPlayingState ? <Pause size={18} /> : <Play size={18} />}
+              </button>
+              <button
+                type="button"
+                className={styles.controlIconBtn}
+                onClick={(e) => jumpSeconds(10, e)}
+                disabled={!canControl}
+                title="Forward 10s"
+              >
+                <RotateCw size={16} />
+              </button>
+            </div>
+
+            <div className={styles.rightControls}>
+              <button
+                type="button"
+                className={styles.downloadBtn}
+                onClick={handleDownload}
+                title="Download Video"
+              >
+                <Download size={16} />
+                <span>Download</span>
+              </button>
+              <button
+                type="button"
+                className={styles.controlIconBtn}
+                onClick={toggleFullscreen}
+                title="Fullscreen"
+              >
+                <Maximize size={18} />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
