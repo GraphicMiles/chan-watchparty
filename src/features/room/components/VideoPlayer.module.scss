@@ -1,7 +1,106 @@
-.playerWrapper { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: .75rem; background: #000; }
-.videoElement { width: 100%; height: 100%; object-fit: contain; }
-.loadingContainer, .errorContainer { display: flex; min-height: 240px; flex-direction: column; align-items: center; justify-content: center; gap: .75rem; padding: 1rem; border-radius: .75rem; background: #101116; color: var(--paper, #f5f3ef); text-align: center; }
-.spinner { width: 1.5rem; height: 1.5rem; border: 3px solid rgba(255,255,255,.25); border-top-color: currentColor; border-radius: 50%; animation: spin .8s linear infinite; }
-.errorContainer button { border: 0; border-radius: .5rem; padding: .6rem .9rem; background: var(--drift, #7c89f7); color: white; cursor: pointer; }
-.liveIndicator { position: absolute; top: .75rem; left: .75rem; padding: .25rem .45rem; border-radius: .35rem; background: #b5263d; color: white; font-size: .75rem; font-weight: 700; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.playerWrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+.videoElement {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.loadingContainer,
+.errorContainer {
+  display: flex;
+  min-height: 240px;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  padding: 1.5rem;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(12, 14, 22, 0.95), rgba(22, 24, 33, 0.9));
+  color: var(--paper, #F5F3EF);
+  text-align: center;
+  border: 1px solid var(--border);
+}
+
+.errorContainer h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+}
+
+.errorContainer p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+.errorContainer button {
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 1.2rem;
+  background: var(--drift, #7C89F7);
+  color: white;
+  cursor: pointer;
+  font-weight: 600;
+  font-family: var(--font-body);
+  transition: background 0.15s ease, box-shadow 0.2s ease;
+}
+
+.errorContainer button:hover {
+  background: var(--accent-hover);
+  box-shadow: var(--glow-drift);
+}
+
+.spinner {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--drift);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.loadingOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--fog);
+  font-size: 0.9rem;
+  backdrop-filter: blur(4px);
+}
+
+.liveIndicator {
+  position: absolute;
+  top: 0.85rem;
+  left: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: var(--radius-sm);
+  background: var(--danger-muted);
+  color: var(--danger);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  box-shadow: var(--glow-ember-sm);
+  border: 1px solid rgba(255, 107, 71, 0.2);
+  z-index: 2;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

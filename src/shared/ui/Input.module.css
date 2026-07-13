@@ -1,18 +1,19 @@
 .input {
   width: 100%;
-  padding: 0.65rem 0.85rem;
+  padding: 0.65rem 0.9rem;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
-  background: rgba(12, 14, 22, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(12, 14, 22, 0.55);
   color: var(--text-primary);
-  font-size: 1rem;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font-size: 0.95rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   font-family: var(--font-body);
+  box-shadow: var(--inner-glow);
 }
 
 .input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-muted);
+  border-color: rgba(124, 137, 247, 0.4);
+  box-shadow: 0 0 0 3px rgba(124, 137, 247, 0.08), var(--inner-glow);
   outline: none;
 }
 
@@ -21,7 +22,7 @@
 }
 
 .input:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -30,15 +31,16 @@
   flex-direction: column;
   gap: 0.35rem;
   color: var(--text-secondary);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
+  font-weight: 500;
 }
 
 .error {
-  border-color: var(--danger);
-  box-shadow: 0 0 0 3px var(--danger-muted);
+  border-color: rgba(255, 107, 71, 0.4);
+  box-shadow: 0 0 0 3px rgba(255, 107, 71, 0.08);
 }
 
 .errorText {
   color: var(--danger);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
 }

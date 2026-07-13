@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactPlayer from 'react-player'
 import Hls from 'hls.js'
+import { AlertTriangle, Radio } from 'lucide-react'
 import { normalizePlaybackUrl } from '../../../shared/lib/youtube.js'
 import styles from './VideoPlayer.module.scss'
 
@@ -218,7 +219,7 @@ export default function VideoPlayer({
   if (error || isMixedContent) {
     return (
       <div className={styles.errorContainer}>
-        <div className={styles.errorIcon}>⚠️</div>
+        <AlertTriangle size={32} strokeWidth={1.5} style={{ color: 'var(--ember)' }} />
         <h3>{isMixedContent ? 'HTTP stream blocked' : 'Playback Error'}</h3>
         <p>
           {isMixedContent
@@ -257,8 +258,8 @@ export default function VideoPlayer({
           }}
           onLoadedMetadata={(event) => onDuration?.(event.currentTarget.duration || 0)}
         />
-        {!isReady && <div className={styles.loadingOverlay}>Loading stream…</div>}
-        {isLive && <div className={styles.liveIndicator}>● LIVE</div>}
+        {!isReady && <div className={styles.loadingOverlay}>Loading stream...</div>}
+        {isLive && <div className={styles.liveIndicator}><Radio size={10} /> LIVE</div>}
       </div>
     )
   }
@@ -290,7 +291,7 @@ export default function VideoPlayer({
           },
         }}
       />
-      {isLive && <div className={styles.liveIndicator}>● LIVE</div>}
+      {isLive && <div className={styles.liveIndicator}><Radio size={10} /> LIVE</div>}
     </div>
   )
 }
