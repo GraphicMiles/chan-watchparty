@@ -271,7 +271,7 @@ export default function VideoPlayer({
         onReady={notifyReady}
         width="100%"
         height="100%"
-        controls
+        controls={canControl}
         config={{
           file: { attributes: { crossOrigin: 'anonymous', playsInline: true }, forceVideo: true },
           youtube: {
