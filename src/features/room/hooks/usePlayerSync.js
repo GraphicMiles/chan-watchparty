@@ -3,19 +3,28 @@ import { doc, onSnapshot, setDoc, getDoc, serverTimestamp } from 'firebase/fires
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 
-const SYNC_THRESHOLD = 1.5
-const VIEWER_RESYNC_MS = 5000
+const SYNC_THRESHOLD = 0.5 // 0.5s sync threshold as required
+const VIEWER_RESYNC_MS = 3000
+const HOST_HEARTBEAT_MS = 1500
 
 export function usePlayerSync(roomId, room, playerRef) {
   const { user } = useAuth()
   const isHost = room?.hostId === user?.uid
   const isCoHost = Array.isArray(room?.coHosts) && room.coHosts.includes(user?.uid)
   const canControl = Boolean(isHost || isCoHost)
+  
   const lastVideoIdRef = useRef(null)
   const lastPlayingRef = useRef(null)
+  const initialHostSyncDoneRef = useRef(false)
+  const lastWriteTimeRef = useRef(0)
 
-  const writePlayerState = useCallback(async (patch) => {
+  const writePlayerState = useCallback(async (patch, force = false) => {
     if (!roomId || !canControl || !room || !user) return
+    const now = Date.now()
+    // Debounce non-forced writes within 400ms to avoid flooding Firestore during rapid slider seeking
+    if (!force && now - lastWriteTimeRef.current < 400) return
+    lastWriteTimeRef.current = now
+
     const ref = doc(db, 'rooms', roomId, 'playerState', 'current')
     await setDoc(ref, {
       videoId: room.videoId || '',
@@ -23,73 +32,122 @@ export function usePlayerSync(roomId, room, playerRef) {
       isPlaying: false,
       currentTime: 0,
       updatedAt: serverTimestamp(),
+      clientTimeMs: now,
       updatedBy: user.uid,
       ...patch,
     }, { merge: true })
   }, [roomId, canControl, room, user])
 
-  // Controller heartbeat every 5s.
-  useEffect(() => {
-    if (!canControl || (!room?.videoId && !room?.videoUrl)) return undefined
-
-    const interval = setInterval(() => {
-      const player = playerRef.current
-      if (!player || typeof player.getPlayerState !== 'function') return
-      const state = player.getPlayerState()
-      writePlayerState({
-        ...(room.videoId ? { videoId: room.videoId } : { videoUrl: room.videoUrl }),
-        isPlaying: state === 1,
-        currentTime: player.getCurrentTime?.() || 0,
-      }).catch(() => {})
-    }, 5000)
-
-    return () => clearInterval(interval)
-  }, [canControl, room?.videoId, room?.videoUrl, playerRef, writePlayerState])
-
-  // Apply a Firestore player state when the player is ready. The initial
-  // snapshot can arrive before the player mounts, so viewer reconciliation is
-  // also retried periodically below.
+  // Apply a Firestore player state to the active player adapter
   const applyPlayerState = useCallback((state) => {
-    if (!state?.updatedAt?.toMillis) return
+    if (!state) return
     const player = playerRef.current
     if (!player || typeof player.getPlayerState !== 'function') return
 
-    const expectedTime = state.isPlaying
-      ? state.currentTime + (Date.now() - state.updatedAt.toMillis()) / 1000
-      : state.currentTime
+    const baseTimeMs = state.clientTimeMs || (state.updatedAt?.toMillis ? state.updatedAt.toMillis() : Date.now())
+    const elapsedSec = state.isPlaying ? Math.max(0, (Date.now() - baseTimeMs) / 1000) : 0
+    const expectedTime = (state.currentTime || 0) + elapsedSec
     const current = player.getCurrentTime?.() || 0
     const playerState = player.getPlayerState()
     const diff = Math.abs(current - expectedTime)
 
-    // The room document owns the URL. A player adapter may implement this as
-    // a no-op, while YouTube-compatible adapters can use it when available.
+    // Sync video ID/URL if adapter supports loadVideoById
     if (state.videoId && lastVideoIdRef.current !== state.videoId) {
       player.loadVideoById?.(state.videoId)
       lastVideoIdRef.current = state.videoId
     }
 
-    if (state.isPlaying && playerState !== 1) player.playVideo?.()
-    else if (!state.isPlaying && playerState !== 2) player.pauseVideo?.()
+    if (state.isPlaying && playerState !== 1) {
+      player.playVideo?.()
+    } else if (!state.isPlaying && playerState !== 2) {
+      player.pauseVideo?.()
+    }
     lastPlayingRef.current = state.isPlaying
 
-    if (diff > SYNC_THRESHOLD) player.seekTo?.(expectedTime, true)
+    // Strict < 0.5s threshold seek adjustment
+    if (diff > SYNC_THRESHOLD) {
+      player.seekTo?.(expectedTime, true)
+    }
   }, [playerRef])
 
-  // Viewer reconciliation.
+  // HOST/CO-HOST INITIAL RECONCILIATION:
+  // When the host leaves and returns (or refreshes), check existing room playerState FIRST
+  // so the host does NOT restart the watch from 00:00 for all participants!
+  useEffect(() => {
+    if (!canControl || !roomId || initialHostSyncDoneRef.current) return undefined
+
+    let isMounted = true
+    const checkExistingState = async () => {
+      try {
+        const ref = doc(db, 'rooms', roomId, 'playerState', 'current')
+        const snap = await getDoc(ref)
+        if (!isMounted || !snap.exists()) {
+          initialHostSyncDoneRef.current = true
+          return
+        }
+        const data = snap.data()
+        // If room state exists and is currently active (> 2s into video and updated within last 6 hours),
+        // apply that state to the host's player instead of writing 00:00!
+        const updatedAtMs = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : (data.clientTimeMs || 0)
+        const isRecent = Date.now() - updatedAtMs < 6 * 3600 * 1000
+        if (data && data.currentTime > 2 && isRecent) {
+          applyPlayerState(data)
+        }
+      } catch (err) {
+        console.error('Host initial reconciliation check failed:', err)
+      } finally {
+        if (isMounted) {
+          initialHostSyncDoneRef.current = true
+        }
+      }
+    }
+
+    checkExistingState()
+    return () => { isMounted = false }
+  }, [canControl, roomId, applyPlayerState])
+
+  // Controller heartbeat (every 1.5s when playing, or 5s when paused)
+  useEffect(() => {
+    if (!canControl || (!room?.videoId && !room?.videoUrl)) return undefined
+
+    const interval = setInterval(() => {
+      if (!initialHostSyncDoneRef.current) return
+      const player = playerRef.current
+      if (!player || typeof player.getPlayerState !== 'function') return
+      const state = player.getPlayerState()
+      const isPlaying = state === 1
+      const current = player.getCurrentTime?.() || 0
+
+      // Guard: do not overwrite an active room with 00:00 right after joining
+      if (current === 0 && !isPlaying && room?.createdAt?.toMillis && Date.now() - room.createdAt.toMillis() > 30000) {
+        return
+      }
+
+      writePlayerState({
+        ...(room.videoId ? { videoId: room.videoId } : { videoUrl: room.videoUrl }),
+        isPlaying,
+        currentTime: current,
+      }).catch(() => {})
+    }, HOST_HEARTBEAT_MS)
+
+    return () => clearInterval(interval)
+  }, [canControl, room?.videoId, room?.videoUrl, room?.createdAt, playerRef, writePlayerState])
+
+  // Viewer real-time synchronization (< 0.5s threshold)
   useEffect(() => {
     if (canControl || !roomId) return undefined
 
     let disposed = false
     const stateRef = doc(db, 'rooms', roomId, 'playerState', 'current')
     const unsub = onSnapshot(stateRef, (snap) => {
-      if (!disposed) applyPlayerState(snap.data())
+      if (!disposed && snap.exists()) applyPlayerState(snap.data())
     })
     const interval = setInterval(async () => {
       try {
         const snap = await getDoc(stateRef)
-        if (!disposed) applyPlayerState(snap.data())
+        if (!disposed && snap.exists()) applyPlayerState(snap.data())
       } catch {
-        /* retry on the next interval */
+        /* retry on next interval */
       }
     }, VIEWER_RESYNC_MS)
 
@@ -100,21 +158,21 @@ export function usePlayerSync(roomId, room, playerRef) {
     }
   }, [applyPlayerState, canControl, roomId])
 
-  // Idle-tab resync on return.
+  // Idle-tab resync on return to active tab
   useEffect(() => {
-    if (canControl || !roomId) return undefined
+    if (!roomId) return undefined
     const onVis = async () => {
       if (document.visibilityState !== 'visible') return
       try {
         const snap = await getDoc(doc(db, 'rooms', roomId, 'playerState', 'current'))
-        applyPlayerState(snap.data())
+        if (snap.exists()) applyPlayerState(snap.data())
       } catch {
         /* ignore */
       }
     }
     document.addEventListener('visibilitychange', onVis)
     return () => document.removeEventListener('visibilitychange', onVis)
-  }, [applyPlayerState, canControl, roomId])
+  }, [applyPlayerState, roomId])
 
   return { writePlayerState, isHost, isCoHost, canControl }
 }

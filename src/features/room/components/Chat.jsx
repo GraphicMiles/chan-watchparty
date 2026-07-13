@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Smile, X, ArrowDown } from 'lucide-react'
 import { Input, Button, IconButton } from '../../../shared/ui/index.js'
 import ChatMessage from './ChatMessage.jsx'
@@ -30,6 +30,14 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   const typingTimer = useRef(null)
   const lastTypingWrite = useRef(0)
   const prevCount = useRef(0)
+
+  // Ensure typing status is cleared when unmounting or changing rooms
+  useEffect(() => {
+    return () => {
+      clearTimeout(typingTimer.current)
+      setTyping?.(false)
+    }
+  }, [setTyping])
 
   const merged = (() => {
     const serverIds = new Set(messages.map((m) => m.id))
@@ -131,7 +139,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     setTimeout(() => setCooldown(false), 1000)
   }
 
-  const typingNames = typing
+  const typingNames = (typing || [])
     .filter((t) => t.id !== user?.uid)
     .map((t) => t.displayName)
 

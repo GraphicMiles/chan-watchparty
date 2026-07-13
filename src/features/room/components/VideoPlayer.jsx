@@ -3,7 +3,7 @@ import ReactPlayer from 'react-player'
 import Hls from 'hls.js'
 import {
   AlertTriangle, Radio, Play, Pause, RotateCcw, RotateCw,
-  Volume2, VolumeX, Maximize, Download
+  Volume2, VolumeX, Maximize
 } from 'lucide-react'
 import { normalizePlaybackUrl } from '../../../shared/lib/youtube.js'
 import styles from './VideoPlayer.module.scss'
@@ -314,15 +314,6 @@ export default function VideoPlayer({
     }
   }, [])
 
-  const handleDownload = useCallback((e) => {
-    e.stopPropagation()
-    const targetUrl = resolvedUrl || rawUrl || videoUrl || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : '')
-    if (!targetUrl) return
-    if (typeof window !== 'undefined') {
-      window.open(targetUrl, '_blank', 'noopener,noreferrer')
-    }
-  }, [resolvedUrl, rawUrl, videoUrl, videoId])
-
   const toggleMute = useCallback((e) => {
     e.stopPropagation()
     setLocalMuted((prev) => !prev)
@@ -431,7 +422,7 @@ export default function VideoPlayer({
       {!isReady && <div className={styles.loadingOverlay}>Loading stream...</div>}
       {isLive && <div className={styles.liveIndicator}><Radio size={10} /> LIVE</div>}
 
-      {/* Advanced Custom Controls Overlay */}
+      {/* Advanced Custom Controls Overlay (Watch Only, No Download) */}
       <div className={`${styles.customControlsOverlay} ${showControls || !isPlayingState ? styles.controlsVisible : ''}`}>
         <div className={styles.centerOverlayButtons}>
           <button
@@ -542,15 +533,6 @@ export default function VideoPlayer({
             </div>
 
             <div className={styles.rightControls}>
-              <button
-                type="button"
-                className={styles.downloadBtn}
-                onClick={handleDownload}
-                title="Download Video"
-              >
-                <Download size={16} />
-                <span>Download</span>
-              </button>
               <button
                 type="button"
                 className={styles.controlIconBtn}
