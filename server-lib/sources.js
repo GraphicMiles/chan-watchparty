@@ -70,6 +70,36 @@ export const SITE_CONFIGS = {
       return `http://d6.o2tv.org/${cleanShow}/Season%20${seasonNum}/${cleanShow}%20-%20S${seasonNum}E${epNum}%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`
     },
   },
+  animedrive: {
+    label: 'AnimeDrive',
+    baseUrl: 'https://animedrive.in',
+    items: 'article.post, .video-item, .entry, .search-result, .post-item',
+    title: 'h2 a, .entry-title a, .video-title, h3 a, .title',
+    image: 'img[src], .thumbnail img, .post-thumbnail img, img[data-src], img.wp-post-image',
+    link: 'a[href*="/download/"], a[href*="/watch/"], a[href*="/anime/"], a[href*=".mp4"], a[href*=".mkv"], h2 a, .entry-title a',
+    meta: '.posted-on, .meta, .video-meta, .date',
+    buildSearchUrl: (q) => `https://animedrive.in/?s=${encodeURIComponent(q)}`,
+    buildSearchUrls: (q) => [
+      `https://animedrive.in/?s=${encodeURIComponent(q)}`,
+      `https://animedrive.in/search/${encodeURIComponent(q)}`,
+      `https://animedrive.in/?q=${encodeURIComponent(q)}`,
+    ],
+  },
+  '9jarocks': {
+    label: '9jaRocks',
+    baseUrl: 'https://9jarocks.net',
+    items: '.post-item, article, .movie-item, .blog-entry, .file-item, .item',
+    title: '.post-title a, h2 a, h3 a, .entry-title a, .title',
+    image: 'img[src], .post-thumb img, .featured-image img, img.wp-post-image, img[data-src]',
+    link: '.post-title a, a[href*="/download/"], a[href*=".mp4"], a[href*=".mkv"], a.more-link, h2 a',
+    meta: '.post-meta, .entry-meta, .category, .date',
+    buildSearchUrl: (q) => `https://9jarocks.net/findx?search=${encodeURIComponent(q)}`,
+    buildSearchUrls: (q) => [
+      `https://9jarocks.net/findx?search=${encodeURIComponent(q)}`,
+      `https://9jarocks.net/search?q=${encodeURIComponent(q)}`,
+      `https://9jarocks.net/?s=${encodeURIComponent(q)}`,
+    ],
+  },
   spankbang: {
     label: 'SpankBang',
     baseUrl: 'https://spankbang.com',

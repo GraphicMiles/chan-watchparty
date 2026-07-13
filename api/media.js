@@ -191,8 +191,8 @@ async function searchDirectLinks(query, options = {}) {
   const results = []
   const requestedSite = options.site && options.site !== 'custom' && options.site !== 'all' ? options.site : null
   const scrapers = requestedSite
-    ? [requestedSite, ...['nkiri', 'netnaija', 'fzmovies', 'o2tv'].filter((k) => k !== requestedSite)]
-    : ['nkiri', 'netnaija', 'fzmovies', 'o2tv']
+    ? [requestedSite, ...['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv'].filter((k) => k !== requestedSite)]
+    : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv']
   
   const searchedSites = []
   
@@ -570,6 +570,8 @@ function siteConfigForUrl(url, fallbackSite) {
   const hostname = new URL(url).hostname.toLowerCase()
   if (hostname === 'thenkiri.com' || hostname.endsWith('.thenkiri.com') || hostname === 'nkiri.com' || hostname.endsWith('.nkiri.com')) return getSiteConfig('nkiri')
   if (hostname === 'thenetnaija.ng' || hostname.endsWith('.thenetnaija.ng')) return getSiteConfig('netnaija')
+  if (hostname.includes('9jarocks')) return getSiteConfig('9jarocks')
+  if (hostname.includes('animedrive')) return getSiteConfig('animedrive')
   return getSiteConfig(fallbackSite)
 }
 
