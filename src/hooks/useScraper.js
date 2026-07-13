@@ -48,9 +48,10 @@ export function useScraper() {
 
     try {
       const token = await user.getIdToken()
-      const request = url
-        ? { action: 'scrape', url, site, options: { resolve: true } }
-        : { action: 'search', layer: 'direct', query, options: { site, resolve: true } }
+      const isActualUrl = typeof url === 'string' && /^https?:\/\//i.test(url.trim())
+      const request = isActualUrl
+        ? { action: 'scrape', url: url.trim(), site, options: { resolve: true } }
+        : { action: 'search', layer: 'direct', query: (url || query || '').trim(), options: { site, resolve: true } }
       const res = await fetch(`${API_URL}/api/media`, {
         method: 'POST',
         headers: {

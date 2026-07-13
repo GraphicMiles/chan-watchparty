@@ -237,7 +237,11 @@ export default function VideoPlayer({
     clearTimeout(retryTimeoutRef.current)
     destroyHls()
 
-    if (!isHLS || !resolvedUrl || !videoRef.current) return undefined
+    const fallbackReadyTimer = setTimeout(() => setIsReady(true), 5000)
+
+    if (!isHLS || !resolvedUrl || !videoRef.current) {
+      return () => clearTimeout(fallbackReadyTimer)
+    }
 
     const video = videoRef.current
     const onLoadedMetadata = () => {
@@ -285,6 +289,7 @@ export default function VideoPlayer({
 
     video.addEventListener('error', onNativeError)
     return () => {
+      clearTimeout(fallbackReadyTimer)
       video.removeEventListener('loadedmetadata', onLoadedMetadata)
       video.removeEventListener('error', onNativeError)
       clearTimeout(retryTimeoutRef.current)
@@ -468,11 +473,12 @@ export default function VideoPlayer({
           muted={localMuted}
           controls={false}
           playsInline
-          onPlay={emitPlay}
+          onPlay={() => { setIsReady(true); emitPlay() }}
           onPause={emitPause}
           onSeeked={() => emitSeek(currentTime())}
           onEnded={onEnded}
           onTimeUpdate={(event) => {
+            if (!isReady) setIsReady(true)
             const video = event.currentTarget
             const dur = video.duration || 0
             if (dur && dur !== durationSec) setDurationSec(dur)
@@ -500,7 +506,9 @@ export default function VideoPlayer({
             volume={localVolume}
             muted={localMuted}
             playbackRate={playbackRate}
+            onStart={() => setIsReady(true)}
             onProgress={(prog) => {
+              if (!isReady) setIsReady(true)
               setCurrentSec(prog.playedSeconds || 0)
               setLoadedPercent((prog.loaded || 0) * 100)
               onProgress?.(prog)
@@ -509,7 +517,7 @@ export default function VideoPlayer({
               setDurationSec(dur || 0)
               onDuration?.(dur || 0)
             }}
-            onPlay={emitPlay}
+            onPlay={() => { setIsReady(true); emitPlay() }}
             onPause={emitPause}
             onEnded={onEnded}
             onError={handleError}
