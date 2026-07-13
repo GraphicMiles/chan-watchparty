@@ -1,5 +1,5 @@
 # Chan — Full Application Audit
-
+hry
 **Audit date:** 2026-07-12  
 **Git HEAD at audit:** `7c9ed16` (`Refactor export of ScraperPage component`)  
 **Scope:** Read-only inventory of every folder, file, export/import graph, runtime interactions, and observed bugs.  
