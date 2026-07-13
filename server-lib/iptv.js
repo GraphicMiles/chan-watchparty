@@ -35,6 +35,7 @@ function normalizeChannel(channel) {
     logo: channel.logo || null,
     provider: String(channel.provider || 'custom').trim(),
     playlistUrl: channel.playlistUrl || null,
+    isNSFW: Boolean(channel.isNSFW),
   }
 }
 
@@ -51,11 +52,12 @@ export function parseM3U(text, source = {}) {
       const comma = line.indexOf(',')
       metadata = {
         name: comma >= 0 ? line.slice(comma + 1).trim() : readAttribute(line, 'tvg-name'),
-        group: readAttribute(line, 'group-title') || 'Live TV',
+        group: readAttribute(line, 'group-title') || (source.id?.includes('movies') ? 'Movies' : 'Live TV'),
         country: readAttribute(line, 'tvg-country'),
         logo: readAttribute(line, 'tvg-logo') || null,
         provider: source.provider || 'custom',
         playlistUrl: source.url || null,
+        isNSFW: Boolean(source.isNSFW),
       }
       continue
     }
@@ -83,6 +85,7 @@ function readPlaylistSources() {
             id: String(source.id || `playlist-${index + 1}`),
             provider: String(source.label || source.id || `playlist-${index + 1}`),
             url: String(source.url),
+            isNSFW: Boolean(source.isNSFW),
           }))
       }
     } catch {
@@ -90,11 +93,34 @@ function readPlaylistSources() {
     }
   }
 
-  return [{
-    id: 'free-tv',
-    provider: 'Free-TV IPTV',
-    url: process.env.IPTV_PLAYLIST_URL || DEFAULT_PLAYLIST_URL,
-  }]
+  return [
+    {
+      id: 'free-tv',
+      provider: 'Free-TV IPTV',
+      url: process.env.IPTV_PLAYLIST_URL || DEFAULT_PLAYLIST_URL,
+    },
+    {
+      id: 'iptv-org-all',
+      provider: 'IPTV.org All',
+      url: 'https://iptv-org.github.io/iptv/index.m3u',
+    },
+    {
+      id: 'iptv-org-movies',
+      provider: 'IPTV.org Movies',
+      url: 'https://iptv-org.github.io/iptv/categories/movies.m3u',
+    },
+    {
+      id: 'iptv-org-entertainment',
+      provider: 'IPTV.org Entertainment',
+      url: 'https://iptv-org.github.io/iptv/categories/entertainment.m3u',
+    },
+    {
+      id: 'iptv-org-xxx',
+      provider: 'IPTV.org XXX 18+',
+      url: 'https://iptv-org.github.io/iptv/categories/xxx.m3u',
+      isNSFW: true,
+    },
+  ]
 }
 
 export function getPlaylistSources() {

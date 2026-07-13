@@ -191,13 +191,12 @@ async function searchDirectLinks(query, options = {}) {
   const results = []
   const requestedSite = options.site && options.site !== 'custom' && options.site !== 'all' ? options.site : null
   const scrapers = requestedSite
-    ? [requestedSite, ...['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv'].filter((k) => k !== requestedSite)]
+    ? [requestedSite]
     : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv']
   
-  const searchedSites = []
+  const searchedSites = [...scrapers]
   
-  for (const siteKey of scrapers) {
-    searchedSites.push(siteKey)
+  await Promise.all(scrapers.map(async (siteKey) => {
     try {
       const config = getSiteConfig(siteKey)
       const queryUrls = config?.buildSearchUrls ? config.buildSearchUrls(query) : (config?.buildSearchUrl ? [config.buildSearchUrl(query)] : [])
@@ -229,9 +228,7 @@ async function searchDirectLinks(query, options = {}) {
         }
       }
 
-      if (siteCandidates.length === 0) {
-        continue
-      }
+      if (siteCandidates.length === 0) return
 
       const candidates = options.resolve
         ? siteCandidates.slice(0, Math.min(6, Math.max(1, Number(options.resolveLimit) || 4)))
@@ -249,7 +246,7 @@ async function searchDirectLinks(query, options = {}) {
                 thumbnail: thumb,
                 image: thumb,
                 source: item.source || siteKey,
-                type: 'direct',
+                type: siteKey === 'animedrive' ? 'anime' : 'direct',
                 quality: extractQuality(item.title || result.title),
               }
             })
@@ -262,7 +259,7 @@ async function searchDirectLinks(query, options = {}) {
           thumbnail: thumb,
           image: thumb,
           source: siteKey,
-          type: 'direct',
+          type: siteKey === 'animedrive' ? 'anime' : 'direct',
           isDirect: result.isDirect === true,
           playableInRoom: result.isDirect === true,
           quality: extractQuality(result.title),
@@ -270,17 +267,14 @@ async function searchDirectLinks(query, options = {}) {
       }))
       
       results.push(...enriched.flat())
-      if (results.length > 0) {
-        break
-      }
     } catch (err) {
       console.error(`${siteKey} search failed:`, err.message)
     }
-  }
+  }))
   
   const deduplicated = deduplicateAndEnrich(results)
   const offset = Math.max(0, Number(options.offset) || 0)
-  const limit = Math.min(50, Math.max(1, Number(options.limit) || 30))
+  const limit = Math.min(60, Math.max(1, Number(options.limit) || 30))
   return {
     results: deduplicated.slice(offset, offset + limit),
     hasMore: offset + limit < deduplicated.length,
@@ -992,6 +986,22 @@ export default async function handler(req, res) {
       let hasMore = false
       
       switch (layer) {
+        case 'all': {
+          const [ytRes, directRes, iptvRes, sportsRes] = await Promise.all([
+            searchYouTube(query, 6).catch(() => []),
+            searchDirectLinks(query, { ...options, limit: 14, resolve: true }).catch(() => ({ results: [] })),
+            searchIPTV(query, options.userChannels || [], options.provider || '', 6).catch(() => []),
+            searchSports(query).catch(() => []),
+          ])
+          results = deduplicateAndEnrich([
+            ...(directRes.results || []),
+            ...ytRes,
+            ...iptvRes,
+            ...sportsRes,
+          ])
+          hasMore = false
+          break
+        }
         case 'youtube':
           results = await searchYouTube(query, Math.min(50, Math.max(1, Number(options.limit) || 20)))
           break
