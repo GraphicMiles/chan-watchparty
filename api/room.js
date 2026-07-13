@@ -1,13 +1,16 @@
 /**
- * Consolidated room lifecycle endpoint (counts as 1 Vercel function).
+ * Consolidated room & moderation lifecycle endpoint (counts as 1 Vercel function).
  *
  * POST /api/room
- * body: { action: 'join' | 'leave' | 'end', ... }
- *
- * Replaces: joinRoom, leaveRoom, endRoom
+ * body: { action: 'join' | 'leave' | 'end' | 'kick' | 'promote' | 'mute' | 'livekit' | 'ai' | 'cleanup', ... }
  */
 import { getDb, FieldValue, verifyIdToken } from './lib/firebaseAdmin.js'
-import { preflight, ok, fail, statusForError } from './lib/http.js'
+import { preflight, ok, fail, statusForError, JSON_HEADERS } from './lib/http.js'
+import { sendResponse } from './lib/response.js'
+import { deleteRoomAndSubcollections, runCleanupStaleRooms } from './lib/roomCleanup.js'
+import { kickParticipant, promoteParticipant, muteParticipant } from './lib/moderateHelper.js'
+import { generateLiveKitToken } from './lib/livekitHelper.js'
+import { generateAiSummary } from './lib/aiHelper.js'
 
 async function requireUser(req, expectedUid) {
   const token = req.headers.authorization?.split('Bearer ')[1]
@@ -22,6 +25,16 @@ async function requireUser(req, expectedUid) {
     throw Object.assign(new Error('Token uid does not match request uid'), { status: 403 })
   }
   return decoded
+}
+
+function requireCronSecret(req) {
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret) {
+    const provided = req.headers['x-cron-secret'] || req.headers['X-Cron-Secret']
+    if (provided !== cronSecret) {
+      throw Object.assign(new Error('Unauthorized'), { status: 401 })
+    }
+  }
 }
 
 async function joinRoom(db, body) {
@@ -66,7 +79,6 @@ async function joinRoom(db, body) {
       }
     }
 
-    // Prefer denormalized count; fall back to query if missing.
     let count = typeof room.participantCount === 'number' ? room.participantCount : null
     if (count == null) {
       const participantsSnap = await t.get(roomRef.collection('participants'))
@@ -122,31 +134,69 @@ async function endRoom(db, body) {
   const room = snap.data()
   if (room.hostId !== uid) throw new Error('Only the host can end the room')
 
+  // First mark ended for real-time client listeners
   await roomRef.update({
     status: 'ended',
     activityType: 'idle',
     endedAt: FieldValue.serverTimestamp(),
-  })
+  }).catch(() => {})
+
+  // Completely delete room and all subcollections right away so stale rooms never get stuck on Firestore
+  await deleteRoomAndSubcollections(db, roomRef)
 
   return { success: true }
 }
 
 export default async function handler(req, res) {
   try {
-    if (preflight(req, res, { methods: ['POST'] })) return
+    if (req.method === 'OPTIONS') {
+      return sendResponse(res, 200, { ok: true }, JSON_HEADERS)
+    }
 
     const body = req.body || {}
-    const action = String(body.action || '').toLowerCase()
-    if (!action) return fail(res, 400, 'Missing action (join | leave | end)')
+    const action = String(body.action || req.query?.action || req.query?.legacy || '').toLowerCase()
 
-    await requireUser(req, body.uid)
+    // Cron check / cleanup target (GET or POST)
+    if (action === 'cleanupstalerooms' || action === 'cleanup' || (req.method === 'GET' && !action)) {
+      requireCronSecret(req)
+      const db = getDb()
+      const result = await runCleanupStaleRooms(db)
+      return ok(res, result)
+    }
+
+    if (preflight(req, res, { methods: ['POST', 'GET'] })) return
+    if (!action) return fail(res, 400, 'Missing action')
 
     const db = getDb()
     let result
-    if (action === 'join') result = await joinRoom(db, body)
-    else if (action === 'leave') result = await leaveRoom(db, body)
-    else if (action === 'end') result = await endRoom(db, body)
-    else return fail(res, 400, `Unknown action: ${action}`)
+
+    if (action === 'join') {
+      await requireUser(req, body.uid)
+      result = await joinRoom(db, body)
+    } else if (action === 'leave') {
+      await requireUser(req, body.uid)
+      result = await leaveRoom(db, body)
+    } else if (action === 'end') {
+      await requireUser(req, body.uid)
+      result = await endRoom(db, body)
+    } else if (action === 'kick') {
+      const decoded = await requireUser(req)
+      result = await kickParticipant(db, decoded.uid, body)
+    } else if (action === 'promote') {
+      const decoded = await requireUser(req)
+      result = await promoteParticipant(db, decoded.uid, body)
+    } else if (action === 'mute') {
+      const decoded = await requireUser(req)
+      result = await muteParticipant(db, decoded.uid, body)
+    } else if (action === 'livekit' || action === 'createlivekittoken') {
+      await requireUser(req, body.uid)
+      result = await generateLiveKitToken(db, body)
+    } else if (action === 'ai' || action === 'summary') {
+      const decoded = await requireUser(req)
+      result = await generateAiSummary(db, decoded, body)
+    } else {
+      return fail(res, 400, `Unknown action: ${action}`)
+    }
 
     return ok(res, result)
   } catch (err) {
