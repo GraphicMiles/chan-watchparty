@@ -48,6 +48,10 @@ service cloud.firestore {
         allow read: if isAuthed();
         allow create, update: if isOwner(uid) || isAuthed();
       }
+
+      match /watchLater/{bookmarkId} {
+        allow read, write, delete: if isOwner(uid) || isAuthed();
+      }
     }
 
     match /scrapes/{scrapeId} {
