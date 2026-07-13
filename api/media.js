@@ -152,17 +152,36 @@ async function searchDirectLinks(query, options = {}) {
       const searchUrl = config.buildSearchUrl(query)
       const html = await fetchHtml(searchUrl)
       const siteResults = parseListing(html, searchUrl, config)
-      
-      results.push(...siteResults.map(r => ({
-        ...r,
-        source: siteKey,
-        type: 'direct',
-        // A listing/page URL is not playable. Preserve the parser's
-        // classification instead of claiming every result is a direct file.
-        isDirect: r.isDirect === true,
-        playableInRoom: r.isDirect === true,
-        quality: extractQuality(r.title),
-      })))
+      const candidates = options.resolve
+        ? siteResults.slice(0, Math.min(6, Math.max(1, Number(options.resolveLimit) || 4)))
+        : siteResults
+
+      const enriched = await Promise.all(candidates.map(async (result) => {
+        if (options.resolve && !result.isDirect) {
+          const resolved = await resolvePageChain(result.url, siteKey)
+          if (resolved.length) {
+            return resolved.map((item) => ({
+              ...item,
+              title: item.title || result.title,
+              source: item.source || siteKey,
+              type: 'direct',
+              quality: extractQuality(item.title || result.title),
+            }))
+          }
+        }
+
+        return [{
+          ...result,
+          source: siteKey,
+          type: 'direct',
+          // A listing/page URL is not playable. Preserve the parser's
+          // classification instead of claiming every result is a direct file.
+          isDirect: result.isDirect === true,
+          playableInRoom: result.isDirect === true,
+          quality: extractQuality(result.title),
+        }]
+      }))
+      results.push(...enriched.flat())
     } catch (err) {
       console.error(`${siteKey} search failed:`, err.message)
     }
@@ -417,7 +436,7 @@ function extractDirectMedia(html, baseUrl, source) {
     add(raw, $(el).text().trim() || pageTitle)
   })
 
-  const rawUrls = html.match(/https?:[^\s"'<>]+\.(?:mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(?:\?[^\s"'<>]*)?/gi) || []
+  const rawUrls = html.match(/https?:[^\s"'<>]+\.(?:mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(?:\?[^\s"'<>]*)?(?=[\s"'<>]|$)/gi) || []
   rawUrls.forEach((raw) => add(raw.replace(/&amp;/g, '&'), pageTitle, 'direct URL found on page'))
   return results
 }
@@ -452,7 +471,7 @@ function isResolverHost(url, rootHost) {
   }
 }
 
-async function resolvePageChain(startUrl, site) {
+export async function resolvePageChain(startUrl, site) {
   const rootHost = new URL(startUrl).hostname.toLowerCase().replace(/^www\\./, '')
   const queue = [{ url: startUrl, depth: 0 }]
   const visited = new Set()

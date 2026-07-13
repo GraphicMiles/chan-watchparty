@@ -43,23 +43,21 @@ export function useScraper() {
       setError('Sign in to use media tools')
       return
     }
-    if (!url) {
-      setError('Paste a page URL before extracting links')
-      return
-    }
-
     setLoading(true)
     setError(null)
 
     try {
       const token = await user.getIdToken()
+      const request = url
+        ? { action: 'scrape', url, site, options: { resolve: true } }
+        : { action: 'search', layer: 'direct', query, options: { site, resolve: true } }
       const res = await fetch(`${API_URL}/api/media`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ action: 'scrape', url, site, options: { resolve: true } }),
+        body: JSON.stringify(request),
       })
       const data = await res.json()
 
