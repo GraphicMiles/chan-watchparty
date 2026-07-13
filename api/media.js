@@ -49,6 +49,37 @@ function formatMatchTime(utcDate) {
   return date.toLocaleDateString()
 }
 
+function deduplicateAndEnrich(items) {
+  if (!Array.isArray(items)) return []
+  const seenUrls = new Set()
+  const seenTitles = new Set()
+  
+  return items.filter((item) => {
+    if (!item) return false
+    
+    // Ensure thumbnail property is synced
+    const thumb = item.thumbnail || item.image || item.poster || null
+    item.thumbnail = thumb
+    item.image = thumb
+    
+    const urlKey = String(item.url || item.link || item.id || '').trim().toLowerCase()
+    if (!urlKey || seenUrls.has(urlKey)) return false
+    seenUrls.add(urlKey)
+
+    // Deduplicate by normalized title if longer than 3 characters
+    const titleKey = String(item.title || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+    if (titleKey && titleKey.length > 3 && seenTitles.has(titleKey)) {
+      return false
+    }
+    if (titleKey) seenTitles.add(titleKey)
+
+    return true
+  })
+}
+
 // ==================== LAYER HANDLERS ====================
 
 async function searchYouTube(query, limit = 20) {
@@ -92,12 +123,14 @@ async function searchYouTube(query, limit = 20) {
     const full = statusById[id]
     const sn = full?.snippet || searchItem?.snippet || {}
     const duration = full?.contentDetails?.duration
+    const thumb = sn.thumbnails?.high?.url || sn.thumbnails?.medium?.url || sn.thumbnails?.default?.url || null
     
     return {
       id,
       title: sn.title || 'Untitled',
       description: sn.description || '',
-      thumbnail: sn.thumbnails?.high?.url || sn.thumbnails?.medium?.url || sn.thumbnails?.default?.url,
+      thumbnail: thumb,
+      image: thumb,
       channel: sn.channelTitle,
       publishedAt: sn.publishedAt,
       url: `https://youtube.com/watch?v=${id}`,
@@ -126,17 +159,21 @@ async function searchOMDb(query) {
     return []
   }
   
-  return (data.Search || []).map((it) => ({
-    id: it.imdbID,
-    title: it.Title,
-    description: `${it.Type} • ${it.Year}`,
-    thumbnail: it.Poster !== 'N/A' ? it.Poster : null,
-    url: `https://www.imdb.com/title/${it.imdbID}`,
-    year: it.Year,
-    source: 'omdb',
-    type: 'movie',
-    isDirect: false,
-  }))
+  return (data.Search || []).map((it) => {
+    const thumb = it.Poster !== 'N/A' ? it.Poster : null
+    return {
+      id: it.imdbID,
+      title: it.Title,
+      description: `${it.Type} • ${it.Year}`,
+      thumbnail: thumb,
+      image: thumb,
+      url: `https://www.imdb.com/title/${it.imdbID}`,
+      year: it.Year,
+      source: 'omdb',
+      type: 'movie',
+      isDirect: false,
+    }
+  })
 }
 
 async function searchDirectLinks(query, options = {}) {
@@ -165,6 +202,8 @@ async function searchDirectLinks(query, options = {}) {
             return resolved.map((item) => ({
               ...item,
               title: item.title || result.title,
+              thumbnail: item.thumbnail || item.image || result.thumbnail || result.image || null,
+              image: item.image || item.thumbnail || result.image || result.thumbnail || null,
               source: item.source || siteKey,
               type: 'direct',
               quality: extractQuality(item.title || result.title),
@@ -172,12 +211,13 @@ async function searchDirectLinks(query, options = {}) {
           }
         }
 
+        const thumb = result.thumbnail || result.image || null
         return [{
           ...result,
+          thumbnail: thumb,
+          image: thumb,
           source: siteKey,
           type: 'direct',
-          // A listing/page URL is not playable. Preserve the parser's
-          // classification instead of claiming every result is a direct file.
           isDirect: result.isDirect === true,
           playableInRoom: result.isDirect === true,
           quality: extractQuality(result.title),
@@ -189,11 +229,12 @@ async function searchDirectLinks(query, options = {}) {
     }
   }))
   
+  const deduplicated = deduplicateAndEnrich(results)
   const offset = Math.max(0, Number(options.offset) || 0)
   const limit = Math.min(50, Math.max(1, Number(options.limit) || 30))
   return {
-    results: results.slice(offset, offset + limit),
-    hasMore: offset + limit < results.length,
+    results: deduplicated.slice(offset, offset + limit),
+    hasMore: offset + limit < deduplicated.length,
   }
 }
 
@@ -211,7 +252,8 @@ async function searchIPTV(query, userChannels = [], provider = '') {
       id: `iptv-${channel.name.replace(/\s+/g, '-').toLowerCase()}`,
       title: channel.name,
       description: channel.group,
-      thumbnail: channel.logo,
+      thumbnail: channel.logo || null,
+      image: channel.logo || null,
       url: channel.url,
       channel: channel.name,
       group: channel.group,
@@ -294,11 +336,13 @@ async function searchSports(query) {
         const channelCandidates = matchSportsChannels(match, channels)
         const channel = channelCandidates[0] || null
         const time = formatMatchTime(match.utcDate)
+        const thumb = match.competition.emblem || null
         return {
           id: `match-${match.id}`,
           title: `${match.homeTeam.name} vs ${match.awayTeam.name}`,
           description: `${match.competition.name} - ${time}`,
-          thumbnail: match.competition.emblem,
+          thumbnail: thumb,
+          image: thumb,
           url: channel?.url || null,
           matchInfo: {
             teams: `${match.homeTeam.name} vs ${match.awayTeam.name}`,
@@ -421,6 +465,7 @@ function extractDirectMedia(html, baseUrl, source) {
   const results = []
   const seen = new Set()
   const pageTitle = $('meta[property="og:title"]').attr('content') || $('title').text().trim() || 'Video'
+  const pageImg = $('meta[property="og:image"]').attr('content') || null
 
   const add = (rawUrl, title, meta = 'direct file') => {
     const link = resolveUrl(rawUrl, baseUrl)
@@ -434,7 +479,8 @@ function extractDirectMedia(html, baseUrl, source) {
     seen.add(link)
     results.push({
       title: title || `${pageTitle} (direct video)`,
-      image: $('meta[property="og:image"]').attr('content') || null,
+      thumbnail: pageImg,
+      image: pageImg,
       link,
       url: link,
       meta,
@@ -565,7 +611,11 @@ function parseListing(html, baseUrl, config) {
       ($el.is('a') ? $el.text().trim() : '') ||
       $el.find('img').first().attr('alt') ||
       'Untitled'
-    const rawImg = $el.find(config.image).first().attr('src') || $el.find(config.image).first().attr('data-src')
+    const rawImg = $el.find(config.image).first().attr('src') ||
+                   $el.find(config.image).first().attr('data-src') ||
+                   $el.find('img').first().attr('src') ||
+                   $el.find('img').first().attr('data-src') ||
+                   $el.find('img').first().attr('data-lazy-src')
     const img = resolveUrl(rawImg, baseUrl)
     const rawLink = $el.find(config.link).first().attr('href') || $el.closest('a').attr('href')
     const link = resolveUrl(rawLink, baseUrl)
@@ -575,7 +625,8 @@ function parseListing(html, baseUrl, config) {
       seen.add(link)
       results.push({
         title: title.slice(0, 200),
-        image: img,
+        thumbnail: img || null,
+        image: img || null,
         link,
         url: link,
         meta,
@@ -806,16 +857,41 @@ export default async function handler(req, res) {
             const provider = options.provider || process.env.NSFW_PROVIDER || 'xvideos'
             const resolved = await Promise.all(searchResults.slice(0, 6).map(async (result) => {
               const pageResults = await resolvePageChain(result.url, provider)
-              return pageResults.length ? pageResults : [result]
+              if (pageResults.length) {
+                return pageResults.map((item) => {
+                  const thumb = item.thumbnail || item.image || result.thumbnail || result.image || null
+                  return {
+                    ...item,
+                    title: item.title || result.title,
+                    thumbnail: thumb,
+                    image: thumb,
+                    duration: item.duration || result.duration || null,
+                    quality: item.quality || result.quality || null,
+                  }
+                })
+              }
+              return [result]
             }))
-            results = resolved.flat().map((result) => ({
-              ...result,
-              source: result.source || 'xvideos',
-              type: 'nsfw',
-              isNSFW: true,
-            }))
+            results = resolved.flat().map((result) => {
+              const thumb = result.thumbnail || result.image || null
+              return {
+                ...result,
+                thumbnail: thumb,
+                image: thumb,
+                source: result.source || 'xvideos',
+                type: 'nsfw',
+                isNSFW: true,
+              }
+            })
           } else {
-            results = searchResults
+            results = searchResults.map((result) => {
+              const thumb = result.thumbnail || result.image || null
+              return {
+                ...result,
+                thumbnail: thumb,
+                image: thumb,
+              }
+            })
           }
           break
         }
@@ -823,13 +899,15 @@ export default async function handler(req, res) {
           return fail(res, 400, `Unknown layer: ${layer}`)
       }
       
+      const deduplicated = deduplicateAndEnrich(results)
+      
       return ok(res, {
         success: true,
         layer,
         query,
-        count: results.length,
+        count: deduplicated.length,
         hasMore,
-        results,
+        results: deduplicated,
       })
     }
     

@@ -4,6 +4,36 @@ import { useAuth } from '../shared/auth/hooks/useAuth.jsx'
 const API_URL = import.meta.env.VITE_API_URL || ''
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
+function deduplicateAndSyncThumbnails(items) {
+  if (!Array.isArray(items)) return []
+  const seenUrls = new Set()
+  const seenTitles = new Set()
+
+  return items.filter((item) => {
+    if (!item) return false
+
+    // Ensure thumbnail and image properties are in sync
+    const thumb = item.thumbnail || item.image || item.poster || null
+    item.thumbnail = thumb
+    item.image = thumb
+
+    const urlKey = String(item.url || item.link || item.id || '').trim().toLowerCase()
+    if (!urlKey || seenUrls.has(urlKey)) return false
+    seenUrls.add(urlKey)
+
+    const titleKey = String(item.title || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+    if (titleKey && titleKey.length > 3 && seenTitles.has(titleKey)) {
+      return false
+    }
+    if (titleKey) seenTitles.add(titleKey)
+
+    return true
+  })
+}
+
 export function useUnifiedSearch() {
   const { user } = useAuth()
   const [results, setResults] = useState([])
@@ -84,7 +114,8 @@ export function useUnifiedSearch() {
       if (!data.success) throw new Error(data.error || 'Search failed')
 
       const newResults = data.results || []
-      const finalResults = append ? [...resultsRef.current, ...newResults] : newResults
+      const combined = append ? [...resultsRef.current, ...newResults] : newResults
+      const finalResults = deduplicateAndSyncThumbnails(combined)
       const nextHasMore = data.hasMore === true
 
       resultsRef.current = finalResults
