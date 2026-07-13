@@ -37,6 +37,17 @@ export const SITE_CONFIGS = {
     link: 'a[href$=".mp4"], a[href$=".mkv"], a[href$=".avi"], a[href$=".mov"]',
     meta: '.info',
     isDirectListing: true,
+    buildSearchUrl: (q) => null,
+    constructDirectUrl: (show, season = 1, episode = 1) => {
+      const cleanShow = String(show || '')
+        .replace(/^Download-/i, '')
+        .replace(/-otv[a-z0-9]+$/i, '')
+        .replace(/-/g, ' ')
+        .trim()
+      const seasonNum = String(season).padStart(2, '0')
+      const epNum = String(episode).padStart(2, '0')
+      return `http://d6.o2tv.org/${cleanShow}/Season%20${seasonNum}/${cleanShow}%20-%20S${seasonNum}E${epNum}%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`
+    },
   },
   spankbang: {
     label: 'SpankBang',

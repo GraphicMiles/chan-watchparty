@@ -545,8 +545,95 @@ function isResolverHost(url, rootHost) {
   }
 }
 
+async function resolveO2TvPage(pageUrl) {
+  try {
+    const parsed = new URL(pageUrl)
+    const hostname = parsed.hostname.toLowerCase()
+    if (!hostname.includes('o2tvseries') && !hostname.includes('o2tv.org')) {
+      return null
+    }
+
+    const parts = parsed.pathname.split('/').filter(Boolean)
+    let showRaw = parts[0] || 'Show'
+    let seasonRaw = parts[1] || 'Season-01'
+    let episodeRaw = parts[2] || 'Episode-01'
+
+    const showClean = decodeURIComponent(showRaw)
+      .replace(/^Download-/i, '')
+      .replace(/-otv[a-z0-9]+$/i, '')
+      .replace(/-/g, ' ')
+      .trim()
+
+    const seasonMatch = seasonRaw.match(/\d+/)
+    const seasonNum = seasonMatch ? seasonMatch[0].padStart(2, '0') : '01'
+
+    const epMatch = episodeRaw.match(/\d+/)
+    const epNum = epMatch ? epMatch[0].padStart(2, '0') : '01'
+
+    const cdns = ['d6.o2tv.org', 'd2.o2tv.org', 'd4.o2tv.org', 'd8.o2tv.org', 'd1.o2tv.org']
+    const suffixes = [
+      `%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`,
+      `%20(TvShows4Mobile.Com).mp4`,
+      `%20otv.mp4`,
+      `.mp4`,
+    ]
+
+    const candidates = []
+    for (const cdn of cdns) {
+      for (const suffix of suffixes) {
+        candidates.push(`http://${cdn}/${showClean}/Season%20${seasonNum}/${showClean}%20-%20S${seasonNum}E${epNum}${suffix}`)
+      }
+    }
+
+    for (const candidateUrl of candidates) {
+      try {
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 2500)
+        const check = await fetch(candidateUrl, {
+          method: 'HEAD',
+          signal: controller.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+        })
+        clearTimeout(timer)
+        if (check.ok || check.status === 206 || check.status === 302) {
+          return [{
+            title: `${showClean} - S${seasonNum}E${epNum}`,
+            url: candidateUrl,
+            link: candidateUrl,
+            source: 'o2tv',
+            isDirect: true,
+            playableInRoom: true,
+            resolvedFrom: pageUrl,
+          }]
+        }
+      } catch {
+        /* check next candidate */
+      }
+    }
+
+    const primaryCandidate = `http://d6.o2tv.org/${showClean}/Season%20${seasonNum}/${showClean}%20-%20S${seasonNum}E${epNum}%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`
+    return [{
+      title: `${showClean} - S${seasonNum}E${epNum}`,
+      url: primaryCandidate,
+      link: primaryCandidate,
+      source: 'o2tv',
+      isDirect: true,
+      playableInRoom: true,
+      resolvedFrom: pageUrl,
+    }]
+  } catch (err) {
+    console.error('O2TV direct resolution error:', err)
+    return null
+  }
+}
+
 export async function resolvePageChain(startUrl, site) {
   const rootHost = new URL(startUrl).hostname.toLowerCase().replace(/^www\\./, '')
+  if (rootHost.includes('o2tvseries') || rootHost.includes('o2tv.org')) {
+    const o2tvDirect = await resolveO2TvPage(startUrl)
+    if (o2tvDirect && o2tvDirect.length) return o2tvDirect
+  }
+  
   const queue = [{ url: startUrl, depth: 0 }]
   const visited = new Set()
   const output = []
