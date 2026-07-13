@@ -1,6 +1,6 @@
 .spinner {
-  width: var(--size, 1.25rem);
-  height: var(--size, 1.25rem);
+  width: var(--size, 20px);
+  height: var(--size, 20px);
   border: 2px solid rgba(0, 0, 0, 0.08);
   border-top-color: var(--accent-orange);
   border-radius: var(--radius-pill);

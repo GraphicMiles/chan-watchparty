@@ -22,7 +22,7 @@ body {
   overflow-x: hidden;
 }
 
-/* Graph-paper grid background for light pages */
+/* Graph-paper grid background */
 body::before {
   content: '';
   position: fixed;
@@ -59,7 +59,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 p {
-  margin: 0 0 0.75rem;
+  margin: 0;
 }
 
 button, input, textarea, select {
@@ -80,7 +80,6 @@ a:hover {
   outline-offset: 2px;
 }
 
-/* Selection */
 ::selection {
   background: rgba(255, 106, 43, 0.2);
   color: var(--text-black);
@@ -93,12 +92,12 @@ a:hover {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -111,7 +110,15 @@ a:hover {
   100% { background-position: -200% 0; }
 }
 
-/* Reduced motion */
+.sync-pulse {
+  animation: pulse-ring 5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-ring {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.18); opacity: 0.35; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;
@@ -122,13 +129,11 @@ a:hover {
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+::-webkit-scrollbar-track { background: transparent; }
 
 ::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.12);
@@ -139,7 +144,6 @@ a:hover {
   background: rgba(0, 0, 0, 0.2);
 }
 
-/* Dark theme scrollbar */
 .room-theme ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
 }
@@ -148,9 +152,7 @@ a:hover {
   background: rgba(255, 255, 255, 0.18);
 }
 
-/* Utility: mono text */
 .mono {
-  font-family: var(--font-body);
-  font-size: 0.85rem;
+  font-size: 13px;
   color: var(--text-muted-grey);
 }

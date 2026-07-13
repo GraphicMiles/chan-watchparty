@@ -1,12 +1,12 @@
 .list {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: var(--s-2);
 }
 
 .title {
-  font-size: 0.95rem;
-  margin: 0;
+  font-size: 14px;
+  margin: 0 0 var(--s-2);
   font-family: var(--font-display);
   color: var(--room-text-primary);
 }
@@ -14,14 +14,14 @@
 .participants {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: var(--s-1);
 }
 
 .participant {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
-  padding: 0.4rem 0.5rem;
+  gap: var(--s-3);
+  padding: var(--s-2);
   border-radius: var(--radius-sm);
   transition: background 0.15s ease;
 }
@@ -45,12 +45,12 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  gap: 0.15rem;
+  gap: 2px;
 }
 
 .name {
   font-weight: 500;
-  font-size: 0.88rem;
+  font-size: 14px;
   color: var(--room-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -60,20 +60,20 @@
 .selfTag {
   font-weight: 400;
   color: var(--room-text-secondary);
-  font-size: 0.8rem;
+  font-size: 12px;
 }
 
 .roleWrap {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: var(--s-1);
 }
 
 .mutedTag {
   display: inline-flex;
   align-items: center;
-  gap: 0.2rem;
-  font-size: 0.68rem;
+  gap: 2px;
+  font-size: 10px;
   color: var(--room-danger);
   text-transform: uppercase;
   font-weight: 600;
@@ -81,7 +81,7 @@
 
 .actions {
   display: flex;
-  gap: 0.2rem;
+  gap: var(--s-1);
   flex-shrink: 0;
   opacity: 0;
   transition: opacity 0.15s ease;
@@ -92,8 +92,9 @@
 }
 
 .action {
-  padding: 0.2rem 0.45rem;
-  font-size: 0.7rem;
+  height: 24px;
+  padding: 0 var(--s-2);
+  font-size: 11px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--room-divider);
   background: transparent;

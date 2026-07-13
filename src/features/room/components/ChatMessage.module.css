@@ -1,96 +1,84 @@
 .message {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 2px;
 }
 
-.grouped {
-  padding-top: 0;
-}
+.grouped { padding-top: 0; }
+.pending { opacity: 0.6; }
+.mine .author { color: var(--accent-orange); }
 
-.pending {
-  opacity: 0.6;
-}
-
-.mine .author {
-  color: var(--accent-orange);
-}
-
-.reactWrap {
-  position: relative;
-}
+.reactWrap { position: relative; }
 
 .emojiMenu {
   position: absolute;
   bottom: 100%;
   left: 0;
   display: flex;
-  gap: 0.15rem;
-  padding: 0.35rem;
+  gap: 2px;
+  padding: var(--s-1);
   background: var(--room-surface);
   border: 1px solid var(--room-divider);
   border-radius: var(--radius-card);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   z-index: 5;
-  margin-bottom: 0.35rem;
+  margin-bottom: var(--s-1);
 }
 
 .emojiBtn {
   background: transparent;
   border: none;
   cursor: pointer;
-  font-size: 1.1rem;
-  padding: 0.25rem;
+  font-size: 16px;
+  padding: var(--s-1);
   border-radius: var(--radius-sm);
   transition: background 0.15s ease;
   line-height: 1;
 }
 
-.emojiBtn:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
+.emojiBtn:hover { background: rgba(255, 255, 255, 0.06); }
 
 .replySnippet {
-  padding: 0.35rem 0.55rem;
+  padding: var(--s-1) var(--s-2);
   border-left: 2px solid var(--accent-orange);
   background: rgba(255, 106, 43, 0.08);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  margin-bottom: 0.2rem;
-  font-size: 0.78rem;
+  margin-bottom: 2px;
+  font-size: 12px;
   color: var(--room-text-secondary);
 }
 
 .replyAuthor {
   color: var(--accent-orange);
   font-weight: 600;
-  font-size: 0.7rem;
-  margin-right: 0.3rem;
+  font-size: 11px;
+  margin-right: var(--s-1);
 }
 
 .meta {
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: var(--s-2);
 }
 
 .author {
   font-weight: 600;
-  font-size: 0.78rem;
+  font-size: 12px;
   color: #6FA8FF;
 }
 
 .time {
-  font-size: 0.7rem;
+  font-size: 11px;
   color: var(--room-text-secondary);
 }
 
 .text {
-  font-size: 0.88rem;
+  font-size: 14px;
   color: var(--room-text-primary);
   word-break: break-word;
-  line-height: 1.45;
+  line-height: 1.5;
   background: var(--room-surface);
-  padding: 0.65rem 0.85rem;
+  padding: var(--s-2) var(--s-3);
   border-radius: 14px;
   display: inline-block;
   max-width: 92%;
@@ -99,22 +87,20 @@
 .actions {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  margin-top: 0.1rem;
+  gap: var(--s-1);
+  margin-top: 2px;
   opacity: 0;
   transition: opacity 0.15s ease;
 }
 
-.message:hover .actions {
-  opacity: 1;
-}
+.message:hover .actions { opacity: 1; }
 
 .actionButton {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.15rem 0.4rem;
-  font-size: 0.7rem;
+  gap: 2px;
+  padding: 2px var(--s-1);
+  font-size: 11px;
   color: var(--room-text-secondary);
   background: transparent;
   border: none;
@@ -132,27 +118,25 @@
 .reactions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
-  margin-top: 0.2rem;
+  gap: var(--s-1);
+  margin-top: 2px;
 }
 
 .reaction {
   display: inline-flex;
   align-items: center;
-  gap: 0.2rem;
-  padding: 0.1rem 0.4rem;
+  gap: 2px;
+  padding: 2px var(--s-2);
   border-radius: var(--radius-pill);
   background: var(--room-surface);
   border: 1px solid var(--room-divider);
-  font-size: 0.78rem;
+  font-size: 12px;
   cursor: pointer;
   transition: border-color 0.15s ease;
-  line-height: 1;
+  line-height: 1.2;
 }
 
-.reaction:hover {
-  border-color: rgba(255, 255, 255, 0.15);
-}
+.reaction:hover { border-color: rgba(255, 255, 255, 0.15); }
 
 .reactionActive {
   background: rgba(255, 106, 43, 0.12);
@@ -160,6 +144,6 @@
 }
 
 .reactionCount {
-  font-size: 0.68rem;
+  font-size: 11px;
   color: var(--room-text-secondary);
 }

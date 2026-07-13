@@ -1,6 +1,21 @@
 :root {
   /* ================================================================
-     LIGHT THEME (landing / home / discover feed)
+     SPACING SCALE (4px base — use ONLY these values)
+     4, 8, 12, 16, 20, 24, 32, 40, 48, 64
+     ================================================================ */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+
+  /* ================================================================
+     LIGHT THEME (landing / home / discover)
      ================================================================ */
   --bg-light: #F3F4F1;
   --bg-grid-line: #E7E8E4;
@@ -12,7 +27,6 @@
   --accent-orange: #FF6A2B;
   --pill-black: #111111;
   --pill-black-text: #FFFFFF;
-  --pill-outline-border: #111111;
   --live-red: #EA3323;
   --border-hairline: #E7E8E4;
 
@@ -32,11 +46,10 @@
   --pulse-red-ring: rgba(255, 59, 48, 0.15);
 
   /* ================================================================
-     SHAPE TOKENS
+     SHAPE — single radius system (don't mix)
      ================================================================ */
   --radius-pill: 999px;
   --radius-card: 16px;
-  --radius-thumb: 16px;
   --radius-sm: 8px;
 
   /* ================================================================
@@ -46,29 +59,23 @@
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
 
   /* ================================================================
-     SPACING
-     ================================================================ */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-  --space-10: 40px;
-  --space-12: 48px;
-  --space-16: 64px;
-
-  /* ================================================================
      SHADOWS
      ================================================================ */
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
-  --shadow-card-hover: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-card-hover: 0 8px 24px rgba(0, 0, 0, 0.08);
   --shadow-pill: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-nav: 0 1px 3px rgba(0, 0, 0, 0.05);
 
   /* ================================================================
-     LEGACY ALIASES (for components that haven't migrated yet)
+     TOUCH TARGETS
+     ================================================================ */
+  --input-height: 44px;
+  --btn-height-sm: 36px;
+  --btn-height-md: 44px;
+  --btn-height-lg: 48px;
+
+  /* ================================================================
+     LEGACY ALIASES
      ================================================================ */
   --accent: var(--accent-orange);
   --danger: var(--live-red);
@@ -95,16 +102,16 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.08);
-
-  --radius-sm-old: 8px;
   --radius-md: 16px;
   --radius-lg: 16px;
   --radius-full: 999px;
-
   --gradient-cta: linear-gradient(135deg, var(--accent-orange), var(--live-red));
   --inner-glow: none;
   --glow-ember-sm: none;
   --glow-drift-sm: none;
   --glow-ember: none;
   --glow-drift: none;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+  --space-12: 48px; --space-16: 64px;
 }

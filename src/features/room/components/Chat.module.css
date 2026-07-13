@@ -10,30 +10,30 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--s-2);
   padding-right: 2px;
 }
 
 .empty {
   color: var(--room-text-secondary);
-  font-size: 0.82rem;
-  padding: 2rem 0;
+  font-size: 13px;
+  padding: var(--s-8) 0;
   text-align: center;
 }
 
 .typing {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--s-1);
   color: var(--room-text-secondary);
-  font-size: 0.78rem;
-  padding: 4px 0;
+  font-size: 12px;
+  padding: var(--s-1) 0;
 }
 
 .typingDot {
   width: 4px;
   height: 4px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--room-text-secondary);
   animation: bounce 1.2s infinite ease-in-out;
 }
@@ -47,10 +47,10 @@
 }
 
 .form {
-  margin-top: 8px;
+  margin-top: var(--s-2);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--s-2);
   flex-shrink: 0;
 }
 
@@ -58,11 +58,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
   background: rgba(255, 106, 43, 0.1);
   border-radius: var(--radius-sm);
-  font-size: 0.75rem;
+  font-size: 12px;
   color: var(--room-text-secondary);
   border-left: 3px solid var(--accent-orange);
 }
@@ -70,7 +70,7 @@
 .inputRow {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--s-2);
 }
 
 .input {
@@ -90,22 +90,22 @@
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 2px;
-  padding: 6px;
+  padding: var(--s-2);
   background: var(--room-surface);
   border: 1px solid var(--room-divider);
   border-radius: var(--radius-card);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   z-index: 5;
   width: max-content;
-  margin-bottom: 6px;
+  margin-bottom: var(--s-2);
 }
 
 .emojiButton {
   background: transparent;
   border: none;
   cursor: pointer;
-  font-size: 1.1rem;
-  padding: 4px;
+  font-size: 18px;
+  padding: var(--s-1);
   border-radius: var(--radius-sm);
   transition: background 0.15s ease;
   line-height: 1;
@@ -121,7 +121,7 @@
   height: 36px !important;
   min-width: 36px;
   padding: 0 !important;
-  border-radius: 50% !important;
+  border-radius: var(--radius-pill) !important;
   background: var(--accent-orange) !important;
   color: #fff !important;
   box-shadow: none !important;
@@ -135,25 +135,25 @@
 .system {
   text-align: center;
   color: var(--room-text-secondary);
-  font-size: 0.75rem;
-  padding: 4px 0;
+  font-size: 12px;
+  padding: var(--s-1) 0;
   font-style: italic;
 }
 
 .newPill {
   align-self: center;
-  margin: 4px 0;
+  margin: var(--s-1) 0;
   border: none;
   background: var(--accent-orange);
   color: #fff;
   border-radius: var(--radius-pill);
-  padding: 4px 12px;
-  font-size: 0.75rem;
+  padding: var(--s-1) var(--s-3);
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--s-1);
 }
 
 .clearReply {
@@ -173,6 +173,6 @@
 
 .counter {
   text-align: right;
-  font-size: 0.68rem;
+  font-size: 11px;
   color: var(--room-text-secondary);
 }

@@ -2,8 +2,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--radius-sm);
   border: none;
   background: transparent;
@@ -35,7 +35,6 @@
 
 .room-theme .button {
   color: var(--room-text-secondary);
-  border-radius: var(--radius-sm);
 }
 
 .room-theme .button:hover:not(:disabled) {

@@ -1,15 +1,15 @@
 .avatar {
   position: relative;
   flex-shrink: 0;
-  width: var(--size, 2.5rem);
-  height: var(--size, 2.5rem);
+  width: var(--size, 40px);
+  height: var(--size, 40px);
   border-radius: var(--radius-pill);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
   font-family: var(--font-display);
-  font-size: calc(var(--size, 2.5rem) * 0.38);
+  font-size: calc(var(--size, 40px) * 0.38);
   color: #fff;
   user-select: none;
 }
@@ -22,24 +22,14 @@
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 0.65rem;
-  height: 0.65rem;
+  width: 8px;
+  height: 8px;
   border-radius: var(--radius-pill);
   border: 2px solid var(--surface-white);
 }
 
-.statusLive {
-  background: var(--live-red);
-}
+.statusLive { background: var(--live-red); }
+.statusOnline { background: var(--brand-green); }
+.statusIdle { background: var(--text-muted-grey); }
 
-.statusOnline {
-  background: var(--brand-green);
-}
-
-.statusIdle {
-  background: var(--text-muted-grey);
-}
-
-.room-theme .status {
-  border-color: var(--room-bg);
-}
+.room-theme .status { border-color: var(--room-bg); }

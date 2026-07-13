@@ -1,10 +1,10 @@
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 7px;
+  gap: var(--s-1);
+  padding: 2px var(--s-2);
   border-radius: var(--radius-pill);
-  font-size: 0.65rem;
+  font-size: 10px;
   font-weight: 700;
   font-family: var(--font-body);
   text-transform: uppercase;
@@ -45,8 +45,8 @@
 }
 
 .icon svg {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
 }
 
 .pulse {
@@ -58,7 +58,6 @@
   50% { opacity: 0.75; }
 }
 
-/* Dark theme badges */
 .room-theme .muted {
   background: rgba(255, 255, 255, 0.06);
   color: var(--room-text-secondary);

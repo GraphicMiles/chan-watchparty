@@ -1,14 +1,15 @@
 .input {
   width: 100%;
-  padding: 8px 14px;
+  height: var(--input-height);
+  padding: 0 var(--s-4);
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-hairline);
   background: var(--surface-white);
   color: var(--text-black);
-  font-size: 0.88rem;
+  font-size: 14px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   font-family: var(--font-body);
-  line-height: 1.4;
+  line-height: 1;
   outline: none;
 }
 
@@ -29,9 +30,9 @@
 .label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--s-1);
   color: var(--text-body-grey);
-  font-size: 0.82rem;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -42,7 +43,7 @@
 
 .errorText {
   color: var(--live-red);
-  font-size: 0.78rem;
+  font-size: 12px;
 }
 
 /* Dark theme input */

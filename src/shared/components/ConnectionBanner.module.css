@@ -3,16 +3,16 @@
   top: 0;
   z-index: 40;
   width: 100%;
-  padding: 0.5rem 1rem;
+  padding: var(--s-2) var(--s-4);
   text-align: center;
-  font-size: 0.82rem;
+  font-size: 13px;
   font-weight: 600;
   color: #7A5C00;
   background: #FFF3CD;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.45rem;
+  gap: var(--s-2);
   border-bottom: 1px solid rgba(242, 178, 0, 0.2);
 }
 

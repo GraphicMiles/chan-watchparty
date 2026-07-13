@@ -8,7 +8,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.25rem;
+  padding: var(--s-4);
 }
 
 .content {
@@ -20,7 +20,7 @@
 .card {
   background: var(--surface-white);
   border-radius: var(--radius-card);
-  padding: 1.75rem;
+  padding: var(--s-6);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
   border: 1px solid var(--border-hairline);
 }
@@ -29,13 +29,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 1rem;
+  margin-bottom: var(--s-3);
 }
 
 .headerLeft {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--s-3);
 }
 
 .iconWrap {
@@ -50,10 +50,11 @@
 }
 
 .title {
-  font-size: 1.15rem;
+  font-size: 18px;
   margin: 0;
   font-family: var(--font-display);
   font-weight: 700;
+  line-height: 1.2;
 }
 
 @keyframes fadeIn {
