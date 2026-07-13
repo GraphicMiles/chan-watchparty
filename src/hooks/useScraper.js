@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { isDirectVideoUrl, normalizeDirectUrl, normalizePlaybackUrl } from '../shared/lib/youtube.js'
 import { useAuth } from '../shared/auth/hooks/useAuth.jsx'
+import { isSuitableThumbnail, isTitleMatch } from '../shared/lib/mediaHelper.js'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 
@@ -66,10 +67,25 @@ export function useScraper() {
         throw new Error(data.error || `HTTP ${res.status}`)
       }
 
-      const normalized = (data.results || []).map((item, index) => {
+      const targetQuery = (url || query || '').trim()
+      const isActualUrl = typeof url === 'string' && /^https?:\/\//i.test(url.trim())
+
+      const filtered = (data.results || []).filter((item) => {
+        if (!item) return false
+        if (!isActualUrl && targetQuery) {
+          const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'omdb'].includes(item.source)
+          if (isDirectOrMovie && !isTitleMatch(item.title, targetQuery)) {
+            return false
+          }
+        }
+        return true
+      })
+
+      const normalized = filtered.map((item, index) => {
         const link = normalizePlaybackUrl(item.url || item.link || '')
         const playable = item.isDirect === true || isDirectVideoUrl(link)
-        const thumb = item.thumbnail || item.image || null
+        const rawThumb = item.thumbnail || item.image || null
+        const thumb = isSuitableThumbnail(rawThumb) ? rawThumb : null
         return {
           id: index,
           title: item.title || 'Untitled',

@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef } from 'react'
 import { useAuth } from '../shared/auth/hooks/useAuth.jsx'
+import { isSuitableThumbnail, isTitleMatch, cleanTitleForMatching } from '../shared/lib/mediaHelper.js'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
-function deduplicateAndSyncThumbnails(items) {
+function deduplicateAndSyncThumbnails(items, query = null) {
   if (!Array.isArray(items)) return []
   const seenUrls = new Set()
   const seenTitles = new Set()
@@ -12,8 +13,17 @@ function deduplicateAndSyncThumbnails(items) {
   return items.filter((item) => {
     if (!item) return false
 
-    // Ensure thumbnail and image properties are in sync
-    const thumb = item.thumbnail || item.image || item.poster || null
+    if (query && String(query).trim()) {
+      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'omdb'].includes(item.source)
+      if (isDirectOrMovie && !isTitleMatch(item.title, query)) {
+        return false
+      }
+    }
+
+    let thumb = item.thumbnail || item.image || item.poster || null
+    if (!isSuitableThumbnail(thumb)) {
+      thumb = null
+    }
     item.thumbnail = thumb
     item.image = thumb
 
@@ -21,10 +31,7 @@ function deduplicateAndSyncThumbnails(items) {
     if (!urlKey || seenUrls.has(urlKey)) return false
     seenUrls.add(urlKey)
 
-    const titleKey = String(item.title || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, ' ')
-      .trim()
+    const titleKey = cleanTitleForMatching(item.title || '')
     if (titleKey && titleKey.length > 3 && seenTitles.has(titleKey)) {
       return false
     }
@@ -117,7 +124,7 @@ export function useUnifiedSearch() {
 
       const newResults = data.results || []
       const combined = append ? [...resultsRef.current, ...newResults] : newResults
-      const finalResults = deduplicateAndSyncThumbnails(combined)
+      const finalResults = deduplicateAndSyncThumbnails(combined, trimmedQuery)
       const nextHasMore = data.hasMore === true
 
       resultsRef.current = finalResults

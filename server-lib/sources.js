@@ -134,3 +134,63 @@ export function resolveUrl(src, baseUrl) {
     return src
   }
 }
+
+export function isSuitableThumbnail(url) {
+  if (!url || typeof url !== 'string') return false
+  const clean = url.trim().toLowerCase()
+  if (!clean || clean.startsWith('data:') || clean === 'null' || clean === 'undefined') return false
+  if (clean.includes('downloadwella.com') || clean.includes('downloadwella')) return false
+  if (/\b(arrow|download|logo|icon|placeholder|default|avatar|gravatar|spinner|loading|no-image|missing|blank|button|1x1|pixel)(\.|-|_|\b)/i.test(clean)) return false
+  if (clean.endsWith('.svg') || clean.endsWith('.ico')) return false
+  return true
+}
+
+export function cleanTitleForMatching(str) {
+  if (!str) return ''
+  return String(str)
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\.(mp4|mkv|m3u8|avi|mov)$/i, ' ')
+    .replace(/[^a-z0-9]+/gi, ' ')
+    .toLowerCase()
+    .trim()
+}
+
+export function isTitleMatch(title, query) {
+  if (!title || !query) return false
+  const qRaw = String(query).trim()
+  const tRaw = String(title).trim()
+  if (!qRaw || !tRaw) return false
+
+  const qClean = cleanTitleForMatching(qRaw)
+  const tClean = cleanTitleForMatching(tRaw)
+  if (!qClean || !tClean) return false
+
+  // 1. Exact clean match
+  if (tClean === qClean) return true
+
+  // 2. Word-boundary exact phrase match inside title (e.g. query "silo" inside "silo season 1 episode 1", or "house of the dragon" in "house of the dragon s02e01")
+  const phraseRegex = new RegExp('\\b' + qClean.replace(/\s+/g, '\\s+') + '\\b', 'i')
+  if (phraseRegex.test(tClean)) return true
+
+  // 3. No-spaces comparison for compound terms (e.g. query "super girl" vs title "supergirl s01e01" or "spider man" vs "spiderman")
+  const qNoSpaces = qClean.replace(/\s+/g, '')
+  const tNoSpaces = tClean.replace(/\s+/g, '')
+  if (qNoSpaces.length >= 4) {
+    if (tNoSpaces === qNoSpaces || new RegExp('\\b' + qNoSpaces + '\\b', 'i').test(tClean) || new RegExp('\\b' + qNoSpaces + '\\b', 'i').test(tNoSpaces)) {
+      return true
+    }
+  }
+
+  // 4. Strict multi-word token check (e.g. "house of the dragon")
+  const qTokens = qClean.split(/\s+/).filter(t => t.length >= 2 && !['of', 'the', 'in', 'at', 'to', 'and', 'for', 'with', 'by', 'from', 'on', 'or', 'a', 'an'].includes(t))
+  if (qTokens.length >= 2) {
+    const allQueryTokensInTitle = qTokens.every(token => new RegExp('\\b' + token + '\\b', 'i').test(tClean))
+    if (allQueryTokensInTitle) {
+      return true
+    }
+  }
+
+  return false
+}

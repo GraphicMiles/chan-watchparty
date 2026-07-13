@@ -2,14 +2,14 @@ import * as cheerio from 'cheerio'
 import { createHash } from 'node:crypto'
 import { preflight, ok, fail, statusForError } from '../server-lib/http.js'
 import { getDb, FieldValue, verifyIdToken } from '../server-lib/firebaseAdmin.js'
-import { getSiteConfig, resolveUrl } from '../server-lib/sources.js'
+import { getSiteConfig, resolveUrl, isSuitableThumbnail, isTitleMatch, cleanTitleForMatching } from '../server-lib/sources.js'
 import { checkIptvChannel, getIptvChannels, getPlaylistChannels } from '../server-lib/iptv.js'
 import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY
-const OMDB_API_KEY = process.env.OMDB_API_KEY
+const OMDB_API_KEY = process.env.OMDB_API_KEY || process.env.VITE_OMDB_API_KEY || 'trilogy'
 const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY
 
 // ==================== UTILITY FUNCTIONS ====================
@@ -49,7 +49,7 @@ function formatMatchTime(utcDate) {
   return date.toLocaleDateString()
 }
 
-function deduplicateAndEnrich(items) {
+function deduplicateAndEnrich(items, query = null) {
   if (!Array.isArray(items)) return []
   const seenUrls = new Set()
   const seenTitles = new Set()
@@ -57,8 +57,19 @@ function deduplicateAndEnrich(items) {
   return items.filter((item) => {
     if (!item) return false
     
-    // Ensure thumbnail property is synced
-    const thumb = item.thumbnail || item.image || item.poster || null
+    // Strict close match verification for direct and movie search results against the query
+    if (query && String(query).trim()) {
+      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'omdb'].includes(item.source)
+      if (isDirectOrMovie && !isTitleMatch(item.title, query)) {
+        return false
+      }
+    }
+
+    // Ensure thumbnail property is synced and suitable
+    let thumb = item.thumbnail || item.image || item.poster || null
+    if (!isSuitableThumbnail(thumb)) {
+      thumb = null
+    }
     item.thumbnail = thumb
     item.image = thumb
     
@@ -67,10 +78,7 @@ function deduplicateAndEnrich(items) {
     seenUrls.add(urlKey)
 
     // Deduplicate by normalized title if longer than 3 characters
-    const titleKey = String(item.title || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, ' ')
-      .trim()
+    const titleKey = cleanTitleForMatching(item.title || '')
     if (titleKey && titleKey.length > 3 && seenTitles.has(titleKey)) {
       return false
     }
@@ -157,34 +165,119 @@ async function searchYouTube(query, limit = 20) {
 }
 
 async function searchOMDb(query) {
-  if (!OMDB_API_KEY) {
-    throw new Error('OMDb API key not configured')
-  }
-  
-  const url = `https://www.omdbapi.com/?apikey=${OMDB_API_KEY}&s=${encodeURIComponent(query)}`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`OMDb error: ${res.status}`)
-  
-  const data = await res.json()
-  if (data.Response === 'False') {
+  if (!OMDB_API_KEY || !query) {
     return []
   }
   
-  return (data.Search || []).map((it) => {
-    const thumb = it.Poster !== 'N/A' ? it.Poster : null
-    return {
-      id: it.imdbID,
-      title: it.Title,
-      description: `${it.Type} • ${it.Year}`,
-      thumbnail: thumb,
-      image: thumb,
-      url: `https://www.imdb.com/title/${it.imdbID}`,
-      year: it.Year,
-      source: 'omdb',
-      type: 'movie',
-      isDirect: false,
+  try {
+    const url = `https://www.omdbapi.com/?apikey=${OMDB_API_KEY}&s=${encodeURIComponent(query)}`
+    const res = await fetch(url)
+    if (!res.ok) return []
+    
+    const data = await res.json()
+    if (data.Response === 'False' || !Array.isArray(data.Search)) {
+      return []
     }
+    
+    return data.Search.filter((it) => isTitleMatch(it.Title, query)).map((it) => {
+      const thumb = it.Poster !== 'N/A' && isSuitableThumbnail(it.Poster) ? it.Poster : null
+      return {
+        id: it.imdbID,
+        title: it.Title,
+        description: `${it.Type} • ${it.Year}`,
+        thumbnail: thumb,
+        image: thumb,
+        url: `https://www.imdb.com/title/${it.imdbID}`,
+        year: it.Year,
+        source: 'omdb',
+        type: 'movie',
+        isDirect: false,
+      }
+    })
+  } catch (err) {
+    console.error('OMDb search error:', err.message)
+    return []
+  }
+}
+
+async function fetchBestOMDbPoster(searchKeyword, originalQuery = null) {
+  if (!OMDB_API_KEY || !searchKeyword) return null
+  try {
+    const url = `https://www.omdbapi.com/?apikey=${OMDB_API_KEY}&s=${encodeURIComponent(searchKeyword)}`
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const data = await res.json()
+    if (data.Response === 'False' || !Array.isArray(data.Search)) return null
+
+    for (const it of data.Search) {
+      if (!it.Poster || it.Poster === 'N/A' || !isSuitableThumbnail(it.Poster)) continue
+      if (isTitleMatch(it.Title, searchKeyword) || (originalQuery && isTitleMatch(it.Title, originalQuery))) {
+        return it.Poster
+      }
+    }
+  } catch (err) {
+    console.error('OMDb poster fetch error:', err.message)
+  }
+  return null
+}
+
+async function enrichWithOMDbPosters(items, query = null) {
+  if (!Array.isArray(items) || items.length === 0) return items
+  if (!OMDB_API_KEY) return items
+
+  // Check if there is any direct link or movie item with missing or unsuitable thumbnail
+  const needsEnrichment = items.some((it) => {
+    const thumb = it?.thumbnail || it?.image || null
+    return (it?.isDirect || it?.type === 'direct' || it?.type === 'movie' || it?.type === 'anime') && !isSuitableThumbnail(thumb)
   })
+  if (!needsEnrichment) return items
+
+  // If query was searched, fetch the exact OMDb poster for this query once
+  let queryPoster = null
+  if (query && String(query).trim()) {
+    queryPoster = await fetchBestOMDbPoster(String(query).trim())
+  }
+
+  const posterCache = new Map()
+  if (queryPoster && query) {
+    posterCache.set(cleanTitleForMatching(query), queryPoster)
+  }
+
+  const updated = await Promise.all(items.map(async (item) => {
+    if (!item) return item
+    let thumb = item.thumbnail || item.image || null
+    if (isSuitableThumbnail(thumb)) return item
+
+    const isTargetType = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella'].includes(item.source)
+    if (!isTargetType) return { ...item, thumbnail: null, image: null }
+
+    if (queryPoster && query && isTitleMatch(item.title, query)) {
+      return {
+        ...item,
+        thumbnail: queryPoster,
+        image: queryPoster,
+        posterSource: 'omdb',
+      }
+    }
+
+    const cleanName = cleanTitleForMatching(item.title)
+    if (!cleanName || cleanName.length < 3) return { ...item, thumbnail: null, image: null }
+
+    if (!posterCache.has(cleanName)) {
+      const fetched = await fetchBestOMDbPoster(cleanName, query)
+      posterCache.set(cleanName, fetched || null)
+    }
+
+    const matchedPoster = posterCache.get(cleanName) || null
+    return {
+      ...item,
+      thumbnail: matchedPoster,
+      image: matchedPoster,
+      posterSource: matchedPoster ? 'omdb' : item.posterSource,
+    }
+  }))
+
+  return updated
 }
 
 async function searchDirectLinks(query, options = {}) {
@@ -226,6 +319,10 @@ async function searchDirectLinks(query, options = {}) {
             isDirect: true,
           })
         }
+      }
+
+      if (query && String(query).trim()) {
+        siteCandidates = siteCandidates.filter((item) => isTitleMatch(item?.title, query))
       }
 
       if (siteCandidates.length === 0) return
@@ -272,7 +369,8 @@ async function searchDirectLinks(query, options = {}) {
     }
   }))
   
-  const deduplicated = deduplicateAndEnrich(results)
+  const omdbEnriched = await enrichWithOMDbPosters(results, query)
+  const deduplicated = deduplicateAndEnrich(omdbEnriched, query)
   const offset = Math.max(0, Number(options.offset) || 0)
   const limit = Math.min(60, Math.max(1, Number(options.limit) || 30))
   return {
@@ -950,7 +1048,9 @@ export default async function handler(req, res) {
       // Resolve same-site/download-provider pages up to a small bounded depth.
       // Provider controls are detected but not bypassed.
       if (options.resolve === true) {
-        const results = await resolvePageChain(url, site || 'custom')
+        const chainResults = await resolvePageChain(url, site || 'custom')
+        const omdbResults = await enrichWithOMDbPosters(chainResults, query || '')
+        const results = deduplicateAndEnrich(omdbResults, query || '')
         return ok(res, {
           results,
           count: results.length,
@@ -967,7 +1067,8 @@ export default async function handler(req, res) {
       const directResults = extractDirectMedia(html, url, site || 'custom')
       const pageResults = parseListing(html, url, config)
       const merged = [...directResults, ...pageResults]
-      const results = [...new Map(merged.filter((item) => item.url).map((item) => [item.url, item])).values()]
+      const omdbResults = await enrichWithOMDbPosters(merged, query || '')
+      const results = deduplicateAndEnrich(omdbResults, query || '')
       
       return ok(res, {
         results,
@@ -998,7 +1099,7 @@ export default async function handler(req, res) {
             ...ytRes,
             ...iptvRes,
             ...sportsRes,
-          ])
+          ], query)
           hasMore = false
           break
         }
@@ -1069,7 +1170,8 @@ export default async function handler(req, res) {
           return fail(res, 400, `Unknown layer: ${layer}`)
       }
       
-      const deduplicated = deduplicateAndEnrich(results)
+      const omdbEnriched = await enrichWithOMDbPosters(results, query)
+      const deduplicated = deduplicateAndEnrich(omdbEnriched, query)
       
       return ok(res, {
         success: true,
