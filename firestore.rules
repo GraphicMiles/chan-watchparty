@@ -21,7 +21,6 @@ service cloud.firestore {
       return isAuthed() && roomData(roomId).hostId == request.auth.uid;
     }
 
-    // Use Map.get(key, default). Nullish coalescing is not valid in Firestore rules.
     function isRoomCoHost(roomId) {
       return isAuthed()
         && roomData(roomId).get('coHosts', []).hasAny([request.auth.uid]);
@@ -49,30 +48,48 @@ service cloud.firestore {
 
     match /scrapes/{scrapeId} {
       allow read: if isAuthed();
-      allow create: if false; // server Admin SDK only
+      allow create: if false;
       allow update, delete: if false;
     }
 
     match /mediaCatalog/{catalogId}/channels/{channelId} {
       allow read: if isAuthed();
-      allow write: if false; // server Admin SDK / cron only
+      allow write: if false;
     }
 
     match /rooms/{roomId} {
-      allow read: if isAuthed()
-        && resource.data.status == "live"
-        && (resource.data.get('isPrivate', false) != true
-            || isRoomHost(roomId)
-            || isRoomParticipant(roomId));
+      allow read: if isAuthed();
 
       allow create: if isAuthed()
         && request.resource.data.hostId == request.auth.uid;
 
-      allow update: if isRoomHostOrCoHost(roomId);
+      allow update: if isRoomHostOrCoHost(roomId) || isRoomParticipant(roomId);
 
       match /playerState/{docId} {
         allow read: if isAuthed() && docId == 'current';
-        allow write: if isRoomHostOrCoHost(roomId) && docId == 'current';
+        allow write: if (isRoomHostOrCoHost(roomId) || isAuthed()) && docId == 'current';
+      }
+
+      match /queue/{itemId} {
+        allow read: if isAuthed();
+        allow create: if isAuthed()
+          && request.resource.data.addedByUid == request.auth.uid
+          && request.resource.data.title is string
+          && request.resource.data.title.size() <= 150;
+        allow delete: if isRoomHostOrCoHost(roomId) || (isAuthed() && resource.data.addedByUid == request.auth.uid);
+      }
+
+      match /floatingReactions/{reactionId} {
+        allow read: if isAuthed();
+        allow create: if isAuthed()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.emoji is string
+          && request.resource.data.emoji.size() <= 16;
+      }
+
+      match /aiState/{docId} {
+        allow read: if isAuthed();
+        allow write: if isRoomHostOrCoHost(roomId) || isAuthed();
       }
 
       match /participants/{uid} {
