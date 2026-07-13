@@ -80,6 +80,10 @@ export default function VideoPlayer({
   const [showControls, setShowControls] = useState(true)
   const controlsTimeoutRef = useRef(null)
 
+  useEffect(() => () => {
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
+  }, [])
+
   useEffect(() => {
     onReadyRef.current = onReady
     onPlayerEventRef.current = onPlayerEvent
