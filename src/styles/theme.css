@@ -59,12 +59,12 @@
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
 
   /* ================================================================
-     SHADOWS
+     SHADOWS — removed as requested for crisp flat design
      ================================================================ */
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04);
-  --shadow-card-hover: 0 8px 24px rgba(0, 0, 0, 0.08);
-  --shadow-pill: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-nav: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-card: none;
+  --shadow-card-hover: none;
+  --shadow-pill: none;
+  --shadow-nav: none;
 
   /* ================================================================
      TOUCH TARGETS
@@ -98,14 +98,14 @@
   --text-on-danger: #FFFFFF;
   --text-on-success: #FFFFFF;
   --text-on-warning: #111111;
-  --border-focus: rgba(255, 106, 43, 0.4);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.08);
+  --border-focus: var(--text-black);
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
   --radius-md: 16px;
   --radius-lg: 16px;
   --radius-full: 999px;
-  --gradient-cta: linear-gradient(135deg, var(--accent-orange), var(--live-red));
+  --gradient-cta: none;
   --inner-glow: none;
   --glow-ember-sm: none;
   --glow-drift-sm: none;

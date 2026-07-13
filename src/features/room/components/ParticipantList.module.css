@@ -126,11 +126,11 @@
   flex-direction: column;
   gap: 2px;
   padding: 6px;
-  background: rgba(18, 20, 26, 0.96);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #18191D;
+  backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-card);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6);
+  box-shadow: none;
   z-index: 50;
   min-width: 170px;
 }

@@ -72,15 +72,15 @@
   color: var(--text-black);
 }
 
-/* CTA = orange accent */
+/* CTA = solid brand color without gradient or shadow */
 .cta {
-  background: var(--accent-orange);
+  background: var(--pill-black);
   color: #fff;
-  box-shadow: var(--shadow-pill);
+  box-shadow: none;
 }
 
 .cta:hover:not(:disabled) {
-  background: #e85e22;
+  background: #2a2a2a;
 }
 
 /* Sizes — exact 20px padding and fit sizing */
@@ -118,8 +118,8 @@
 }
 
 .button:focus-visible {
-  outline: 2px solid var(--accent-orange);
-  outline-offset: 2px;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 /* ===== DARK THEME (room) overrides ===== */
