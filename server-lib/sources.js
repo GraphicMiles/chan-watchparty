@@ -32,13 +32,14 @@ export const SITE_CONFIGS = {
   fzmovies: {
     label: 'FZMovies',
     baseUrl: 'https://fzmovies.net',
-    items: '.movielist .movie, .movie-item, .content-box',
-    title: '.moviename, .movie-title, h2 a, b a',
-    image: 'img[src], .movieimg img, .poster img',
+    items: '.movielist .movie, .movie-item, .content-box, article, .post',
+    title: '.moviename, .movie-title, h2 a, b a, .title',
+    image: 'img[src], .movieimg img, .poster img, img[data-src]',
     link: 'a[href], .downloadlink a, a[href*="/download/"]',
     meta: '.movieinfo, .meta, small, .year',
-    buildSearchUrl: (q) => `https://fzmovies.net/csearch.php?searchname=${encodeURIComponent(q)}`,
+    buildSearchUrl: (q) => `https://fzmovies.ng/?s=${encodeURIComponent(q)}`,
     buildSearchUrls: (q) => [
+      `https://fzmovies.ng/?s=${encodeURIComponent(q)}`,
       `https://fzmovies.net/csearch.php?searchname=${encodeURIComponent(q)}`,
       `https://fzmovies.net/search.php?q=${encodeURIComponent(q)}`,
       `https://fzmovies.net/?s=${encodeURIComponent(q)}`,
