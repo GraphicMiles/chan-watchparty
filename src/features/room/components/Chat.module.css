@@ -3,6 +3,68 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  gap: 8px;
+}
+
+.chatActionsBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--room-surface);
+  border: 1px solid var(--room-divider);
+  border-radius: var(--radius-card);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.floatingReactionsBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.floatingReactionBtn {
+  background: var(--room-surface-raised);
+  border: 1px solid var(--room-divider);
+  border-radius: var(--radius-pill);
+  padding: 4px 8px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+  line-height: 1;
+}
+
+.floatingReactionBtn:hover {
+  transform: scale(1.15);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.aiButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(135deg, var(--accent-orange), var(--live-red));
+  color: #fff;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+
+.aiButton:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.aiButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .messages {

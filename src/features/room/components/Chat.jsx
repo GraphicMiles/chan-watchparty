@@ -1,23 +1,28 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Smile, X, ArrowDown } from 'lucide-react'
-import { Input, Button, IconButton } from '../../../shared/ui/index.js'
+import { Send, Smile, X, ArrowDown, Bot, Loader2 } from 'lucide-react'
+import { collection, addDoc, serverTimestamp, doc, onSnapshot } from 'firebase/firestore'
+import { db } from '../../../shared/lib/firebase.js'
+import { Input, Button, IconButton, useToast } from '../../../shared/ui/index.js'
 import ChatMessage from './ChatMessage.jsx'
 import styles from './Chat.module.css'
 
 const REACTIONS = ['heart', 'thumbs-up', 'laugh', 'fire', 'clap', 'wow']
 const REACTION_SYMBOLS = { heart: '\u2764', 'thumbs-up': '\ud83d\udc4d', laugh: '\ud83d\ude02', fire: '\ud83d\udd25', clap: '\ud83d\udc4f', wow: '\ud83d\ude2e' }
+const FLOATING_EMOJIS = ['\u2764', '\ud83d\udd25', '\ud83d\ude02', '\ud83d\udc4f', '\ud83d\ude2e', '\ud83d\udcaf']
 const TYPING_DEBOUNCE = 1200
 const TYPING_WRITE_INTERVAL = 2000
 const GROUP_WINDOW_MS = 60_000
+const COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
 
 function isGrouped(prev, curr) {
   if (!prev || !curr) return false
-  if (prev.type === 'system' || curr.type === 'system') return false
+  if (prev.type === 'system' || curr.type === 'system' || prev.type === 'bot' || curr.type === 'bot') return false
   if (prev.uid !== curr.uid) return false
   return Math.abs((curr.createdAt || 0) - (prev.createdAt || 0)) <= GROUP_WINDOW_MS
 }
 
 export default function Chat({ messages, sendMessage, user, roomId, typing, setTyping }) {
+  const { toast } = useToast()
   const [text, setText] = useState('')
   const [cooldown, setCooldown] = useState(false)
   const [replyTo, setReplyTo] = useState(null)
@@ -25,13 +30,45 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   const [atBottom, setAtBottom] = useState(true)
   const [unseen, setUnseen] = useState(0)
   const [optimistic, setOptimistic] = useState([])
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiCooldownSec, setAiCooldownSec] = useState(0)
+  
   const bottomRef = useRef(null)
   const listRef = useRef(null)
   const typingTimer = useRef(null)
   const lastTypingWrite = useRef(0)
   const prevCount = useRef(0)
 
-  // Ensure typing status is cleared when unmounting or changing rooms
+  // Track AI Summary cooldown from Firestore so all users see when summary is ready/cooldown
+  useEffect(() => {
+    if (!roomId) return undefined
+    const ref = doc(db, 'rooms', roomId, 'aiState', 'summary')
+    return onSnapshot(ref, (snap) => {
+      if (!snap.exists()) {
+        setAiCooldownSec(0)
+        return
+      }
+      const data = snap.data()
+      const lastMs = data?.lastSummaryAt?.toMillis?.() || data?.lastSummaryAtMs || 0
+      const diff = Date.now() - lastMs
+      if (diff < COOLDOWN_MS) {
+        setAiCooldownSec(Math.ceil((COOLDOWN_MS - diff) / 1000))
+      } else {
+        setAiCooldownSec(0)
+      }
+    })
+  }, [roomId])
+
+  // Count down AI cooldown ticker every second
+  useEffect(() => {
+    if (aiCooldownSec <= 0) return undefined
+    const timer = setInterval(() => {
+      setAiCooldownSec((s) => Math.max(0, s - 1))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [aiCooldownSec])
+
+  // Ensure typing status is cleared when unmounting
   useEffect(() => {
     return () => {
       clearTimeout(typingTimer.current)
@@ -105,6 +142,53 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     setShowEmoji(false)
   }
 
+  const sendFloatingReaction = useCallback(async (emoji) => {
+    if (!user || !roomId) return
+    try {
+      await addDoc(collection(db, 'rooms', roomId, 'floatingReactions'), {
+        emoji,
+        uid: user.uid,
+        displayName: user.displayName || 'Viewer',
+        createdAt: serverTimestamp(),
+        createdAtMs: Date.now(),
+      })
+    } catch {
+      /* ignore */
+    }
+  }, [user, roomId])
+
+  const requestAiSummary = useCallback(async () => {
+    if (!user || !roomId) return
+    if (aiCooldownSec > 0) {
+      toast(`AI Summary is on cooldown. Please wait ${Math.ceil(aiCooldownSec / 60)} min.`, { variant: 'warning' })
+      return
+    }
+    try {
+      setAiLoading(true)
+      const token = await user.getIdToken()
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'summary', roomId, uid: user.uid }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        if (data?.onCooldown) {
+          setAiCooldownSec(data.remainingSec || 300)
+          toast(data.message || 'AI Summary is on cooldown', { variant: 'warning' })
+        } else {
+          throw new Error(data?.error || 'Could not generate summary')
+        }
+      } else {
+        toast('AI Summary generated and posted to chat!', { variant: 'success' })
+      }
+    } catch (err) {
+      toast(err.message || 'AI Summary request failed', { variant: 'error' })
+    } finally {
+      setAiLoading(false)
+    }
+  }, [user, roomId, aiCooldownSec, toast])
+
   const onSubmit = async (e) => {
     e.preventDefault()
     if (!text.trim() || cooldown) return
@@ -147,12 +231,40 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
 
   return (
     <div className={styles.chat}>
+      {/* Top Actions: Floating Quick Reactions + Ask AI Summary */}
+      <div className={styles.chatActionsBar}>
+        <div className={styles.floatingReactionsBar}>
+          {FLOATING_EMOJIS.map((emoji, idx) => (
+            <button
+              key={idx}
+              type="button"
+              className={styles.floatingReactionBtn}
+              onClick={() => sendFloatingReaction(emoji)}
+              title={`Send ${emoji} to video canvas`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          className={styles.aiButton}
+          onClick={requestAiSummary}
+          disabled={aiLoading || aiCooldownSec > 0}
+          title={aiCooldownSec > 0 ? `AI on cooldown (${Math.ceil(aiCooldownSec / 60)}m)` : 'Get AI Chat & Room Summary'}
+        >
+          {aiLoading ? <Loader2 size={13} className="spin" /> : <Bot size={14} />}
+          <span>{aiCooldownSec > 0 ? `AI (${Math.ceil(aiCooldownSec / 60)}m)` : 'AI Summary'}</span>
+        </button>
+      </div>
+
       <div className={styles.messages} ref={listRef} onScroll={onScroll}>
         {merged.length === 0 && (
-          <span className={styles.empty}>No messages yet -- say hi</span>
+          <span className={styles.empty}>No messages yet -- say hi or ask AI for a summary!</span>
         )}
         {merged.map((m, i) => {
-          if (m.type === 'system') {
+          if (m.type === 'system' || m.type === 'bot') {
             return (
               <div key={m.id} className={styles.system}>
                 {m.text}

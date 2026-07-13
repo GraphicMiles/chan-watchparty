@@ -21,7 +21,7 @@ export function buildYouTubeWatchUrl(videoId) {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
 }
 
-const DIRECT_VIDEO_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv)(\?|#|$)/i
+const DIRECT_VIDEO_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 
 // Common direct video host patterns
 const DIRECT_HOST_PATTERNS = [
@@ -80,6 +80,10 @@ export function normalizePlaybackUrl(url) {
     const parsed = new URL(normalized, 'https://chan.invalid')
     if (parsed.protocol === 'http:' && parsed.hostname.toLowerCase() === 'd6.o2tv.org') {
       return `/o2tv${parsed.pathname}${parsed.search}`
+    }
+    // Automatically route any HTTP stream through our secure Vercel Mixed-Content proxy (/api/proxy)
+    if (parsed.protocol === 'http:' && (typeof window !== 'undefined' && window.location.protocol === 'https:' || true)) {
+      return `/api/proxy?url=${encodeURIComponent(normalized)}`
     }
     return normalized
   } catch {
@@ -211,7 +215,6 @@ export async function getVideoDetails(videoId) {
 export function hasYouTubeApiKey() {
   return !!YOUTUBE_API_KEY
 }
-
 
 export function getThumbnail(videoId) {
   if (!videoId) return null
