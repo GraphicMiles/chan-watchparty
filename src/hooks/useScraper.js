@@ -59,7 +59,7 @@ export function useScraper() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ action: 'scrape', url, site }),
+        body: JSON.stringify({ action: 'scrape', url, site, options: { resolve: true } }),
       })
       const data = await res.json()
 

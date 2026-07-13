@@ -421,6 +421,91 @@ function extractDirectMedia(html, baseUrl, source) {
   return results
 }
 
+function providerActionResult(url) {
+  const parsed = new URL(url)
+  const fileName = decodeURIComponent(parsed.pathname.split('/').pop() || 'Download page')
+  return {
+    title: fileName.replace(/\.html?$/i, ''),
+    url,
+    link: url,
+    source: 'downloadwella',
+    isDirect: false,
+    requiresUserAction: true,
+    meta: 'Provider download action required. Open the page to continue.',
+  }
+}
+
+function siteConfigForUrl(url, fallbackSite) {
+  const hostname = new URL(url).hostname.toLowerCase()
+  if (hostname === 'thenkiri.com' || hostname.endsWith('.thenkiri.com') || hostname === 'nkiri.com' || hostname.endsWith('.nkiri.com')) return getSiteConfig('nkiri')
+  if (hostname === 'thenetnaija.ng' || hostname.endsWith('.thenetnaija.ng')) return getSiteConfig('netnaija')
+  return getSiteConfig(fallbackSite)
+}
+
+function isResolverHost(url, rootHost) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase()
+    return hostname === rootHost || hostname.endsWith('.' + rootHost) || hostname === 'downloadwella.com' || hostname.endsWith('.downloadwella.com')
+  } catch {
+    return false
+  }
+}
+
+async function resolvePageChain(startUrl, site) {
+  const rootHost = new URL(startUrl).hostname.toLowerCase().replace(/^www\\./, '')
+  const queue = [{ url: startUrl, depth: 0 }]
+  const visited = new Set()
+  const output = []
+
+  while (queue.length && visited.size < 8) {
+    const current = queue.shift()
+    if (visited.has(current.url)) continue
+    visited.add(current.url)
+
+    const hostname = new URL(current.url).hostname.toLowerCase()
+    if (hostname === 'downloadwella.com' || hostname.endsWith('.downloadwella.com')) {
+      output.push(providerActionResult(current.url))
+      continue
+    }
+
+    let html
+    try {
+      html = await fetchHtml(current.url)
+    } catch (error) {
+      output.push({
+        title: 'Page could not be fetched',
+        url: current.url,
+        link: current.url,
+        source: hostname,
+        isDirect: false,
+        meta: error.message,
+      })
+      continue
+    }
+
+    const direct = extractDirectMedia(html, current.url, site || hostname)
+    if (direct.length) {
+      output.push(...direct.map((item) => ({ ...item, resolvedFrom: current.url })))
+      continue
+    }
+
+    const pageResults = parseListing(html, current.url, siteConfigForUrl(current.url, site))
+      .filter((item) => !item.isDirect && isResolverHost(item.url, rootHost))
+
+    if (current.depth < 2) {
+      for (const page of pageResults) {
+        if (!visited.has(page.url)) queue.push({ url: page.url, depth: current.depth + 1 })
+      }
+    }
+
+    if (!pageResults.length && current.url === startUrl) {
+      output.push(...parseListing(html, current.url, siteConfigForUrl(current.url, site)))
+    }
+  }
+
+  return [...new Map(output.filter((item) => item.url).map((item) => [item.url, item])).values()]
+}
+
 function parseListing(html, baseUrl, config) {
   const $ = cheerio.load(html)
   const results = []
@@ -518,8 +603,21 @@ export default async function handler(req, res) {
         })
       }
 
-      // Scrape HTML page and prefer direct media URLs when the page exposes
-      // them. Otherwise return page links for the next user-approved step.
+      // Resolve same-site/download-provider pages up to a small bounded depth.
+      // Provider controls are detected but not bypassed.
+      if (options.resolve === true) {
+        const results = await resolvePageChain(url, site || 'custom')
+        return ok(res, {
+          results,
+          count: results.length,
+          directCount: results.filter((item) => item.isDirect).length,
+          resolved: true,
+          url,
+          site: site || 'custom',
+        })
+      }
+
+      // Single-page scrape fallback.
       const html = await fetchHtml(url)
       const config = getSiteConfig(site) || getSiteConfig('custom')
       const directResults = extractDirectMedia(html, url, site || 'custom')
