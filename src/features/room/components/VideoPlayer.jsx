@@ -36,6 +36,10 @@ export default function VideoPlayer({
 }) {
   const resolvedUrl = url || videoUrl || (videoType === 'youtube' ? youtubeUrl(videoId) : '')
   const isHLS = useMemo(() => /(?:\.m3u8|m3u8)/i.test(resolvedUrl), [resolvedUrl])
+  const isMixedContent = useMemo(
+    () => typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(resolvedUrl),
+    [resolvedUrl]
+  )
 
   const playerRef = useRef(null)
   const hlsRef = useRef(null)
@@ -209,12 +213,16 @@ export default function VideoPlayer({
     }
   }, [isHLS, played])
 
-  if (error) {
+  if (error || isMixedContent) {
     return (
       <div className={styles.errorContainer}>
         <div className={styles.errorIcon}>⚠️</div>
-        <h3>Playback Error</h3>
-        <p>{error}</p>
+        <h3>{isMixedContent ? 'HTTP stream blocked' : 'Playback Error'}</h3>
+        <p>
+          {isMixedContent
+            ? 'This video server only provides HTTP. HTTPS deployments cannot load it in the browser. Use an HTTPS stream or another source.'
+            : error}
+        </p>
         <button type="button" onClick={() => { setError(null); retryCountRef.current = 0; window.location.reload() }}>
           Retry
         </button>
@@ -273,7 +281,7 @@ export default function VideoPlayer({
         height="100%"
         controls={canControl}
         config={{
-          file: { attributes: { crossOrigin: 'anonymous', playsInline: true }, forceVideo: true },
+          file: { attributes: { playsInline: true }, forceVideo: true },
           youtube: {
             playerVars: { rel: 0, modestbranding: 1, playsInline: 1 },
             embedOptions: { host: 'https://www.youtube-nocookie.com' },
