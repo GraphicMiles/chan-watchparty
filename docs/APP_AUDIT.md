@@ -1,4 +1,4 @@
-# Chan — Full Application Audit
+# Chan  Full Application Audit
 hry
 **Audit date:** 2026-07-12  
 **Git HEAD at audit:** `7c9ed16` (`Refactor export of ScraperPage component`)  
@@ -29,7 +29,7 @@ hry
 | Screen share SFU | LiveKit Cloud (`livekit-client`) |
 | HTML parse | Cheerio (`api/lib/scraper.js`, `api/scrape.js`) |
 
----
+--
 
 ## 2. Repository tree (source of truth)
 
