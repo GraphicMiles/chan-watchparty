@@ -1,4 +1,4 @@
-# Direct-Video Support Audit — What's Fixed, What's Broken, What's Missing
+# Direct-Video Support Audit What's Fixed, What's Broken, What's Missing
 
 Snapshot as of the latest pulled commit (`8fda200`, "Update VideoPlayer.jsx").
 This is a read-only audit — no files were changed to produce this document.
