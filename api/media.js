@@ -3,6 +3,7 @@ import { preflight, ok, fail, statusForError } from './lib/http.js'
 import { verifyIdToken } from './lib/firebaseAdmin.js'
 import { getSiteConfig, resolveUrl } from './lib/sources.js'
 import { getIptvChannels } from './lib/iptv.js'
+import { resolveDownloadwellaPage } from './lib/downloadwella.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY
@@ -464,7 +465,20 @@ async function resolvePageChain(startUrl, site) {
 
     const hostname = new URL(current.url).hostname.toLowerCase()
     if (hostname === 'downloadwella.com' || hostname.endsWith('.downloadwella.com')) {
-      output.push(providerActionResult(current.url))
+      const resolved = await resolveDownloadwellaPage(current.url)
+      if (resolved.directUrls.length) {
+        output.push(...resolved.directUrls.map((url) => ({
+          title: decodeURIComponent(new URL(url).pathname.split('/').pop() || 'Video'),
+          url,
+          link: url,
+          source: 'downloadwella',
+          isDirect: true,
+          playableInRoom: true,
+          resolvedFrom: current.url,
+        })))
+      } else {
+        output.push(providerActionResult(current.url))
+      }
       continue
     }
 
@@ -586,18 +600,31 @@ export default async function handler(req, res) {
       
       const target = new URL(url)
       if (target.hostname.toLowerCase().endsWith('downloadwella.com')) {
+        const resolved = options.resolve === true ? await resolveDownloadwellaPage(url) : { directUrls: [], requiresUserAction: true }
+        const results = resolved.directUrls.length
+          ? resolved.directUrls.map((mediaUrl) => ({
+              title: decodeURIComponent(new URL(mediaUrl).pathname.split('/').pop() || 'Video'),
+              url: mediaUrl,
+              link: mediaUrl,
+              source: 'downloadwella',
+              isDirect: true,
+              playableInRoom: true,
+              resolvedFrom: url,
+            }))
+          : [{
+              title: decodeURIComponent(target.pathname.split('/').pop() || 'Download page'),
+              url,
+              link: url,
+              source: 'downloadwella',
+              isDirect: false,
+              requiresUserAction: true,
+              meta: 'Provider download action could not be resolved automatically. Open the page to continue.',
+            }]
         return ok(res, {
-          results: [{
-            title: decodeURIComponent(target.pathname.split('/').pop() || 'Download page'),
-            url,
-            link: url,
-            source: 'downloadwella',
-            isDirect: false,
-            requiresUserAction: true,
-            meta: 'Open this download page and complete its own download step. Chan will not bypass provider controls.',
-          }],
-          count: 1,
-          requiresUserAction: true,
+          results,
+          count: results.length,
+          directCount: resolved.directUrls.length,
+          requiresUserAction: resolved.directUrls.length === 0,
           url,
           site: 'downloadwella',
         })
