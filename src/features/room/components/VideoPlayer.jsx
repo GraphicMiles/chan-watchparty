@@ -26,7 +26,7 @@ const VIDEO_FILTERS = {
   anime_vivid: { label: 'Anime Vivid Pop', css: 'saturate(1.55) contrast(1.12) brightness(1.08) hue-rotate(-5deg)', desc: 'Super bright candy-colored pop perfect for 2D' },
   vintage_kodak: { label: 'Vintage Kodak 35mm', css: 'sepia(0.38) contrast(1.14) saturate(0.88) brightness(0.94) hue-rotate(10deg)', desc: 'Retro analog film look with nostalgic warmth' },
   clean_boost: { label: 'Clean Clarity Boost', css: 'brightness(1.15) contrast(1.12) saturate(1.12)', desc: 'Lifts dull scenes while keeping colors crisp' },
-  night_owl: { label: 'Night Owl Low-Light', css: 'brightness(1.35) contrast(1.18) saturate(1.1)', desc: 'Lifts deep shadows so dark movie scenes are crystal clear' },
+  night_owl: { label: 'Night Owl Low Light', css: 'brightness(1.35) contrast(1.18) saturate(1.1)', desc: 'Lifts deep shadows so dark movie scenes are crystal clear' },
   moody_noir: { label: 'Moody Noir Film', css: 'grayscale(0.85) contrast(1.4) brightness(0.92)', desc: 'High-contrast monochrome with deep dramatic feel' },
 }
 
@@ -364,14 +364,14 @@ export default function VideoPlayer({
     e.stopPropagation()
     const video = videoRef.current || playerWrapperRef.current?.querySelector('video')
     if (!video) {
-      toast('Picture-in-Picture only supported on direct streams / native video elements', { variant: 'warning' })
+      toast('Picture in Picture only supported on direct streams / native video elements', { variant: 'warning' })
       return
     }
     if (document.pictureInPictureElement) {
       document.exitPictureInPicture?.().catch(() => {})
     } else {
       video.requestPictureInPicture?.().catch(() => {
-        toast('Could not enter Picture-in-Picture mode', { variant: 'error' })
+        toast('Could not enter Picture in Picture mode', { variant: 'error' })
       })
     }
   }, [toast])
@@ -650,7 +650,7 @@ export default function VideoPlayer({
                 type="button"
                 className={styles.controlIconBtn}
                 onClick={togglePiP}
-                title="Picture-in-Picture"
+                title="Picture in Picture"
               >
                 <PictureInPicture2 size={16} />
               </button>

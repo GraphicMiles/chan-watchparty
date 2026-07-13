@@ -9,7 +9,7 @@ export function calculateUserBadges(participant, isHost, isCoHost) {
     badges.push({ id: 'host', label: 'Room Host VIP', color: '#FF6A2B' })
     badges.push({ id: 'cinephile', label: 'Master Cinephile', color: '#8A2BE2' })
   } else if (isCoHost || participant?.role === 'co-host') {
-    badges.push({ id: 'cohost', label: 'Co-Host Guard', color: '#1F7A5C' })
+    badges.push({ id: 'cohost', label: 'Co Host Guard', color: '#1F7A5C' })
   }
   badges.push({ id: 'streak', label: 'Watch Diehard', color: '#EA3323' })
   badges.push({ id: 'chatter', label: 'Active Member', color: '#00BFFF' })
@@ -78,7 +78,7 @@ export default function ParticipantList({
                   </div>
                   <div className={styles.badgesRow}>
                     {pIsHost && <Badge variant="accent" size="sm">Host</Badge>}
-                    {pIsCoHost && !pIsHost && <Badge variant="success" size="sm">Co-Host</Badge>}
+                    {pIsCoHost && !pIsHost && <Badge variant="success" size="sm">Co Host</Badge>}
                     <span className={styles.miniBadge}>{badges[0]?.label}</span>
                   </div>
                 </div>
@@ -104,7 +104,7 @@ export default function ParticipantList({
                           </button>
                         ) : (
                           <button type="button" onClick={() => handleAction(p.id, 'promote-cohost')}>
-                            <Shield size={14} /> Promote to Co-Host
+                            <Shield size={14} /> Promote to Co Host
                           </button>
                         )}
 
@@ -145,7 +145,7 @@ export default function ParticipantList({
               <div>
                 <h3 className={styles.passportName}>{selectedPassportUser.displayName || 'Anonymous'}</h3>
                 <span className={styles.passportRole}>
-                  {selectedPassportUser.id === hostId ? 'Room Host VIP' : coHosts.includes(selectedPassportUser.id) ? 'Co-Host Guard' : 'Watch Party Member'}
+                  {selectedPassportUser.id === hostId ? 'Room Host VIP' : coHosts.includes(selectedPassportUser.id) ? 'Co Host Guard' : 'Watch Party Member'}
                 </span>
               </div>
             </div>

@@ -259,7 +259,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
       }
       setCatchupModalData(data)
     } catch (err) {
-      toast(err.message || 'Smart Catch-Up failed', { variant: 'error' })
+      toast(err.message || 'Smart Catch Up failed', { variant: 'error' })
     } finally {
       setCatchupLoading(false)
     }
@@ -413,10 +413,10 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
             className={styles.catchupButton}
             onClick={requestSmartCatchup}
             disabled={catchupLoading}
-            title="Smart Catch-Up: Get a 3-bullet spoiler-free timeline recap of what you missed"
+            title="Smart Catch Up: Get a 3-bullet spoiler-free timeline recap of what you missed"
           >
             {catchupLoading ? <Loader2 size={13} className="spin" /> : <Sparkles size={13} />}
-            <span>Catch-Up</span>
+            <span>Catch Up</span>
           </button>
 
           <button
@@ -578,7 +578,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
 
       <Modal
         open={Boolean(catchupModalData)}
-        title="Smart Catch-Up Recap"
+        title="Smart Catch Up Recap"
         icon={Sparkles}
         onClose={() => setCatchupModalData(null)}
       >
