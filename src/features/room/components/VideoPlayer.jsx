@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactPlayer from 'react-player'
 import Hls from 'hls.js'
+import { normalizePlaybackUrl } from '../../../shared/lib/youtube.js'
 import styles from './VideoPlayer.module.scss'
 
 const RETRY_ATTEMPTS = 3
@@ -34,7 +35,8 @@ export default function VideoPlayer({
   onError,
   isLive = false,
 }) {
-  const resolvedUrl = url || videoUrl || (videoType === 'youtube' ? youtubeUrl(videoId) : '')
+  const rawUrl = url || videoUrl || (videoType === 'youtube' ? youtubeUrl(videoId) : '')
+  const resolvedUrl = useMemo(() => normalizePlaybackUrl(rawUrl), [rawUrl])
   const isHLS = useMemo(() => /(?:\.m3u8|m3u8)/i.test(resolvedUrl), [resolvedUrl])
   const isMixedContent = useMemo(
     () => typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(resolvedUrl),

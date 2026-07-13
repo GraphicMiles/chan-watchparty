@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { isDirectVideoUrl, normalizeDirectUrl } from '../shared/lib/youtube.js'
+import { isDirectVideoUrl, normalizeDirectUrl, normalizePlaybackUrl } from '../shared/lib/youtube.js'
 import { useAuth } from '../shared/auth/hooks/useAuth.jsx'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
@@ -22,7 +22,7 @@ export function useScraper() {
     }
 
     if (url && isDirectVideoUrl(url)) {
-      const normalized = normalizeDirectUrl(url)
+      const normalized = normalizePlaybackUrl(url)
       const fileName = normalized.split('/').pop()?.replace(/\.(mp4|m3u8|mkv|avi|mov|webm|ogg|flv|ts)$/i, '') || 'Video'
       setResults([{
         title: fileName,
@@ -68,7 +68,7 @@ export function useScraper() {
       }
 
       const normalized = (data.results || []).map((item, index) => {
-        const link = item.url || item.link || ''
+        const link = normalizePlaybackUrl(item.url || item.link || '')
         const playable = item.isDirect === true || isDirectVideoUrl(link)
         return {
           id: index,

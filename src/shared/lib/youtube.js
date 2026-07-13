@@ -74,6 +74,19 @@ export function normalizeDirectUrl(url) {
   }
 }
 
+export function normalizePlaybackUrl(url) {
+  const normalized = normalizeDirectUrl(url || '')
+  try {
+    const parsed = new URL(normalized, 'https://chan.invalid')
+    if (parsed.protocol === 'http:' && parsed.hostname.toLowerCase() === 'd6.o2tv.org') {
+      return `/o2tv${parsed.pathname}${parsed.search}`
+    }
+    return normalized
+  } catch {
+    return normalized
+  }
+}
+
 export function isMixedContentUrl(url) {
   return typeof window !== 'undefined'
     && window.location.protocol === 'https:'
