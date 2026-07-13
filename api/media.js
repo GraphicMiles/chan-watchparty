@@ -174,51 +174,69 @@ async function searchDirectLinks(query, options = {}) {
   }
 }
 
+function getConfiguredIptvChannels() {
+  const raw = process.env.IPTV_CHANNELS_JSON
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    console.error('IPTV_CHANNELS_JSON is not valid JSON')
+    return []
+  }
+}
+
+function isValidChannelUrl(value) {
+  try {
+    const url = new URL(value)
+    return ['http:', 'https:'].includes(url.protocol) && !value.includes('...')
+  } catch {
+    return false
+  }
+}
+
 async function searchIPTV(query, userChannels = []) {
-  // Legal free public channels
-  const publicChannels = [
-    { name: 'Pluto TV Movies', url: 'https://service-stitcher.clusters.pluto.tv/v1/stitch/embed/hls/channel/5a667c2c8e85f57e0c13e8fc/master.m3u8', group: 'Movies', logo: 'https://pluto.tv/assets/images/pluto-logo.png' },
-    { name: 'Pluto TV Action', url: 'https://service-stitcher.clusters.pluto.tv/v1/stitch/embed/hls/channel/5a667c2c8e85f57e0c13e8fc/master.m3u8', group: 'Action', logo: 'https://pluto.tv/assets/images/pluto-logo.png' },
-    { name: 'Pluto TV Sports', url: 'https://service-stitcher.clusters.pluto.tv/v1/stitch/embed/hls/channel/5a667c2c8e85f57e0c13e8fc/master.m3u8', group: 'Sports', logo: 'https://pluto.tv/assets/images/pluto-logo.png' },
-    { name: 'Stirr Action', url: 'https://dai.google.com/linear/hls/pa/event/...', group: 'Action', logo: null },
-    { name: 'Stirr Sports', url: 'https://dai.google.com/linear/hls/pa/event/...', group: 'Sports', logo: null },
-  ]
-  
-  const allChannels = [...publicChannels, ...userChannels]
-  
-  return allChannels
-    .filter(ch => 
-      ch.name.toLowerCase().includes(query.toLowerCase()) ||
-      ch.group?.toLowerCase().includes(query.toLowerCase())
-    )
+  // Do not return fake or placeholder streams. Configure real, licensed/public
+  // channels through IPTV_CHANNELS_JSON or the authenticated request payload.
+  const allChannels = [...getConfiguredIptvChannels(), ...userChannels]
+    .filter((channel) => channel?.name && isValidChannelUrl(channel.url))
+    .map((channel) => ({
+      name: String(channel.name),
+      url: channel.url,
+      group: channel.group || 'Live TV',
+      logo: channel.logo || null,
+    }))
+
+  const uniqueChannels = [...new Map(allChannels.map((channel) => [channel.url, channel])).values()]
+  const term = query.toLowerCase()
+
+  return uniqueChannels
+    .filter((channel) => channel.name.toLowerCase().includes(term) || channel.group.toLowerCase().includes(term))
     .slice(0, 20)
-    .map(ch => ({
-      id: `iptv-${ch.name.replace(/\s+/g, '-').toLowerCase()}`,
-      title: ch.name,
-      description: ch.group || 'Live TV',
-      thumbnail: ch.logo,
-      url: ch.url,
-      channel: ch.name,
-      group: ch.group,
+    .map((channel) => ({
+      id: `iptv-${channel.name.replace(/\s+/g, '-').toLowerCase()}`,
+      title: channel.name,
+      description: channel.group,
+      thumbnail: channel.logo,
+      url: channel.url,
+      channel: channel.name,
+      group: channel.group,
       source: 'iptv',
       type: 'iptv',
       isDirect: true,
       isLive: true,
-      program: {
-        now: 'Live Broadcast',
-        next: 'Upcoming Program',
-      },
+      program: { now: 'Live Broadcast', next: null },
     }))
 }
 
 async function searchSports(query) {
   if (!FOOTBALL_DATA_KEY) {
-    return getDemoSportsData(query)
+    throw Object.assign(new Error('Sports search is not configured. Add FOOTBALL_DATA_KEY.'), { status: 503 })
   }
   
   try {
     const res = await fetch(
-      `https://api.football-data.org/v4/matches?status=SCHEDULED,LIVE&matchday=1`,
+      'https://api.football-data.org/v4/matches?status=SCHEDULED,LIVE',
       { headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY } }
     )
     
@@ -314,8 +332,7 @@ async function searchNSFW(query, options = {}) {
     throw new Error('Age verification required. You must be 18+ to search this content.')
   }
   
-  // Return empty array - implement actual scrapers as needed
-  return []
+  throw Object.assign(new Error('NSFW search is not configured'), { status: 501 })
 }
 
 // ==================== SCRAPER HELPERS ====================

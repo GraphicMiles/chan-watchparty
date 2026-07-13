@@ -74,6 +74,12 @@ export function normalizeDirectUrl(url) {
   }
 }
 
+export function isMixedContentUrl(url) {
+  return typeof window !== 'undefined'
+    && window.location.protocol === 'https:'
+    && /^http:\/\//i.test(url || '')
+}
+
 export function isYouTubeUrl(url) {
   return !!extractVideoId(url)
 }

@@ -1,4 +1,6 @@
-# Audit — Latest Pull (`f0b0266`, "Update dependencies in package.json")
+# Historical Audit — Pull `f0b0266`
+
+> This document describes the broken state before the local repair commits. It is retained as an audit record, not as a description of the current working tree.
 
 Read-only audit. Nothing was modified to produce this document.
 
