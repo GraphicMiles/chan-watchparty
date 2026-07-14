@@ -85,6 +85,19 @@ export const SITE_CONFIGS = {
       `https://9jarocks.net/?s=${encodeURIComponent(q)}`,
     ],
   },
+  naijaprey: {
+    label: 'NaijaPrey',
+    baseUrl: 'https://www.naijaprey.tv',
+    items: 'article.post, article, .search-results article, .content-area article, .post-item',
+    title: '.entry-title a, h2 a, h3 a, a[href*="naijaprey.tv/"]',
+    image: 'img[src], img[data-src], .post-thumbnail img, article img',
+    link: 'a[href*="naijaprey.tv/"], a[href*="np-downloader.com"], .entry-title a, a[href]',
+    meta: '.rating, [class*="rating"], .entry-meta',
+    buildSearchUrl: (q) => `https://www.naijaprey.tv/?s=${encodeURIComponent(q)}`,
+    buildSearchUrls: (q) => [
+      `https://www.naijaprey.tv/?s=${encodeURIComponent(q)}`,
+    ],
+  },
   spankbang: {
     label: 'SpankBang',
     baseUrl: 'https://spankbang.party',
@@ -133,7 +146,7 @@ export function isSuitableThumbnail(url) {
 export function cleanTitleForMatching(str) {
   if (!str) return ''
   return String(str)
-    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
     .replace(/\([^)]*\)/g, ' ')
     .replace(/\[[^\]]*\]/g, ' ')
     .replace(/\.(mp4|mkv|m3u8|avi|mov)$/i, ' ')
@@ -145,7 +158,7 @@ export function cleanTitleForMatching(str) {
 export function cleanTitleForOMDb(str) {
   if (!str) return ''
   return String(str)
-    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
     .replace(/\b(s\d+e\d+|e\d+|s\d+|season\s*\d+|episode\s*\d+)\b/gi, ' ')
     .replace(/\b(19\d\d|20\d\d)\b/g, ' ')
     .replace(/\([^)]*\)/g, ' ')

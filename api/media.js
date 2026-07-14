@@ -8,6 +8,7 @@ import { validateFetchUrl, isPrivateHost } from '../server-lib/ssrf.js'
 import { checkIptvChannel, getIptvChannels, getPlaylistChannels } from '../server-lib/iptv.js'
 import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
+import { searchNaijaprey, resolveNaijapreyChain } from '../server-lib/naijapreyResolver.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY // server-side only — never use VITE_ prefix
@@ -63,7 +64,7 @@ function deduplicateAndEnrich(items, query = null) {
 
     // Strict close match verification for direct and movie search results against the query
     if (query && String(query).trim() && !isAdult) {
-      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'omdb'].includes(item.source)
+      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'omdb'].includes(item.source)
       if (isDirectOrMovie && !isTitleMatch(item.title, query)) {
         return false
       }
@@ -247,7 +248,7 @@ async function enrichWithOMDbPosters(items, query = null) {
     const isAdult = item.isNSFW === true || item.type === 'nsfw' || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.source || '').toLowerCase()) || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.provider || '').toLowerCase())
     if (isAdult) return item
 
-    const isTargetType = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv', 'downloadwella'].includes(item.source)
+    const isTargetType = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv', 'downloadwella', 'naijaprey'].includes(item.source)
     if (!isTargetType) return item
 
     const cleanItemName = cleanTitleForOMDb(item.title)
@@ -264,7 +265,7 @@ async function enrichWithOMDbPosters(items, query = null) {
     }
 
     let thumb = item.thumbnail || item.image || null
-    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|fzmovies|9jarocks|o2tv/i.test(thumb)
+    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|fzmovies|9jarocks|o2tv|naijaprey/i.test(thumb)
     if (isSuitableThumbnail(thumb) && !isScrapedHost) return item
 
     // 2. Otherwise, look up OMDb specifically for this item's own clean name (e.g. "Avatar The Last Airbender" vs "Avatar")
@@ -292,12 +293,39 @@ async function searchDirectLinks(query, options = {}) {
   const requestedSite = options.site && options.site !== 'custom' && options.site !== 'all' ? options.site : null
   const scrapers = requestedSite
     ? [requestedSite]
-    : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv']
+    : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv', 'naijaprey']
   
   const searchedSites = [...scrapers]
   
   await Promise.all(scrapers.map(async (siteKey) => {
     try {
+      // NaijaPrey uses its own dedicated search function for better result extraction
+      if (siteKey === 'naijaprey') {
+        try {
+          const npResults = await searchNaijaprey(query, 20)
+          if (npResults && npResults.length > 0) {
+            const filtered = query ? npResults.filter((item) => isTitleMatch(item?.title, query)) : npResults
+            const enriched = filtered.length > 0 ? filtered : npResults
+            for (const result of enriched) {
+              const thumb = result.thumbnail || result.image || null
+              results.push({
+                ...result,
+                thumbnail: thumb,
+                image: thumb,
+                source: 'naijaprey',
+                type: 'direct',
+                isDirect: result.isDirect === true,
+                playableInRoom: result.isDirect === true,
+                quality: extractQuality(result.title),
+              })
+            }
+          }
+        } catch (err) {
+          console.error('naijaprey search failed:', err.message)
+        }
+        return
+      }
+
       const config = getSiteConfig(siteKey)
       const queryUrls = config?.buildSearchUrls ? config.buildSearchUrls(query) : (config?.buildSearchUrl ? [config.buildSearchUrl(query)] : [])
       
@@ -721,13 +749,19 @@ function siteConfigForUrl(url, fallbackSite) {
   if (hostname === 'thenetnaija.ng' || hostname.endsWith('.thenetnaija.ng')) return getSiteConfig('netnaija')
   if (hostname.includes('9jarocks')) return getSiteConfig('9jarocks')
   if (hostname.includes('animedrive')) return getSiteConfig('animedrive')
+  if (hostname.includes('naijaprey')) return getSiteConfig('naijaprey')
+  if (hostname.includes('np-downloader')) return getSiteConfig('naijaprey')
   return getSiteConfig(fallbackSite)
 }
 
 function isResolverHost(url, rootHost) {
   try {
     const hostname = new URL(url).hostname.toLowerCase()
-    return hostname === rootHost || hostname.endsWith('.' + rootHost) || hostname === 'downloadwella.com' || hostname.endsWith('.downloadwella.com')
+    // Standard same-site + downloadwella resolution
+    if (hostname === rootHost || hostname.endsWith('.' + rootHost) || hostname === 'downloadwella.com' || hostname.endsWith('.downloadwella.com')) return true
+    // NaijaPrey resolution chain: np-downloader and wildshare are downstream resolvers
+    if (hostname.includes('np-downloader.com') || hostname.includes('wildshare.net')) return true
+    return false
   } catch {
     return false
   }
@@ -820,6 +854,16 @@ export async function resolvePageChain(startUrl, site) {
   if (rootHost.includes('o2tvseries') || rootHost.includes('o2tv.org')) {
     const o2tvDirect = await resolveO2TvPage(startUrl)
     if (o2tvDirect && o2tvDirect.length) return o2tvDirect
+  }
+
+  // NaijaPrey full-chain resolution: content page → np-downloader → wildshare → direct URL
+  if (rootHost.includes('naijaprey') || rootHost.includes('np-downloader') || rootHost.includes('wildshare')) {
+    try {
+      const naijapreyResults = await resolveNaijapreyChain(startUrl)
+      if (naijapreyResults && naijapreyResults.length) return naijapreyResults
+    } catch (err) {
+      console.error('NaijaPrey chain resolution failed:', err.message)
+    }
   }
   
   const queue = [{ url: startUrl, depth: 0 }]
@@ -1077,6 +1121,27 @@ export default async function handler(req, res) {
       }
       
       const target = new URL(url)
+      // NaijaPrey URL resolution (content page, np-downloader, or wildshare)
+      if (target.hostname.toLowerCase().includes('naijaprey') || target.hostname.toLowerCase().includes('np-downloader') || target.hostname.toLowerCase().includes('wildshare')) {
+        try {
+          const npResults = await resolveNaijapreyChain(url)
+          if (npResults && npResults.length > 0) {
+            const omdbResults = await enrichWithOMDbPosters(npResults, query || '')
+            const results = deduplicateAndEnrich(omdbResults, query || '')
+            return ok(res, {
+              results,
+              count: results.length,
+              directCount: results.filter((item) => item.isDirect).length,
+              resolved: true,
+              url,
+              site: 'naijaprey',
+            })
+          }
+        } catch (err) {
+          console.error('NaijaPrey scrape resolution failed:', err.message)
+        }
+      }
+
       if (target.hostname.toLowerCase().endsWith('downloadwella.com')) {
         const resolved = options.resolve === true ? await resolveDownloadwellaPage(url) : { directUrls: [], requiresUserAction: true }
         const results = resolved.directUrls.length
