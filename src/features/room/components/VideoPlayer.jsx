@@ -638,7 +638,7 @@ export default function VideoPlayer({
         onPointerDown={handlePointerTouch}
         onContextMenu={(e) => e.preventDefault()}
       >
-        <div className={styles.overlayBottomBar} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.overlayBottomBar} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
           <button
             type="button"
             className={styles.overlayPlayBtn}
@@ -702,7 +702,7 @@ export default function VideoPlayer({
     </div>
 
     {/* External Netflix-Style Secondary Controls Bar right underneath the 50vh video player */}
-    <div className={styles.externalVideoControlsBar}>
+    <div className={styles.externalVideoControlsBar} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
       <div className={styles.leftControls}>
         <button
           type="button"
