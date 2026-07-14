@@ -197,6 +197,12 @@ export default async function handler(req, res) {
     const isM3u8 = /(?:application\/vnd\.apple\.mpegurl|audio\/mpegurl|application\/x-mpegurl|text\/vnd\.apple\.mpegurl|\.m3u8)/i.test(contentType) ||
                    /\.m3u8(?:\?|#|$)/i.test(targetUrl.pathname)
 
+    // Guard: reject HTML / text responses when the client expects video
+    // (dead IPTV channels often return an HTML error page instead of video)
+    if (isM3u8 === false && /^text\/html/i.test(contentType) && req.headers.range) {
+      return fail(res, 502, 'Upstream returned HTML instead of video — channel may be offline')
+    }
+
     if (isM3u8) {
       const text = await response.text()
       // Rewrite any relative/absolute URI inside the m3u8 playlist to run through /api/proxy

@@ -229,7 +229,7 @@ export default function VideoPlayer({
     e?.stopPropagation()
     if (subtitleBlobUrl) {
       setSubtitlesEnabled((prev) => !prev)
-      toast(subtitlesEnabled ? 'Subtitles / Closed Captions turned OFF' : 'Subtitles turned ON', { variant: 'info' })
+      toast(subtitlesEnabled ? 'AI Scene Descriptions turned OFF' : 'AI Scene Descriptions turned ON', { variant: 'info' })
       return
     }
     if (!user || !roomId) {
@@ -249,7 +249,7 @@ export default function VideoPlayer({
         throw new Error(data.error || 'Failed to generate AI subtitles')
       }
       setSubtitlesEnabled(true)
-      toast('Grok AI subtitles generated & attached to video stream!', { variant: 'success' })
+      toast('AI subtitles generated — scene descriptions & sound cues based on room context', { variant: 'success' })
     } catch (err) {
       toast(err.message || 'Could not generate subtitles', { variant: 'error' })
     } finally {
@@ -377,7 +377,16 @@ export default function VideoPlayer({
   const handleError = useCallback((err) => {
     const nextError = err instanceof Error ? err : new Error(String(err || 'Video playback failed'))
     console.error('Video error:', nextError)
-    setError(nextError.message)
+
+    // Detect common browser demuxer errors and give a helpful message
+    const msg = nextError.message || ''
+    if (/DEMUXER_ERROR|COULD_NOT_OPEN|PIPELINE/i.test(msg) || /format|decode|demux/i.test(msg)) {
+      setError('This stream format is not supported by your browser, or the channel may be offline. Try a different source or channel.')
+    } else if (/network|fetch|timeout|abort/i.test(msg)) {
+      setError('Network error — the stream server may be down or slow. It will retry automatically.')
+    } else {
+      setError(nextError.message)
+    }
 
     if (retryCountRef.current < RETRY_ATTEMPTS) {
       retryCountRef.current += 1
@@ -787,7 +796,7 @@ export default function VideoPlayer({
             {subtitleBlobUrl && (
               <track
                 kind="subtitles"
-                label="AI English (Groq CC)"
+                label="AI Scene Descriptions (English)"
                 src={subtitleBlobUrl}
                 srcLang="en"
                 default={subtitlesEnabled}
@@ -956,7 +965,7 @@ export default function VideoPlayer({
                   className={`${styles.controlIconBtn} ${subtitlesEnabled ? styles.activeBrightnessBtn : ''}`}
                   onClick={handleAiSubtitlesToggle}
                   disabled={subtitlesLoading}
-                  title="Generate & Toggle Groq AI Closed Captions tailored to this stream"
+                  title="Generate AI scene descriptions & sound cues for this stream"
                 >
                   <FileText size={16} style={{ color: subtitlesEnabled ? '#FF6A2B' : 'inherit' }} />
                   <span>{subtitlesLoading ? 'AI CC...' : subtitlesEnabled ? 'CC: On' : 'CC: Off'}</span>
@@ -1270,7 +1279,7 @@ export default function VideoPlayer({
               className={`${styles.controlIconBtn} ${subtitlesEnabled ? styles.activeBrightnessBtn : ''}`}
               onClick={handleAiSubtitlesToggle}
               disabled={subtitlesLoading}
-              title="Generate & Toggle Groq AI Closed Captions tailored to this stream"
+              title="Generate AI scene descriptions & sound cues for this stream"
             >
               <FileText size={16} style={{ color: subtitlesEnabled ? '#FF6A2B' : 'inherit' }} />
               <span>{subtitlesLoading ? 'AI CC...' : subtitlesEnabled ? 'CC: On' : 'CC: Off'}</span>
