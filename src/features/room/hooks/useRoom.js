@@ -182,13 +182,16 @@ export function useRoom(roomId, inviteCode = null) {
     return unsub
   }, [roomId, rememberRoom])
 
-  // Participants listener + kick detection
+  // Participants listener + exact participantCount sync + kick detection
   useEffect(() => {
     if (!roomId || !user) return
     const q = query(collection(db, 'rooms', roomId, 'participants'))
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       setParticipants(list)
+      if (room && typeof room.participantCount === 'number' && room.participantCount !== list.length) {
+        updateDoc(doc(db, 'rooms', roomId), { participantCount: list.length }).catch(() => {})
+      }
       const me = list.find((p) => p.id === user.uid)
       if (me) {
         wasParticipant.current = true
@@ -200,7 +203,7 @@ export function useRoom(roomId, inviteCode = null) {
       }
     })
     return unsub
-  }, [roomId, user, joined])
+  }, [roomId, user, joined, room?.participantCount])
 
   // Messages listener
   useEffect(() => {
