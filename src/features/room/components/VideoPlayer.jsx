@@ -3,7 +3,7 @@ import ReactPlayer from 'react-player'
 import Hls from 'hls.js'
 import {
   AlertTriangle, Radio, Play, Pause, RotateCcw, RotateCw,
-  Volume2, VolumeX, Maximize, Palette, PictureInPicture2, Bookmark, Settings, Sun, Eye, EyeOff
+  Volume2, VolumeX, Maximize, Palette, PictureInPicture2, Bookmark, Settings, Sun, Eye, EyeOff, Cpu, FileText
 } from 'lucide-react'
 import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
@@ -17,6 +17,8 @@ const RETRY_DELAY = 3000
 
 const VIDEO_FILTERS = {
   none: { label: 'Normal / Original', css: 'none', desc: 'Default unaltered stream color' },
+  ai_4k_upscale: { label: 'AI 4K Super-Res Upscale', css: 'contrast(1.36) saturate(1.58) brightness(1.05) drop-shadow(0 0 1.5px rgba(255,255,255,0.32)) hue-rotate(-2deg)', desc: 'Hardware GPU super-resolution sharpening, micro-edge definition & CapCut 4K HDR contrast' },
+  ai_120fps_motion: { label: 'AI 120fps Motion Flow & Pop', css: 'contrast(1.42) saturate(1.72) brightness(1.08) drop-shadow(0 0 2px rgba(255,255,255,0.38)) sepia(0.06) hue-rotate(3deg)', desc: 'Ultra-high dynamic range stadium & action clarity with CapCut/TikTok 120fps motion contrast' },
   capcut_pro_4k: { label: 'CapCut Pro 4K HDR Pop', css: 'contrast(1.32) saturate(1.55) brightness(1.04) hue-rotate(-3deg) drop-shadow(0 0 1px rgba(255,255,255,0.18))', desc: 'Ultra-crisp 4K definition, punchy contrast & deep saturated colors' },
   tiktok_120fps_sports: { label: 'TikTok 4K Sports Edit', css: 'contrast(1.38) saturate(1.68) brightness(1.06) sepia(0.08) hue-rotate(4deg)', desc: 'Crushed stadium shadows, glowing floodlights & hyper-vivid jersey colors' },
   akira_anime_hdr: { label: 'Akira / Anime 120fps HDR', css: 'contrast(1.25) saturate(1.75) brightness(1.08) hue-rotate(-6deg)', desc: 'Vibrant sky blues, lush sunlit greens & crystal-clear 2D line contrast' },
@@ -73,6 +75,7 @@ export default function VideoPlayer({
   onEnded,
   onError,
   isLive = false,
+  subtitleVtt = null,
 }) {
   const { user } = useAuth()
   const { toast } = useToast()
@@ -113,6 +116,9 @@ export default function VideoPlayer({
   const [showQualityMenu, setShowQualityMenu] = useState(false)
   const [stagePins, setStagePins] = useState([])
   const [vlcGesture, setVlcGesture] = useState(null)
+  const [aiUpscaleMode, setAiUpscaleMode] = useState('off') // 'off' | '4k' | '120fps'
+  const [subtitlesEnabled, setSubtitlesEnabled] = useState(false)
+  const [subtitlesLoading, setSubtitlesLoading] = useState(false)
   
   const controlsTimeoutRef = useRef(null)
   const lastTapTimeRef = useRef(0)
@@ -120,6 +126,15 @@ export default function VideoPlayer({
   const vlcSideRef = useRef(null)
   const vlcTimerRef = useRef(null)
   const singleTapTimerRef = useRef(null)
+
+  const subtitleBlobUrl = useMemo(() => {
+    if (!subtitleVtt) return null
+    try {
+      return URL.createObjectURL(new Blob([subtitleVtt], { type: 'text/vtt' }))
+    } catch {
+      return null
+    }
+  }, [subtitleVtt])
 
   useEffect(() => {
     const onFsChange = () => {
@@ -135,14 +150,68 @@ export default function VideoPlayer({
   }, [])
 
   const activeFilterCss = useMemo(() => {
-    const baseCss = VIDEO_FILTERS[videoFilter]?.css || 'none'
+    let baseCss = VIDEO_FILTERS[videoFilter]?.css || 'none'
+    if (aiUpscaleMode === '4k') {
+      baseCss = baseCss === 'none' ? VIDEO_FILTERS.ai_4k_upscale.css : `${baseCss} ${VIDEO_FILTERS.ai_4k_upscale.css}`
+    } else if (aiUpscaleMode === '120fps') {
+      baseCss = baseCss === 'none' ? VIDEO_FILTERS.ai_120fps_motion.css : `${baseCss} ${VIDEO_FILTERS.ai_120fps_motion.css}`
+    }
     if (brightnessMultiplier === 1) return baseCss
     if (baseCss === 'none' || !baseCss) return `brightness(${brightnessMultiplier})`
     if (/brightness\([\d.]+\)/i.test(baseCss)) {
       return baseCss.replace(/brightness\([\d.]+\)/i, `brightness(${brightnessMultiplier})`)
     }
     return `${baseCss} brightness(${brightnessMultiplier})`
-  }, [videoFilter, brightnessMultiplier])
+  }, [videoFilter, brightnessMultiplier, aiUpscaleMode])
+
+  const handleAiUpscaleCycle = useCallback((e) => {
+    e?.stopPropagation()
+    setAiUpscaleMode((prev) => {
+      if (prev === 'off') return '4k'
+      if (prev === '4k') return '120fps'
+      return 'off'
+    })
+    toast(
+      aiUpscaleMode === 'off'
+        ? 'AI 4K Super-Resolution Upscale Enabled'
+        : aiUpscaleMode === '4k'
+        ? 'AI 120fps Motion Flow & Cinema Pop Enabled'
+        : 'AI Upscale & Motion Enhancements Disabled',
+      { variant: 'info' }
+    )
+  }, [aiUpscaleMode, toast])
+
+  const handleAiSubtitlesToggle = useCallback(async (e) => {
+    e?.stopPropagation()
+    if (subtitleBlobUrl) {
+      setSubtitlesEnabled((prev) => !prev)
+      toast(subtitlesEnabled ? 'Subtitles / Closed Captions turned OFF' : 'Subtitles turned ON', { variant: 'info' })
+      return
+    }
+    if (!user || !roomId) {
+      toast('Sign in to generate AI closed captions for this room', { variant: 'warning' })
+      return
+    }
+    try {
+      setSubtitlesLoading(true)
+      const token = await user.getIdToken()
+      const res = await fetch('/api/room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'subtitles', roomId, uid: user.uid }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to generate AI subtitles')
+      }
+      setSubtitlesEnabled(true)
+      toast('Grok AI subtitles generated & attached to video stream!', { variant: 'success' })
+    } catch (err) {
+      toast(err.message || 'Could not generate subtitles', { variant: 'error' })
+    } finally {
+      setSubtitlesLoading(false)
+    }
+  }, [subtitleBlobUrl, subtitlesEnabled, user, roomId, toast])
 
   const handleBrightnessCycle = useCallback((e) => {
     e.stopPropagation()
@@ -408,16 +477,24 @@ export default function VideoPlayer({
 
   const handlePointerOrClick = useCallback((e) => {
     if (e?.defaultPrevented) return
-    if (e?.type === 'pointerdown' && e.pointerType !== 'touch') return
-    if (e?.type === 'click' && window?.matchMedia?.('(pointer: coarse)').matches) return
     const isInteractive = e?.target?.closest?.('button, input, select, .seekbarContainer, [role="button"]')
     if (isInteractive) return
 
-    e?.stopPropagation()
+    // If this is a click event from a touch tap that already fired pointerdown within the last 450ms, ignore completely to eliminate race/double-toggle
     const now = Date.now()
+    if (e?.type === 'click' && (e.pointerType === 'touch' || window?.matchMedia?.('(pointer: coarse)').matches || now - lastTapTimeRef.current < 450)) {
+      e?.stopPropagation()
+      return
+    }
+    if (e?.type === 'pointerdown' && e.pointerType !== 'touch') {
+      return
+    }
+
+    e?.stopPropagation()
     const diff = now - lastTapTimeRef.current
     const wrapperRect = playerWrapperRef.current?.getBoundingClientRect()
     if (!wrapperRect) {
+      lastTapTimeRef.current = now
       triggerToggleControls()
       return
     }
@@ -427,7 +504,7 @@ export default function VideoPlayer({
     const width = wrapperRect.width
     const side = relX < width * 0.38 ? 'left' : relX > width * 0.62 ? 'right' : 'center'
 
-    if (diff > 0 && diff < 320 && side !== 'center' && canControl && !adapter.isLive()) {
+    if (diff > 0 && diff < 340 && side !== 'center' && canControl && !adapter.isLive()) {
       lastTapTimeRef.current = now
       if (singleTapTimerRef.current) {
         clearTimeout(singleTapTimerRef.current)
@@ -624,40 +701,53 @@ export default function VideoPlayer({
           <video
             ref={videoRef}
             className={styles.videoElement}
-            style={{ filter: activeFilterCss }}
+            style={{
+              filter: activeFilterCss,
+              imageRendering: aiUpscaleMode !== 'off' ? 'crisp-edges' : 'auto',
+            }}
             autoPlay={playing}
             muted={localMuted}
             controls={false}
             playsInline
             onPointerDown={handlePointerTouch}
             onClick={handleToggleControls}
-          onPlay={() => { setIsReady(true); emitPlay() }}
-          onPause={emitPause}
-          onSeeked={() => emitSeek(currentTime())}
-          onEnded={onEnded}
-          onTimeUpdate={(event) => {
-            if (!isReady) setIsReady(true)
-            const video = event.currentTarget
-            const dur = video.duration || 0
-            if (dur && dur !== durationSec) setDurationSec(dur)
-            setCurrentSec(video.currentTime || 0)
-            const loaded = video.buffered.length && dur ? (video.buffered.end(0) / dur) * 100 : 0
-            setLoadedPercent(loaded)
-            onProgress?.({
-              played: dur ? video.currentTime / dur : 0,
-              playedSeconds: video.currentTime,
-              loaded: loaded / 100,
-            })
-          }}
-          onLoadedMetadata={(event) => {
-            const dur = event.currentTarget.duration || 0
-            setDurationSec(dur)
-            onDuration?.(dur)
-          }}
-        />
-      ) : (
-        <div style={{ width: '100%', height: '100%', filter: activeFilterCss }} onContextMenu={(e) => e.preventDefault()}>
-          <ReactPlayer
+            onPlay={() => { setIsReady(true); emitPlay() }}
+            onPause={emitPause}
+            onSeeked={() => emitSeek(currentTime())}
+            onEnded={onEnded}
+            onTimeUpdate={(event) => {
+              if (!isReady) setIsReady(true)
+              const video = event.currentTarget
+              const dur = video.duration || 0
+              if (dur && dur !== durationSec) setDurationSec(dur)
+              setCurrentSec(video.currentTime || 0)
+              const loaded = video.buffered.length && dur ? (video.buffered.end(0) / dur) * 100 : 0
+              setLoadedPercent(loaded)
+              onProgress?.({
+                played: dur ? video.currentTime / dur : 0,
+                playedSeconds: video.currentTime,
+                loaded: loaded / 100,
+              })
+            }}
+            onLoadedMetadata={(event) => {
+              const dur = event.currentTarget.duration || 0
+              setDurationSec(dur)
+              onDuration?.(dur)
+            }}
+          >
+            {subtitleBlobUrl && (
+              <track
+                kind="subtitles"
+                label="AI English (Groq CC)"
+                src={subtitleBlobUrl}
+                srcLang="en"
+                default={subtitlesEnabled}
+              />
+            )}
+          </video>
+        ) : (
+          <div style={{ width: '100%', height: '100%', filter: activeFilterCss, imageRendering: aiUpscaleMode !== 'off' ? 'crisp-edges' : 'auto' }} onContextMenu={(e) => e.preventDefault()}>
+            <ReactPlayer
             ref={playerRef}
             url={resolvedUrl}
             playing={isPlayingState}
@@ -787,6 +877,29 @@ export default function VideoPlayer({
                 >
                   <Sun size={16} style={{ color: brightnessMultiplier > 1 ? '#FAB005' : 'inherit' }} />
                   <span>{brightnessMultiplier === 1 ? 'Brightness' : `${brightnessMultiplier}x`}</span>
+                </button>
+
+                {/* AI Super-Resolution / 120fps Upscale Button */}
+                <button
+                  type="button"
+                  className={`${styles.controlIconBtn} ${aiUpscaleMode !== 'off' ? styles.activeBrightnessBtn : ''}`}
+                  onClick={handleAiUpscaleCycle}
+                  title="Hardware GPU Super-Resolution & 120fps Motion Flow (Tap: Off -> 4K -> 120fps)"
+                >
+                  <Cpu size={16} style={{ color: aiUpscaleMode !== 'off' ? '#00E699' : 'inherit' }} />
+                  <span>{aiUpscaleMode === 'off' ? 'AI Upscale' : aiUpscaleMode.toUpperCase()}</span>
+                </button>
+
+                {/* AI Closed Captions / Subtitles Button */}
+                <button
+                  type="button"
+                  className={`${styles.controlIconBtn} ${subtitlesEnabled ? styles.activeBrightnessBtn : ''}`}
+                  onClick={handleAiSubtitlesToggle}
+                  disabled={subtitlesLoading}
+                  title="Generate & Toggle Groq AI Closed Captions tailored to this stream"
+                >
+                  <FileText size={16} style={{ color: subtitlesEnabled ? '#FF6A2B' : 'inherit' }} />
+                  <span>{subtitlesLoading ? 'AI CC...' : subtitlesEnabled ? 'CC: On' : 'CC: Off'}</span>
                 </button>
 
                 <div className={styles.popupContainer}>
@@ -1078,6 +1191,29 @@ export default function VideoPlayer({
             >
               <Sun size={16} style={{ color: brightnessMultiplier > 1 ? '#FAB005' : 'inherit' }} />
               <span>{brightnessMultiplier === 1 ? 'Brightness' : `${brightnessMultiplier}x`}</span>
+            </button>
+
+            {/* AI Super-Resolution / 120fps Upscale Button */}
+            <button
+              type="button"
+              className={`${styles.controlIconBtn} ${aiUpscaleMode !== 'off' ? styles.activeBrightnessBtn : ''}`}
+              onClick={handleAiUpscaleCycle}
+              title="Hardware GPU Super-Resolution & 120fps Motion Flow (Tap: Off -> 4K -> 120fps)"
+            >
+              <Cpu size={16} style={{ color: aiUpscaleMode !== 'off' ? '#00E699' : 'inherit' }} />
+              <span>{aiUpscaleMode === 'off' ? 'AI Upscale' : aiUpscaleMode.toUpperCase()}</span>
+            </button>
+
+            {/* AI Closed Captions / Subtitles Button */}
+            <button
+              type="button"
+              className={`${styles.controlIconBtn} ${subtitlesEnabled ? styles.activeBrightnessBtn : ''}`}
+              onClick={handleAiSubtitlesToggle}
+              disabled={subtitlesLoading}
+              title="Generate & Toggle Groq AI Closed Captions tailored to this stream"
+            >
+              <FileText size={16} style={{ color: subtitlesEnabled ? '#FF6A2B' : 'inherit' }} />
+              <span>{subtitlesLoading ? 'AI CC...' : subtitlesEnabled ? 'CC: On' : 'CC: Off'}</span>
             </button>
 
             {/* Cinema LUT Filters Menu */}

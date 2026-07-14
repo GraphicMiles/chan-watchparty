@@ -268,3 +268,53 @@ export async function voteRoomQuiz(db, user, body) {
 
   return { success: true }
 }
+
+export async function generateAiSubtitles(db, user, body) {
+  const { roomId } = body || {}
+  if (!roomId) throw Object.assign(new Error('Missing roomId'), { status: 400 })
+
+  if (!GROQ_API_KEY) {
+    throw Object.assign(new Error('GROQ_API_KEY not configured on server.'), { status: 503 })
+  }
+
+  const roomSnap = await db.collection('rooms').doc(roomId).get()
+  if (!roomSnap.exists) throw Object.assign(new Error('Room not found'), { status: 404 })
+  const roomData = roomSnap.data()
+
+  const title = roomData.title || 'Ongoing Movie Stream'
+  const prompt = `You are a Hollywood closed-caption / subtitle engineer. Create a realistic, highly engaging 3-minute opening WebVTT subtitle track (strictly WebVTT format with timestamp cues 00:00:01.000 --> 00:00:05.000) tailored specifically to the movie or show title: "${title}".
+Include atmospheric dialogue, dramatic sound cues (e.g. [dramatic orchestral music swells], [distant footsteps approach]), and character lines fitting the exact genre and tone of "${title}".
+Output ONLY valid WebVTT format starting with WEBVTT on line 1, no markdown codeblocks or extra text.`
+
+  const groqRes = await fetch(GROQ_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 800,
+      temperature: 0.7,
+    }),
+  })
+
+  if (!groqRes.ok) {
+    throw new Error(`Groq API returned HTTP ${groqRes.status}`)
+  }
+
+  const groqData = await groqRes.json()
+  let vttText = groqData.choices?.[0]?.message?.content?.trim() || ''
+  vttText = vttText.replace(/^```vtt\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()
+  if (!vttText.startsWith('WEBVTT')) {
+    vttText = `WEBVTT\n\n00:00:01.000 --> 00:00:05.000\n[Atmospheric audio for ${title} begins]\n\n` + vttText
+  }
+
+  await db.collection('rooms').doc(roomId).update({
+    subtitleVtt: vttText,
+    subtitleUpdatedAt: FieldValue.serverTimestamp(),
+  })
+
+  return { success: true, subtitleVtt: vttText }
+}

@@ -10,7 +10,7 @@ import { sendResponse } from '../server-lib/response.js'
 import { deleteRoomAndSubcollections, runCleanupStaleRooms } from '../server-lib/roomCleanup.js'
 import { kickParticipant, promoteParticipant, muteParticipant } from '../server-lib/moderateHelper.js'
 import { generateLiveKitToken } from '../server-lib/livekitHelper.js'
-import { generateAiSummary, generateSmartCatchup, generateRoomQuiz, voteRoomQuiz } from '../server-lib/aiHelper.js'
+import { generateAiSummary, generateSmartCatchup, generateRoomQuiz, voteRoomQuiz, generateAiSubtitles } from '../server-lib/aiHelper.js'
 
 async function requireUser(req, expectedUid) {
   const token = req.headers.authorization?.split('Bearer ')[1]
@@ -203,6 +203,9 @@ export default async function handler(req, res) {
     } else if (action === 'votequiz') {
       const decoded = await requireUser(req)
       result = await voteRoomQuiz(db, decoded, body)
+    } else if (action === 'subtitles' || action === 'captions') {
+      const decoded = await requireUser(req)
+      result = await generateAiSubtitles(db, decoded, body)
     } else {
       return fail(res, 400, `Unknown action: ${action}`)
     }
