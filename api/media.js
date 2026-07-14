@@ -12,6 +12,7 @@ import { searchNaijaprey, resolveNaijapreyChain } from '../server-lib/naijapreyR
 import { resolveO2TvShow, resolveO2TvEpisode, probeAndFixO2TvUrl, warmO2TvCache } from '../server-lib/o2tvResolver.js'
 import { resolveMeetDownload, resolveWaploaded, resolveGenericBrowser, getRenderedHtml } from '../server-lib/browser.js'
 import { searchNetNaija, resolveNetNaijaChain } from '../server-lib/netnaijaResolver.js'
+import { resolveArchiveOrgPage, resolveArchiveOrgDirectUrl } from '../server-lib/archiveResolver.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY // server-side only — never use VITE_ prefix
@@ -781,7 +782,7 @@ async function searchDirectLinks(query, options = {}) {
 
 async function searchArchiveOrg(query, limit = 20) {
   try {
-    const searchUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent('"' + query + '"')}+mediatype:movies&output=json&rows=${limit}&fl[]=identifier,title,mediatype,downloads,year,description`
+    const searchUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent('"' + query + '"')}+mediatype:movies&output=json&rows=${limit}&fl[]=identifier,title,mediatype,downloads,year,description,num_reviews`
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 8000)
     const res = await fetch(searchUrl, {
@@ -792,8 +793,28 @@ async function searchArchiveOrg(query, limit = 20) {
     if (!res.ok) return []
     const data = await res.json()
     const docs = data?.response?.docs || []
-    return docs.map((item) => {
-      // Build a direct MP4 download URL for the identifier
+
+    // For each search result, try to resolve the actual MP4 file path via metadata API
+    // This is much more reliable than guessing /{identifier}/{identifier}.mp4
+    const resolved = await mapConcurrent(docs, 3, async (item) => {
+      const directUrl = await resolveArchiveOrgDirectUrl(item.identifier)
+      if (directUrl) {
+        return {
+          title: item.title || item.identifier,
+          thumbnail: `https://archive.org/services/img/${item.identifier}`,
+          image: `https://archive.org/services/img/${item.identifier}`,
+          url: directUrl,
+          link: directUrl,
+          description: item.description ? String(item.description).slice(0, 200) : null,
+          meta: item.year ? `Year: ${item.year} | Downloads: ${item.downloads || 0}` : `Downloads: ${item.downloads || 0}`,
+          source: 'archiveorg',
+          type: 'direct',
+          isDirect: true,
+          playableInRoom: true,
+          quality: 'HD',
+        }
+      }
+      // Fallback: use naive URL pattern (may 404 for multi-file items)
       const mp4Url = `https://archive.org/download/${item.identifier}/${item.identifier}.mp4`
       return {
         title: item.title || item.identifier,
@@ -802,7 +823,7 @@ async function searchArchiveOrg(query, limit = 20) {
         url: mp4Url,
         link: mp4Url,
         description: item.description ? String(item.description).slice(0, 200) : null,
-        meta: item.year ? `Year: ${item.year} | Downloads: ${item.downloads || 0}` : null,
+        meta: item.year ? `Year: ${item.year} | Downloads: ${item.downloads || 0}` : `Downloads: ${item.downloads || 0}`,
         source: 'archiveorg',
         type: 'direct',
         isDirect: true,
@@ -810,6 +831,8 @@ async function searchArchiveOrg(query, limit = 20) {
         quality: 'SD',
       }
     })
+
+    return resolved
   } catch (err) {
     console.error('Archive.org search error:', err.message)
     return []
@@ -1102,6 +1125,8 @@ function isResolverHost(url, rootHost) {
     // NetNaija chain: mynetnaija.ng is the download subdomain, kissorgrab.com is the CDN
     if (hostname.includes('mynetnaija.ng')) return true
     if (hostname.includes('kissorgrab.com')) return true
+    // Internet Archive: details pages need resolution to find actual MP4 files
+    if (hostname.includes('archive.org')) return true
     return false
   } catch {
     return false
@@ -1259,6 +1284,16 @@ export async function resolvePageChain(startUrl, site) {
       if (mdResults && mdResults.length) return mdResults
     } catch (err) {
       console.error('MeetDownload resolution failed:', err.message)
+    }
+  }
+
+  // Internet Archive: details page → metadata API → direct MP4 URLs
+  if (rootHost.includes('archive.org')) {
+    try {
+      const archiveResults = await resolveArchiveOrgPage(startUrl)
+      if (archiveResults && archiveResults.length) return archiveResults
+    } catch (err) {
+      console.error('Archive.org resolution failed:', err.message)
     }
   }
   
@@ -1556,6 +1591,27 @@ export default async function handler(req, res) {
           }
         } catch (err) {
           console.error('NetNaija scrape resolution failed:', err.message)
+        }
+      }
+
+      // Internet Archive URL resolution (details page → metadata → direct MP4 URLs)
+      if (target.hostname.toLowerCase().includes('archive.org')) {
+        try {
+          const archiveResults = await resolveArchiveOrgPage(url)
+          if (archiveResults && archiveResults.length > 0) {
+            const omdbResults = await enrichWithOMDbPosters(archiveResults, query || '')
+            const results = deduplicateAndEnrich(omdbResults, query || '')
+            return ok(res, {
+              results,
+              count: results.length,
+              directCount: results.filter((item) => item.isDirect).length,
+              resolved: true,
+              url,
+              site: 'archiveorg',
+            })
+          }
+        } catch (err) {
+          console.error('Archive.org scrape resolution failed:', err.message)
         }
       }
 
