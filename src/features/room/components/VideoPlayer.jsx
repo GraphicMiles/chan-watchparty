@@ -3,7 +3,7 @@ import ReactPlayer from 'react-player'
 import Hls from 'hls.js'
 import {
   AlertTriangle, Radio, Play, Pause, RotateCcw, RotateCw,
-  Volume2, VolumeX, Maximize, Palette, PictureInPicture2, Bookmark, Settings
+  Volume2, VolumeX, Maximize, Palette, PictureInPicture2, Bookmark, Settings, Sun
 } from 'lucide-react'
 import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
@@ -104,6 +104,7 @@ export default function VideoPlayer({
   const [localMuted, setLocalMuted] = useState(controlledMuted)
   const [showControls, setShowControls] = useState(true)
   const [videoFilter, setVideoFilter] = useState('none')
+  const [brightnessMultiplier, setBrightnessMultiplier] = useState(1.0)
   const [showFilterMenu, setShowFilterMenu] = useState(false)
   const [hlsLevels, setHlsLevels] = useState([])
   const [currentLevel, setCurrentLevel] = useState(-1)
@@ -111,6 +112,25 @@ export default function VideoPlayer({
   const [stagePins, setStagePins] = useState([])
   
   const controlsTimeoutRef = useRef(null)
+
+  const activeFilterCss = useMemo(() => {
+    const baseCss = VIDEO_FILTERS[videoFilter]?.css || 'none'
+    if (brightnessMultiplier === 1) return baseCss
+    if (baseCss === 'none' || !baseCss) return `brightness(${brightnessMultiplier})`
+    if (/brightness\([\d.]+\)/i.test(baseCss)) {
+      return baseCss.replace(/brightness\([\d.]+\)/i, `brightness(${brightnessMultiplier})`)
+    }
+    return `${baseCss} brightness(${brightnessMultiplier})`
+  }, [videoFilter, brightnessMultiplier])
+
+  const handleBrightnessCycle = useCallback((e) => {
+    e.stopPropagation()
+    setBrightnessMultiplier((prev) => {
+      if (prev === 1.0) return 1.5
+      if (prev === 1.5) return 2.0
+      return 1.0
+    })
+  }, [])
 
   useEffect(() => {
     onReadyRef.current = onReady
@@ -484,7 +504,7 @@ export default function VideoPlayer({
         <video
           ref={videoRef}
           className={styles.videoElement}
-          style={{ filter: VIDEO_FILTERS[videoFilter]?.css || 'none' }}
+          style={{ filter: activeFilterCss }}
           autoPlay={playing}
           muted={localMuted}
           controls={false}
@@ -514,7 +534,7 @@ export default function VideoPlayer({
           }}
         />
       ) : (
-        <div style={{ width: '100%', height: '100%', filter: VIDEO_FILTERS[videoFilter]?.css || 'none' }}>
+        <div style={{ width: '100%', height: '100%', filter: activeFilterCss }}>
           <ReactPlayer
             ref={playerRef}
             url={resolvedUrl}
@@ -676,6 +696,17 @@ export default function VideoPlayer({
                 title="Picture in Picture"
               >
                 <PictureInPicture2 size={16} />
+              </button>
+
+              {/* Brightness Control */}
+              <button
+                type="button"
+                className={`${styles.controlIconBtn} ${brightnessMultiplier > 1 ? styles.activeBrightnessBtn : ''}`}
+                onClick={handleBrightnessCycle}
+                title="Brightness (Tap: 1x -> 1.5x -> 2x -> 1x)"
+              >
+                <Sun size={16} style={{ color: brightnessMultiplier > 1 ? '#FAB005' : 'inherit' }} />
+                <span>{brightnessMultiplier === 1 ? 'Brightness' : `${brightnessMultiplier}x`}</span>
               </button>
 
               {/* Cinema LUT Filters Menu */}
