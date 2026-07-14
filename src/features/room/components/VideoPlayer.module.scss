@@ -572,3 +572,45 @@
     width: 48px;
   }
 }
+
+.vlcGestureOverlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 42%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 35;
+}
+
+.vlcLeft {
+  left: 0;
+}
+
+.vlcRight {
+  right: 0;
+}
+
+.vlcRippleCircle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.68);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  animation: vlcRipple 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes vlcRipple {
+  0% { transform: scale(0.65); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}

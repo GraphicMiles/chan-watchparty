@@ -112,9 +112,14 @@ export default function VideoPlayer({
   const [currentLevel, setCurrentLevel] = useState(-1)
   const [showQualityMenu, setShowQualityMenu] = useState(false)
   const [stagePins, setStagePins] = useState([])
+  const [vlcGesture, setVlcGesture] = useState(null)
   
   const controlsTimeoutRef = useRef(null)
   const lastTapTimeRef = useRef(0)
+  const vlcAccumulatorRef = useRef(0)
+  const vlcSideRef = useRef(null)
+  const vlcTimerRef = useRef(null)
+  const singleTapTimerRef = useRef(null)
 
   useEffect(() => {
     const onFsChange = () => {
@@ -379,12 +384,7 @@ export default function VideoPlayer({
     }, 3500)
   }, [])
 
-  const handleToggleControls = useCallback((e) => {
-    e?.stopPropagation()
-    const now = Date.now()
-    if (now - lastTapTimeRef.current < 250) return
-    lastTapTimeRef.current = now
-
+  const triggerToggleControls = useCallback(() => {
     setShowControls((prev) => {
       const next = !prev
       if (!next) {
@@ -406,11 +406,68 @@ export default function VideoPlayer({
     })
   }, [])
 
-  const handlePointerTouch = useCallback((e) => {
-    if (e.pointerType === 'touch') {
-      handleToggleControls(e)
+  const handlePointerOrClick = useCallback((e) => {
+    if (e?.defaultPrevented) return
+    if (e?.type === 'pointerdown' && e.pointerType !== 'touch') return
+    if (e?.type === 'click' && window?.matchMedia?.('(pointer: coarse)').matches) return
+    const isInteractive = e?.target?.closest?.('button, input, select, .seekbarContainer, [role="button"]')
+    if (isInteractive) return
+
+    e?.stopPropagation()
+    const now = Date.now()
+    const diff = now - lastTapTimeRef.current
+    const wrapperRect = playerWrapperRef.current?.getBoundingClientRect()
+    if (!wrapperRect) {
+      triggerToggleControls()
+      return
     }
-  }, [handleToggleControls])
+
+    const clientX = e?.clientX ?? (e?.touches?.[0]?.clientX || e?.changedTouches?.[0]?.clientX || 0)
+    const relX = clientX - wrapperRect.left
+    const width = wrapperRect.width
+    const side = relX < width * 0.38 ? 'left' : relX > width * 0.62 ? 'right' : 'center'
+
+    if (diff > 0 && diff < 320 && side !== 'center' && canControl && !adapter.isLive()) {
+      lastTapTimeRef.current = now
+      if (singleTapTimerRef.current) {
+        clearTimeout(singleTapTimerRef.current)
+        singleTapTimerRef.current = null
+      }
+      if (vlcTimerRef.current) clearTimeout(vlcTimerRef.current)
+
+      if (vlcSideRef.current !== side) {
+        vlcAccumulatorRef.current = side === 'left' ? -10 : 10
+        vlcSideRef.current = side
+      } else {
+        vlcAccumulatorRef.current += side === 'left' ? -10 : 10
+      }
+
+      setVlcGesture({ side, seconds: vlcAccumulatorRef.current })
+
+      vlcTimerRef.current = setTimeout(() => {
+        if (vlcAccumulatorRef.current !== 0) {
+          const target = Math.max(0, Math.min(durationSec || 999999, currentTime() + vlcAccumulatorRef.current))
+          adapter.seekTo(target, 'seconds')
+        }
+        vlcAccumulatorRef.current = 0
+        vlcSideRef.current = null
+        setVlcGesture(null)
+      }, 600)
+      return
+    }
+
+    lastTapTimeRef.current = now
+
+    if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current)
+    const isDoubleTapCandidate = side !== 'center' && canControl && !adapter.isLive()
+    singleTapTimerRef.current = setTimeout(() => {
+      singleTapTimerRef.current = null
+      triggerToggleControls()
+    }, isDoubleTapCandidate ? 220 : 0)
+  }, [canControl, adapter, durationSec, currentTime, triggerToggleControls])
+
+  const handleToggleControls = handlePointerOrClick
+  const handlePointerTouch = handlePointerOrClick
 
   const togglePlayPause = useCallback((e) => {
     e?.stopPropagation()
@@ -647,6 +704,16 @@ export default function VideoPlayer({
 
       {!isReady && <div className={styles.loadingOverlay}>Loading stream...</div>}
       {isLive && <div className={styles.liveIndicator}><Radio size={10} /> LIVE</div>}
+
+      {/* VLC Double-Tap Seek Gesture Indicator */}
+      {vlcGesture && (
+        <div className={`${styles.vlcGestureOverlay} ${vlcGesture.side === 'left' ? styles.vlcLeft : styles.vlcRight}`}>
+          <div className={styles.vlcRippleCircle}>
+            {vlcGesture.side === 'left' ? <RotateCcw size={32} /> : <RotateCw size={32} />}
+            <span>{vlcGesture.seconds > 0 ? `+${vlcGesture.seconds}s` : `${vlcGesture.seconds}s`}</span>
+          </div>
+        </div>
+      )}
 
       {/* In Fullscreen/Landscape mode ONLY, render controls as a bottom overlay */}
       {isFullscreen && (
