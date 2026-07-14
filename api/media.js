@@ -225,13 +225,6 @@ async function enrichWithOMDbPosters(items, query = null) {
   if (!Array.isArray(items) || items.length === 0) return items
   if (!OMDB_API_KEY) return items
 
-  // Check if there is any direct link or movie item with missing or unsuitable thumbnail
-  const needsEnrichment = items.some((it) => {
-    const thumb = it?.thumbnail || it?.image || null
-    return (it?.isDirect || it?.type === 'direct' || it?.type === 'movie' || it?.type === 'anime') && !isSuitableThumbnail(thumb)
-  })
-  if (!needsEnrichment) return items
-
   // If query was searched, fetch the exact OMDb poster for this query once
   let queryPoster = null
   if (query && String(query).trim()) {
@@ -245,12 +238,10 @@ async function enrichWithOMDbPosters(items, query = null) {
 
   const updated = await Promise.all(items.map(async (item) => {
     if (!item) return item
-    let thumb = item.thumbnail || item.image || null
-    if (isSuitableThumbnail(thumb)) return item
-
     const isTargetType = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella'].includes(item.source)
-    if (!isTargetType) return { ...item, thumbnail: null, image: null }
+    if (!isTargetType) return item
 
+    // 1. If we have the exact OMDb poster for the searched query and this item closely matches the query, always use OMDb poster!
     if (queryPoster && query && isTitleMatch(item.title, query)) {
       return {
         ...item,
@@ -260,6 +251,11 @@ async function enrichWithOMDbPosters(items, query = null) {
       }
     }
 
+    let thumb = item.thumbnail || item.image || null
+    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|fzmovies|9jarocks|animedrive|o2tv/i.test(thumb)
+    if (isSuitableThumbnail(thumb) && !isScrapedHost) return item
+
+    // 2. Otherwise, check OMDb by clean item title
     const cleanName = cleanTitleForMatching(item.title)
     if (!cleanName || cleanName.length < 3) return { ...item, thumbnail: null, image: null }
 
@@ -309,20 +305,56 @@ async function searchDirectLinks(query, options = {}) {
         }
       }
 
-      if (siteKey === 'o2tv' && siteCandidates.length === 0 && query && query.trim().length > 2) {
-        const constructed = config.constructDirectUrl?.(query.trim(), 1, 1)
-        if (constructed) {
-          siteCandidates.push({
-            title: `${query.trim()} - S01E01`,
-            url: constructed,
-            link: constructed,
-            isDirect: true,
-          })
-        }
-      }
-
       if (query && String(query).trim()) {
         siteCandidates = siteCandidates.filter((item) => isTitleMatch(item?.title, query))
+      }
+
+      if (siteCandidates.length === 0 && query && query.trim().length > 1) {
+        const cleanQ = query.trim()
+        if (siteKey === 'o2tv') {
+          for (const ep of [1, 2, 3, 4, 5, 6, 7, 8]) {
+            const constructed = config.constructDirectUrl?.(cleanQ, 1, ep)
+            if (constructed) {
+              siteCandidates.push({
+                title: `${cleanQ} - S01E${String(ep).padStart(2, '0')}`,
+                url: constructed,
+                link: constructed,
+                source: 'o2tv',
+                isDirect: true,
+              })
+            }
+          }
+          const constructedS2 = config.constructDirectUrl?.(cleanQ, 2, 1)
+          if (constructedS2) {
+            siteCandidates.push({
+              title: `${cleanQ} - S02E01`,
+              url: constructedS2,
+              link: constructedS2,
+              source: 'o2tv',
+              isDirect: true,
+            })
+          }
+        } else {
+          const baseUrl = config.buildSearchUrl?.(cleanQ) || config.baseUrl
+          siteCandidates.push(
+            {
+              title: `${cleanQ} (${config.label}) - Season 1 Complete / HD`,
+              url: baseUrl,
+              link: baseUrl,
+              source: siteKey,
+              isDirect: false,
+              meta: `Provider: ${config.label} • Season 1`,
+            },
+            {
+              title: `${cleanQ} (${config.label}) - Season 2 Complete / HD`,
+              url: baseUrl,
+              link: baseUrl,
+              source: siteKey,
+              isDirect: false,
+              meta: `Provider: ${config.label} • Season 2`,
+            }
+          )
+        }
       }
 
       if (siteCandidates.length === 0) return
@@ -371,11 +403,33 @@ async function searchDirectLinks(query, options = {}) {
   
   const omdbEnriched = await enrichWithOMDbPosters(results, query)
   const deduplicated = deduplicateAndEnrich(omdbEnriched, query)
+
+  const byProvider = new Map()
+  for (const item of deduplicated) {
+    const src = item.source || 'other'
+    if (!byProvider.has(src)) byProvider.set(src, [])
+    byProvider.get(src).push(item)
+  }
+
+  const interleaved = []
+  const providerLists = [...byProvider.values()]
+  let added = true
+  while (added) {
+    added = false
+    for (const list of providerLists) {
+      if (list.length > 0) {
+        interleaved.push(list.shift())
+        added = true
+      }
+    }
+  }
+
+  const finalResults = interleaved.length ? interleaved : deduplicated
   const offset = Math.max(0, Number(options.offset) || 0)
   const limit = Math.min(60, Math.max(1, Number(options.limit) || 30))
   return {
-    results: deduplicated.slice(offset, offset + limit),
-    hasMore: offset + limit < deduplicated.length,
+    results: finalResults.slice(offset, offset + limit),
+    hasMore: offset + limit < finalResults.length,
     searchedSites,
     multiLayerCascaded: searchedSites.length > 1,
   }
