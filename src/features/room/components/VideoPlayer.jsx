@@ -122,6 +122,7 @@ export default function VideoPlayer({
   
   const controlsTimeoutRef = useRef(null)
   const lastTapTimeRef = useRef(0)
+  const lastToggleTimeRef = useRef(0)
   const vlcAccumulatorRef = useRef(0)
   const vlcSideRef = useRef(null)
   const vlcTimerRef = useRef(null)
@@ -454,6 +455,7 @@ export default function VideoPlayer({
   }, [])
 
   const triggerToggleControls = useCallback(() => {
+    lastToggleTimeRef.current = Date.now()
     setShowControls((prev) => {
       const next = !prev
       if (!next) {
@@ -480,9 +482,13 @@ export default function VideoPlayer({
     const isInteractive = e?.target?.closest?.('button, input, select, .seekbarContainer, [role="button"]')
     if (isInteractive) return
 
-    // If this is a click event from a touch tap that already fired pointerdown within the last 450ms, ignore completely to eliminate race/double-toggle
     const now = Date.now()
-    if (e?.type === 'click' && (e.pointerType === 'touch' || window?.matchMedia?.('(pointer: coarse)').matches || now - lastTapTimeRef.current < 450)) {
+    // Absolute race-condition guard: if controls toggled or pointerdown triggered within last 500ms, ignore duplicate bubbling/click events
+    if (now - lastToggleTimeRef.current < 500) {
+      e?.stopPropagation()
+      return
+    }
+    if (e?.type === 'click' && (e.pointerType === 'touch' || window?.matchMedia?.('(pointer: coarse)').matches || now - lastTapTimeRef.current < 500)) {
       e?.stopPropagation()
       return
     }
