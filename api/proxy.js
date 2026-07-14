@@ -1,4 +1,3 @@
-import { Readable } from 'node:stream'
 import { preflight, fail } from '../server-lib/http.js'
 import { validateFetchUrl, isPrivateHost } from '../server-lib/ssrf.js'
 import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
@@ -34,9 +33,48 @@ function validateProxyUrl(rawUrl) {
 /** Choose Cache-Control based on content type. */
 function cacheControlForType(contentType = '', isM3u8 = false) {
   if (isM3u8) return 'public, max-age=2, must-revalidate' // playlists change often
-  if (/video\/|\/octet-stream/i.test(contentType)) return 'public, max-age=3600' // segments / video chunks
+  if (/video\/|\/octet-stream/i.test(contentType)) return 'public, max-age=3600' // video files
   if (/image\//i.test(contentType)) return 'public, max-age=86400'
   return 'public, max-age=300' // default 5 min
+}
+
+const UPSTREAM_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+
+/**
+ * Stream a ReadableStream from an upstream fetch directly to the Node.js
+ * ServerResponse. Handles backpressure and client disconnects.
+ *
+ * Returns the number of bytes streamed.
+ */
+async function pipeStreamToResponse(reader, res, abortSignal) {
+  let bytesSent = 0
+  try {
+    while (!abortSignal.aborted) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      const chunk = Buffer.from(value)
+      const ok = res.write(chunk)
+      bytesSent += chunk.length
+
+      if (!ok) {
+        // Backpressure — wait for the client to drain
+        await new Promise((resolve) => {
+          const onDrain = () => { cleanup(); resolve() }
+          const onClose = () => { cleanup(); resolve() }
+          const cleanup = () => {
+            res.off('drain', onDrain)
+            res.off('close', onClose)
+          }
+          res.once('drain', onDrain)
+          res.once('close', onClose)
+        })
+      }
+    }
+  } catch {
+    // Stream interrupted (client disconnect, upstream error, or abort)
+  }
+  return bytesSent
 }
 
 export default async function handler(req, res) {
@@ -58,167 +96,81 @@ export default async function handler(req, res) {
 
     const targetUrl = validateProxyUrl(rawUrl)
 
+    // CORS
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', '*')
 
-    // If it is a video file (.mp4, .mkv, .mov, .avi) or explicit Range header requested by <video> tag
-    const isVideoOrBinary = /\.(mp4|mkv|mov|avi|webm|flv)$/i.test(targetUrl.pathname) || Boolean(req.headers.range)
-    if (isVideoOrBinary) {
-      let start = 0
-      let end = null
-      const rangeMatch = req.headers.range?.match(/bytes=(\d+)-(\d*)/)
-      if (rangeMatch) {
-        start = parseInt(rangeMatch[1], 10) || 0
-        if (rangeMatch[2]) {
-          end = parseInt(rangeMatch[2], 10)
-        }
-      }
-
-      // First check total length via HEAD or 0-0 probe
-      let totalLength = 0
-      let contentType = 'video/mp4'
-      const probeResponse = await fetch(targetUrl.href, {
-        method: 'GET',
-        redirect: 'follow',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          'Accept': '*/*',
-          'Referer': targetUrl.origin,
-          'Range': 'bytes=0-0',
-        },
-      }).catch(() => null)
-
-      if (probeResponse && (probeResponse.ok || probeResponse.status === 206)) {
-        contentType = probeResponse.headers.get('content-type') || contentType
-        const contentRange = probeResponse.headers.get('content-range')
-        if (contentRange) {
-          const parts = contentRange.split('/')
-          totalLength = Number(parts[1]) || 0
-        } else {
-          totalLength = Number(probeResponse.headers.get('content-length')) || 0
-        }
-        if (probeResponse.body) await probeResponse.body.cancel().catch(() => {})
-      }
-
-      const CHUNK_SIZE = 3500000 // 3.5MB safe boundary
-
-      if (totalLength > 0 && (end === null || (end - start + 1) > CHUNK_SIZE)) {
-        end = Math.min(start + CHUNK_SIZE - 1, totalLength - 1)
-      } else if (end === null) {
-        end = start + CHUNK_SIZE - 1
-      }
-
-      const chunkResponse = await fetch(targetUrl.href, {
-        redirect: 'follow',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          'Accept': '*/*',
-          'Referer': targetUrl.origin,
-          'Range': `bytes=${start}-${end}`,
-        },
-      })
-
-      if (!chunkResponse.ok && chunkResponse.status !== 206) {
-        return fail(res, chunkResponse.status, `Upstream chunk returned ${chunkResponse.status}`)
-      }
-
-      // Detect if upstream returned HTML instead of video (dead channel / error page)
-      const upstreamContentType = chunkResponse.headers.get('content-type') || ''
-      if (/^text\/html/i.test(upstreamContentType)) {
-        return fail(res, 502, 'Stream server returned a web page instead of video — channel may be offline')
-      }
-
-      // If upstream returned 200 (not 206), it doesn't support Range — return 200 to client too
-      let bytesRead = 0
-      if (chunkResponse.body && typeof chunkResponse.body.getReader === 'function') {
-        const reader = chunkResponse.body.getReader()
-        while (bytesRead < CHUNK_SIZE) {
-          const { done, value } = await reader.read()
-          if (done || !value) break
-          const remaining = CHUNK_SIZE - bytesRead
-          if (value.length > remaining) {
-            chunks.push(value.slice(0, remaining))
-            bytesRead += remaining
-            break
-          } else {
-            chunks.push(value)
-            bytesRead += value.length
-          }
-        }
-        await reader.cancel().catch(() => {})
-      } else {
-        const buf = Buffer.from(await chunkResponse.arrayBuffer())
-        const sliced = buf.slice(0, CHUNK_SIZE)
-        chunks.push(sliced)
-        bytesRead = sliced.length
-      }
-
-      const buffer = Buffer.concat(chunks)
-      const actualEnd = start + buffer.length - 1
-      const chunkRange = `bytes ${start}-${actualEnd}/${totalLength > 0 ? totalLength : '*'}`
-
-      res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
-      res.setHeader('Access-Control-Allow-Headers', '*')
-      res.setHeader('Content-Type', contentType || 'video/mp4')
-      res.setHeader('Accept-Ranges', 'bytes')
-      res.setHeader('Cache-Control', cacheControlForType(contentType))
-
-      // Always return 206 with Content-Range when we're sending a partial chunk.
-      // Even if upstream doesn't support Range (returns 200), the PROXY is chunking
-      // the data — the browser needs 206 to know there's more data to fetch.
-      if (totalLength > 0 || req.headers.range) {
-        res.setHeader('Content-Range', chunkRange)
-        res.setHeader('Content-Length', String(buffer.length))
-        res.status(206)
-      } else {
-        res.setHeader('Content-Length', String(buffer.length))
-        res.status(200)
-      }
-
-      if (req.method === 'HEAD') {
-        res.end()
-        return
-      }
-
-      res.send(buffer)
-      return
-    }
-
-    const fetchHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    // ─── Build upstream request headers ───
+    const upstreamHeaders = {
+      'User-Agent': UPSTREAM_UA,
       'Accept': '*/*',
       'Referer': targetUrl.origin,
     }
 
-    const response = await fetch(targetUrl.href, {
-      redirect: 'follow',
-      headers: fetchHeaders,
-    })
-
-    if (!response.ok && response.status !== 206) {
-      return fail(res, response.status, `Upstream server returned HTTP ${response.status}`)
+    // Forward the browser's Range header (used by <video> for seeking / buffering)
+    if (req.headers.range) {
+      upstreamHeaders.Range = req.headers.range
     }
 
-    const contentType = response.headers.get('content-type') || ''
-    const isM3u8 = /(?:application\/vnd\.apple\.mpegurl|audio\/mpegurl|application\/x-mpegurl|text\/vnd\.apple\.mpegurl|\.m3u8)/i.test(contentType) ||
-                   /\.m3u8(?:\?|#|$)/i.test(targetUrl.pathname)
+    // ─── Early m3u8 detection by URL path (avoids streaming a playlist) ───
+    const isM3u8ByPath = /\.m3u8(?:\?|#|$)/i.test(targetUrl.pathname)
 
-    // Guard: reject HTML / text responses when the client expects video
-    // (dead IPTV channels often return an HTML error page instead of video)
-    if (isM3u8 === false && /^text\/html/i.test(contentType) && req.headers.range) {
-      return fail(res, 502, 'Upstream returned HTML instead of video — channel may be offline')
-    }
+    if (isM3u8ByPath) {
+      const response = await fetch(targetUrl.href, {
+        redirect: 'follow',
+        headers: upstreamHeaders,
+      })
+      if (!response.ok) return fail(res, response.status, `Upstream returned ${response.status}`)
 
-    if (isM3u8) {
       const text = await response.text()
-      // Rewrite any relative/absolute URI inside the m3u8 playlist to run through /api/proxy
       const rewritten = text.split('\n').map((line) => {
         const trimmed = line.trim()
         if (!trimmed) return line
         if (trimmed.startsWith('#')) {
-          // Rewrite encryption key URI if present
+          return line.replace(/URI="([^"]+)"/gi, (_, keyUri) => {
+            try {
+              const absKey = new URL(keyUri, targetUrl.href).href
+              return `URI="/api/proxy?url=${encodeURIComponent(absKey)}"`
+            } catch {
+              return `URI="${keyUri}"`
+            }
+          })
+        }
+        try {
+          const absoluteUri = new URL(trimmed, targetUrl.href).href
+          return `/api/proxy?url=${encodeURIComponent(absoluteUri)}`
+        } catch {
+          return line
+        }
+      }).join('\n')
+
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl')
+      res.setHeader('Cache-Control', cacheControlForType('', true))
+      res.status(200).send(rewritten)
+      return
+    }
+
+    // ─── Fetch from upstream (video, image, segment, anything else) ───
+    const upstream = await fetch(targetUrl.href, {
+      redirect: 'follow',
+      headers: upstreamHeaders,
+    })
+
+    if (!upstream.ok && upstream.status !== 206) {
+      return fail(res, upstream.status, `Upstream returned HTTP ${upstream.status}`)
+    }
+
+    const contentType = upstream.headers.get('content-type') || ''
+
+    // ─── Detect m3u8 by Content-Type (after redirect) ───
+    const isM3u8ByType = /(?:application\/vnd\.apple\.mpegurl|audio\/mpegurl|application\/x-mpegurl|text\/vnd\.apple\.mpegurl)/i.test(contentType)
+    if (isM3u8ByType) {
+      const text = await upstream.text()
+      const rewritten = text.split('\n').map((line) => {
+        const trimmed = line.trim()
+        if (!trimmed) return line
+        if (trimmed.startsWith('#')) {
           return line.replace(/URI="([^"]+)"/gi, (_, keyUri) => {
             try {
               const absKey = new URL(keyUri, targetUrl.href).href
@@ -242,109 +194,56 @@ export default async function handler(req, res) {
       return
     }
 
-    // Binary / Segment / MP4 Proxy
-    const isVideoFile = /\.(mp4|mkv|mov|avi)$/i.test(targetUrl.pathname) || (contentType && /video\//i.test(contentType))
-    if (isVideoFile || req.headers.range) {
-      let start = 0
-      let end = null
-      const rangeMatch = req.headers.range?.match(/bytes=(\d+)-(\d*)/)
-      if (rangeMatch) {
-        start = parseInt(rangeMatch[1], 10) || 0
-        if (rangeMatch[2]) {
-          end = parseInt(rangeMatch[2], 10)
-        }
-      }
-
-      const headResponse = await fetch(targetUrl.href, {
-        method: 'HEAD',
-        redirect: 'follow',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          'Referer': targetUrl.origin,
-        },
-      }).catch(() => null)
-
-      const totalLength = Number(headResponse?.headers.get('content-length') || response.headers.get('content-length')) || 0
-      const CHUNK_SIZE = 3500000 // 3.5MB safe chunk boundary under Vercel 4.5MB Hobby payload limit
-
-      if (totalLength > 0 && (end === null || (end - start + 1) > CHUNK_SIZE)) {
-        end = Math.min(start + CHUNK_SIZE - 1, totalLength - 1)
-      } else if (end === null) {
-        end = start + CHUNK_SIZE - 1
-      }
-
-      const chunkResponse = await fetch(targetUrl.href, {
-        redirect: 'follow',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          'Accept': '*/*',
-          'Referer': targetUrl.origin,
-          'Range': `bytes=${start}-${end}`,
-        },
-      })
-
-      if (!chunkResponse.ok && chunkResponse.status !== 206) {
-        return fail(res, chunkResponse.status, `Upstream chunk returned ${chunkResponse.status}`)
-      }
-
-      // Detect HTML instead of video
-      const upCt = chunkResponse.headers.get('content-type') || ''
-      if (/^text\/html/i.test(upCt)) {
-        return fail(res, 502, 'Stream server returned a web page instead of video — channel may be offline')
-      }
-
-      const chunkRange = chunkResponse.headers.get('content-range') || 'bytes ' + start + '-' + end + '/' + (totalLength > 0 ? totalLength : '*')
-      const chunkLen = chunkResponse.headers.get('content-length') || String(end - start + 1)
-
-      res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
-      res.setHeader('Access-Control-Allow-Headers', '*')
-      res.setHeader('Content-Type', contentType || 'video/mp4')
-      res.setHeader('Accept-Ranges', 'bytes')
-      res.setHeader('Content-Length', chunkLen)
-      res.setHeader('Cache-Control', cacheControlForType(contentType))
-
-      // Always return 206 with Content-Range for partial chunks
-      // (same reason as above — proxy is chunking, browser needs 206)
-      if (chunkRange) {
-        res.setHeader('Content-Range', chunkRange)
-        res.status(206)
-      } else {
-        res.status(200)
-      }
-
-      if (req.method === 'HEAD') {
-        res.end()
-        return
-      }
-
-      const arrayBuffer = await chunkResponse.arrayBuffer()
-      res.send(Buffer.from(arrayBuffer))
-      return
+    // ─── Guard: reject HTML when the client expects video ───
+    // (dead IPTV channels, o2tv error pages, etc.)
+    if (/^text\/html/i.test(contentType)) {
+      // Consume the body to free the connection
+      await upstream.arrayBuffer().catch(() => {})
+      return fail(res, 502, 'Stream server returned a web page instead of video — channel may be offline')
     }
+
+    // ─── Stream the response directly to the client ───
+    // No buffering. Data flows from upstream → proxy → browser in real-time.
+    // The browser's <video> element controls the flow via Range requests.
+    // If the function times out (10s Hobby / 60s Pro), the browser simply
+    // reconnects with a new Range request — this is standard HTTP behaviour.
+
+    const contentRange = upstream.headers.get('content-range')
+    const contentLength = upstream.headers.get('content-length')
 
     res.setHeader('Content-Type', contentType || 'application/octet-stream')
+    res.setHeader('Accept-Ranges', 'bytes')
     res.setHeader('Cache-Control', cacheControlForType(contentType))
-    const contentRange = response.headers.get('content-range')
-    if (contentRange) {
-      res.setHeader('Content-Range', contentRange)
-      res.status(206)
-    } else {
-      res.status(response.status === 206 ? 206 : 200)
-    }
 
-    const contentLength = response.headers.get('content-length')
+    if (contentRange) res.setHeader('Content-Range', contentRange)
     if (contentLength) res.setHeader('Content-Length', contentLength)
+
+    // Forward the correct status: 206 for partial, 200 for full
+    res.status(upstream.status === 206 ? 206 : 200)
 
     if (req.method === 'HEAD') {
       res.end()
       return
     }
 
-    const arrayBuffer = await response.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-    if (!contentLength) res.setHeader('Content-Length', String(buffer.length))
-    res.send(buffer)
+    // Abort signal for client disconnect
+    const abortController = new AbortController()
+    const onClose = () => {
+      abortController.abort()
+    }
+    req.on('close', onClose)
+
+    try {
+      const reader = upstream.body.getReader()
+      await pipeStreamToResponse(reader, res, abortController.signal)
+      await reader.cancel().catch(() => {})
+    } catch {
+      // Stream error (client disconnect / upstream error) — just end
+    } finally {
+      req.off('close', onClose)
+    }
+
+    res.end()
   } catch (err) {
     console.error('Proxy error:', err)
     return fail(res, 502, 'Upstream request failed')

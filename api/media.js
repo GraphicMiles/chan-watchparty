@@ -17,6 +17,27 @@ const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY
 
 // ==================== UTILITY FUNCTIONS ====================
 
+/**
+ * Expand a query with season variants for broader TV show discovery.
+ * "silo" → ["silo", "silo season 1", "silo season 2", "silo season 3", "silo season 4"]
+ * If the query already contains a season/episode marker, no expansion.
+ */
+function expandQueryWithSeasons(query) {
+  if (!query || !query.trim()) return [query]
+  const clean = query.trim()
+  // Don't expand if query already targets a specific season or episode
+  if (/\b(season\s*\d+|s\d+\s*e\d+|s\d+\b|episode\s*\d+)\b/i.test(clean)) {
+    return [clean]
+  }
+  return [
+    clean,
+    `${clean} season 1`,
+    `${clean} season 2`,
+    `${clean} season 3`,
+    `${clean} season 4`,
+  ]
+}
+
 function extractQuality(text) {
   const match = text?.match(/\b(4K|2160p|1440p|1080p|720p|480p|360p|HD|SD|HQ|FullHD)\b/i)
   return match?.[1] || null
@@ -65,8 +86,13 @@ function deduplicateAndEnrich(items, query = null) {
     // Strict close match verification for direct and movie search results against the query
     if (query && String(query).trim() && !isAdult) {
       const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'omdb'].includes(item.source)
-      if (isDirectOrMovie && !isTitleMatch(item.title, query)) {
-        return false
+      if (isDirectOrMovie) {
+        // Allow season-specific results through (e.g. "silo season 2" when querying "silo")
+        const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
+        const itemBase = (item.title || '').replace(/\s*[-–]\s*season\s*\d+.*$/i, '').replace(/\s*s\d+\s*e\d+.*$/i, '').trim()
+        if (!isTitleMatch(item.title, query) && !isTitleMatch(itemBase, baseQuery) && !isTitleMatch(item.title, baseQuery)) {
+          return false
+        }
       }
     }
 
@@ -297,14 +323,30 @@ async function searchDirectLinks(query, options = {}) {
   
   const searchedSites = [...scrapers]
   
+  // Expand query with season variants for broader TV show discovery
+  const queries = expandQueryWithSeasons(query)
+  
   await Promise.all(scrapers.map(async (siteKey) => {
     try {
-      // NaijaPrey uses its own dedicated search function for better result extraction
+      // ─── NaijaPrey: dedicated search with season expansion ───
       if (siteKey === 'naijaprey') {
         try {
-          const npResults = await searchNaijaprey(query, 20)
-          if (npResults && npResults.length > 0) {
-            const filtered = query ? npResults.filter((item) => isTitleMatch(item?.title, query)) : npResults
+          // Search all season variants in parallel
+          const allNpResults = await Promise.all(
+            queries.map((q) => searchNaijaprey(q, 10).catch(() => []))
+          )
+          const npResults = allNpResults.flat()
+          if (npResults.length > 0) {
+            // Filter against the base query (allow season-specific results)
+            const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
+            const filtered = npResults.filter((item) => {
+              if (!item?.title) return false
+              if (isTitleMatch(item.title, query)) return true
+              if (isTitleMatch(item.title, baseQuery)) return true
+              // Allow if the item title contains the base query as a phrase
+              const itemBase = item.title.replace(/\s*[-–]\s*season\s*\d+.*$/i, '').replace(/\s*s\d+\s*e\d+.*$/i, '').trim()
+              return isTitleMatch(itemBase, baseQuery)
+            })
             const enriched = filtered.length > 0 ? filtered : npResults
             for (const result of enriched) {
               const thumb = result.thumbnail || result.image || null
@@ -326,54 +368,70 @@ async function searchDirectLinks(query, options = {}) {
         return
       }
 
+      // ─── Other providers: search with season expansion ───
       const config = getSiteConfig(siteKey)
-      const queryUrls = config?.buildSearchUrls ? config.buildSearchUrls(query) : (config?.buildSearchUrl ? [config.buildSearchUrl(query)] : [])
-      
+
+      // Search all query variants in parallel, collect candidates
       let siteCandidates = []
-      for (const searchUrl of queryUrls) {
-        if (!searchUrl) continue
-        try {
-          const html = await fetchHtml(searchUrl)
-          const items = parseListing(html, searchUrl, config)
-          if (items && items.length > 0) {
-            siteCandidates.push(...items)
-            break
+      const seenUrls = new Set()
+
+      const allVariantResults = await Promise.all(
+        queries.map(async (q) => {
+          const queryUrls = config?.buildSearchUrls ? config.buildSearchUrls(q) : (config?.buildSearchUrl ? [config.buildSearchUrl(q)] : [])
+          for (const searchUrl of queryUrls) {
+            if (!searchUrl) continue
+            try {
+              const html = await fetchHtml(searchUrl)
+              const items = parseListing(html, searchUrl, config)
+              if (items && items.length > 0) return items
+            } catch {
+              /* try next URL pattern */
+            }
           }
-        } catch {
-          /* try next query syntax for this site */
+          return []
+        })
+      )
+
+      for (const variantItems of allVariantResults) {
+        for (const item of variantItems) {
+          if (item?.url && !seenUrls.has(item.url)) {
+            seenUrls.add(item.url)
+            siteCandidates.push(item)
+          }
         }
       }
 
+      // Filter candidates against the base query (allow season-specific results)
       if (query && String(query).trim()) {
-        siteCandidates = siteCandidates.filter((item) => isTitleMatch(item?.title, query))
+        const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
+        siteCandidates = siteCandidates.filter((item) => {
+          if (isTitleMatch(item?.title, query)) return true
+          if (isTitleMatch(item?.title, baseQuery)) return true
+          const itemBase = (item?.title || '').replace(/\s*[-–]\s*season\s*\d+.*$/i, '').replace(/\s*s\d+\s*e\d+.*$/i, '').trim()
+          return isTitleMatch(itemBase, baseQuery)
+        })
       }
 
+      // O2TV: construct direct URLs for episodes if no results found
       if (siteCandidates.length === 0 && query && query.trim().length > 1) {
         const cleanQ = query.trim()
         if (siteKey === 'o2tv') {
-          for (const ep of [1, 2, 3, 4, 5, 6, 7, 8]) {
-            const constructed = config.constructDirectUrl?.(cleanQ, 1, ep)
-            if (constructed) {
-              siteCandidates.push({
-                title: `${cleanQ} - S01E${String(ep).padStart(2, '0')}`,
-                url: constructed,
-                link: constructed,
-                source: 'o2tv',
-                isDirect: true,
-              })
+          for (const season of [1, 2, 3, 4]) {
+            for (const ep of [1, 2, 3, 4, 5, 6, 7, 8]) {
+              const constructed = config.constructDirectUrl?.(cleanQ, season, ep)
+              if (constructed) {
+                siteCandidates.push({
+                  title: `${cleanQ} - S${String(season).padStart(2, '0')}E${String(ep).padStart(2, '0')}`,
+                  url: constructed,
+                  link: constructed,
+                  source: 'o2tv',
+                  isDirect: true,
+                })
+              }
             }
           }
-          const constructedS2 = config.constructDirectUrl?.(cleanQ, 2, 1)
-          if (constructedS2) {
-            siteCandidates.push({
-              title: `${cleanQ} - S02E01`,
-              url: constructedS2,
-              link: constructedS2,
-              source: 'o2tv',
-              isDirect: true,
-            })
-          }
         } else {
+          // Fallback: add season 1 & 2 links to the provider's search page
           const baseUrl = config.buildSearchUrl?.(cleanQ) || config.baseUrl
           siteCandidates.push(
             {
