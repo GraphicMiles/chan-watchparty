@@ -53,42 +53,36 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 5px 8px;
-  border-radius: var(--radius-pill);
-  color: #fff;
-  border: none;
-  font-size: 12px;
-  font-weight: 600;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px !important;
+  border-radius: 100px !important;
+  background: #fff !important;
+  color: #0B0B0C !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
   cursor: pointer;
-  transition: opacity 0.15s ease, transform 0.1s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
   white-space: nowrap;
-}
-
-.aiButton {
-  background: linear-gradient(135deg, var(--accent-orange), var(--live-red));
-}
-
-.catchupButton {
-  background: linear-gradient(135deg, #8A2BE2, #4B0082);
-}
-
-.quizButton {
-  background: linear-gradient(135deg, #1F7A5C, #008080);
 }
 
 .aiButton:hover:not(:disabled),
 .catchupButton:hover:not(:disabled),
 .quizButton:hover:not(:disabled) {
-  opacity: 0.92;
+  background: #f0f0f0 !important;
+  color: #000 !important;
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
 }
 
 .aiButton:disabled,
 .catchupButton:disabled,
 .quizButton:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
+  transform: none;
 }
 
 /* Active Quiz Card (#4) */

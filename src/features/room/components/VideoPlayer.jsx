@@ -635,37 +635,6 @@ export default function VideoPlayer({
           </div>
 
           <div className={styles.bottomButtonsRow}>
-            {/* Middle Row: Quick Jump Controls */}
-            <div className={styles.centerControlsRow} onClick={(e) => e.stopPropagation()}>
-              <button
-                type="button"
-                className={styles.controlIconBtn}
-                onClick={(e) => jumpSeconds(-10, e)}
-                disabled={!canControl}
-                title="Rewind 10s"
-              >
-                <RotateCcw size={16} />
-              </button>
-              <button
-                type="button"
-                className={styles.controlIconBtn}
-                onClick={togglePlayPause}
-                disabled={!canControl}
-                title={isPlayingState ? 'Pause' : 'Play'}
-              >
-                {isPlayingState ? <Pause size={18} /> : <Play size={18} />}
-              </button>
-              <button
-                type="button"
-                className={styles.controlIconBtn}
-                onClick={(e) => jumpSeconds(10, e)}
-                disabled={!canControl}
-                title="Forward 10s"
-              >
-                <RotateCw size={16} />
-              </button>
-            </div>
-
             {/* Bottom Row: Audio & Secondary Tools */}
             <div className={styles.toolsRow} onClick={(e) => e.stopPropagation()}>
               <div className={styles.leftControls}>
