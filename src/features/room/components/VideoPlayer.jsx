@@ -196,8 +196,8 @@ export default function VideoPlayer({
       const dur = (isHLS ? videoRef.current?.duration : playerRef.current?.getDuration?.()) || durationSec || 0
       if (isHLS) {
         if (videoRef.current) {
-          const isLiveStream = isLive || !isFinite(videoRef.current.duration) || videoRef.current.duration > 86400 || videoType === 'iptv'
-          if (isLiveStream) {
+          const isLiveOrIptvStream = isLive || !isFinite(videoRef.current.duration) || videoRef.current.duration > 86400 || videoType === 'iptv' || /(?:\.m3u8|m3u8)/i.test(resolvedUrl)
+          if (isLiveOrIptvStream) {
             return
           }
           const targetSec = type === 'fraction' ? value * dur : value
@@ -214,9 +214,9 @@ export default function VideoPlayer({
         setCurrentSec(value)
       }
     },
-    isLive: () => isLive || !isFinite(durationSec) || durationSec > 86400 || videoType === 'iptv',
+    isLive: () => isLive || isHLS || !isFinite(durationSec) || durationSec > 86400 || videoType === 'iptv' || /(?:\.m3u8|m3u8)/i.test(resolvedUrl),
     loadVideoById: () => {},
-  }), [currentTime, durationSec, isHLS, isLive, playerState, videoType])
+  }), [currentTime, durationSec, isHLS, isLive, playerState, resolvedUrl, videoType])
 
   const notifyReady = useCallback(() => {
     setIsReady(true)
