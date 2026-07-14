@@ -64,11 +64,11 @@ export function usePlayerSync(roomId, room, playerRef) {
     }
     lastPlayingRef.current = state.isPlaying
 
-    // Strict < 0.5s threshold seek adjustment
-    if (diff > SYNC_THRESHOLD) {
+    const isLiveStream = room?.isLive || room?.videoType === 'iptv' || room?.source === 'iptv' || player.isLive?.()
+    if (!isLiveStream && diff > SYNC_THRESHOLD) {
       player.seekTo?.(expectedTime, true)
     }
-  }, [playerRef])
+  }, [playerRef, room?.isLive, room?.videoType, room?.source])
 
   // HOST/CO-HOST INITIAL RECONCILIATION:
   // When the host leaves and returns (or refreshes), check existing room playerState FIRST

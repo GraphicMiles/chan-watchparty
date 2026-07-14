@@ -120,7 +120,13 @@
   pointer-events: none;
 }
 
-.playerWrapper:hover .customControlsOverlay,
+@media (hover: hover) and (pointer: fine) {
+  .playerWrapper:hover .customControlsOverlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .customControlsOverlay.controlsVisible {
   opacity: 1;
   pointer-events: auto;

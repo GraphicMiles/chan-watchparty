@@ -125,6 +125,12 @@ export default function VideoPlayer({
   }, [playing])
 
   useEffect(() => {
+    if (!isPlayingState) {
+      setShowControls(true)
+    }
+  }, [isPlayingState])
+
+  useEffect(() => {
     if (!roomId) return undefined
     const q = query(collection(db, 'rooms', roomId, 'stagePins'), orderBy('timeSec', 'asc'), limit(30))
     const unsub = onSnapshot(q, (snap) => {
@@ -169,6 +175,10 @@ export default function VideoPlayer({
       const dur = (isHLS ? videoRef.current?.duration : playerRef.current?.getDuration?.()) || durationSec || 0
       if (isHLS) {
         if (videoRef.current) {
+          const isLiveStream = isLive || !isFinite(videoRef.current.duration) || videoRef.current.duration > 86400 || videoType === 'iptv'
+          if (isLiveStream) {
+            return
+          }
           const targetSec = type === 'fraction' ? value * dur : value
           videoRef.current.currentTime = targetSec
           setCurrentSec(targetSec)
@@ -183,8 +193,9 @@ export default function VideoPlayer({
         setCurrentSec(value)
       }
     },
+    isLive: () => isLive || !isFinite(durationSec) || durationSec > 86400 || videoType === 'iptv',
     loadVideoById: () => {},
-  }), [currentTime, durationSec, isHLS, playerState])
+  }), [currentTime, durationSec, isHLS, isLive, playerState, videoType])
 
   const notifyReady = useCallback(() => {
     setIsReady(true)
@@ -262,11 +273,12 @@ export default function VideoPlayer({
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: isLive,
-        backBufferLength: 90,
-        maxBufferLength: 30,
-        manifestLoadingTimeOut: 10000,
-        levelLoadingTimeOut: 10000,
+        lowLatencyMode: false,
+        backBufferLength: 60,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 600,
+        manifestLoadingTimeOut: 15000,
+        levelLoadingTimeOut: 15000,
         fragLoadingTimeOut: 20000,
       })
       hlsRef.current = hls
@@ -466,7 +478,6 @@ export default function VideoPlayer({
       ref={playerWrapperRef}
       className={styles.playerWrapper}
       onMouseMove={handleMouseMove}
-      onTouchStart={handleMouseMove}
       onClick={handleToggleControls}
     >
       {isHLS ? (
@@ -546,7 +557,7 @@ export default function VideoPlayer({
 
       {/* Advanced Custom Controls Overlay (Watch Only, No Download) */}
       <div
-        className={`${styles.customControlsOverlay} ${showControls || !isPlayingState ? styles.controlsVisible : ''}`}
+        className={`${styles.customControlsOverlay} ${showControls ? styles.controlsVisible : ''}`}
         onClick={handleToggleControls}
       >
         <div className={styles.centerOverlayButtons}>
