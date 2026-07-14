@@ -141,7 +141,7 @@ export default async function handler(req, res) {
       res.setHeader('Content-Type', contentType || 'video/mp4')
       res.setHeader('Accept-Ranges', 'bytes')
 
-      if (req.headers.range || chunkResponse.status === 206) {
+      if (totalLength > 0 || req.headers.range || chunkResponse.status === 206) {
         res.setHeader('Content-Range', chunkRange)
         res.setHeader('Content-Length', String(buffer.length))
         res.status(206)
