@@ -1,6 +1,7 @@
 import { preflight, fail } from '../server-lib/http.js'
 import { validateFetchUrl, isPrivateHost } from '../server-lib/ssrf.js'
 import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
+import { probeAndFixO2TvUrl } from '../server-lib/o2tvResolver.js'
 
 /** Read optional domain allow-list from env (JSON array of hostnames). */
 function getProxyDomainAllowlist() {
@@ -158,6 +159,45 @@ export default async function handler(req, res) {
     })
 
     if (!upstream.ok && upstream.status !== 206) {
+      // ─── O2TV 404 retry: try to probe for the correct CDN suffix ───
+      // o2tv CDN URLs have random per-file suffixes (otv-XXXXX) that may be wrong.
+      // If we get a 404 from o2tv, try to find the correct URL.
+      if (upstream.status === 404 && targetUrl.hostname.includes('o2tv.org')) {
+        try {
+          const fixedUrl = await probeAndFixO2TvUrl(targetUrl.href)
+          if (fixedUrl !== targetUrl.href) {
+            const retryRes = await fetch(fixedUrl, {
+              redirect: 'follow',
+              headers: upstreamHeaders,
+            })
+            if (retryRes.ok || retryRes.status === 206) {
+              const retryContentType = retryRes.headers.get('content-type') || ''
+              if (/^text\/html/i.test(retryContentType)) {
+                await retryRes.arrayBuffer().catch(() => {})
+                return fail(res, 502, 'Stream server returned a web page instead of video')
+              }
+              const retryContentRange = retryRes.headers.get('content-range')
+              const retryContentLength = retryRes.headers.get('content-length')
+              res.setHeader('Content-Type', retryContentType || 'application/octet-stream')
+              res.setHeader('Accept-Ranges', 'bytes')
+              res.setHeader('Cache-Control', cacheControlForType(retryContentType))
+              if (retryContentRange) res.setHeader('Content-Range', retryContentRange)
+              if (retryContentLength) res.setHeader('Content-Length', retryContentLength)
+              res.status(retryRes.status === 206 ? 206 : 200)
+              if (req.method === 'HEAD') { res.end(); return }
+              const reader = retryRes.body.getReader()
+              const ac = new AbortController()
+              const onClose = () => { ac.abort() }
+              req.on('close', onClose)
+              try { await pipeStreamToResponse(reader, res, ac.signal) } catch { /* */ }
+              finally { req.off('close', onClose); await reader.cancel().catch(() => {}) }
+              return
+            }
+          }
+        } catch {
+          // Probing failed — fall through to original 404
+        }
+      }
       return fail(res, upstream.status, `Upstream returned HTTP ${upstream.status}`)
     }
 

@@ -9,6 +9,7 @@ import { checkIptvChannel, getIptvChannels, getPlaylistChannels } from '../serve
 import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
 import { searchNaijaprey, resolveNaijapreyChain } from '../server-lib/naijapreyResolver.js'
+import { resolveO2TvShow, resolveO2TvEpisode, probeAndFixO2TvUrl, warmO2TvCache } from '../server-lib/o2tvResolver.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY // server-side only — never use VITE_ prefix
@@ -426,23 +427,26 @@ async function searchDirectLinks(query, options = {}) {
         })
       }
 
-      // O2TV: construct direct URLs for episodes if no results found
+      // O2TV: use the resolver engine to discover actual CDN URLs
       if (siteCandidates.length === 0 && query && query.trim().length > 1) {
         const cleanQ = query.trim()
         if (siteKey === 'o2tv') {
-          for (const season of [1, 2, 3, 4]) {
-            for (const ep of [1, 2, 3, 4, 5, 6, 7, 8]) {
-              const constructed = config.constructDirectUrl?.(cleanQ, season, ep)
-              if (constructed) {
-                siteCandidates.push({
-                  title: `${cleanQ} - S${String(season).padStart(2, '0')}E${String(ep).padStart(2, '0')}`,
-                  url: constructed,
-                  link: constructed,
-                  source: 'o2tv',
-                  isDirect: true,
-                })
-              }
+          try {
+            const o2tvResults = await resolveO2TvShow(cleanQ, 4, 8)
+            for (const result of o2tvResults) {
+              siteCandidates.push({
+                title: result.title,
+                url: result.url,
+                link: result.link || result.url,
+                source: 'o2tv',
+                isDirect: true,
+                playableInRoom: !result.probeFailed,
+                quality: result.quality || 'HD',
+                probeFailed: result.probeFailed || false,
+              })
             }
+          } catch (err) {
+            console.error('O2TV resolver engine failed:', err.message)
           }
         } else {
           // Fallback: add season 1 & 2 links to the provider's search page
@@ -833,6 +837,8 @@ function isResolverHost(url, rootHost) {
     if (hostname === rootHost || hostname.endsWith('.' + rootHost) || hostname === 'downloadwella.com' || hostname.endsWith('.downloadwella.com')) return true
     // NaijaPrey resolution chain: np-downloader and wildshare are downstream resolvers
     if (hostname.includes('np-downloader.com') || hostname.includes('wildshare.net')) return true
+    // O2TV / tvshows4mobile are cross-linked resolver hosts
+    if (hostname.includes('tvshows4mobile') || hostname.includes('o2tvseries') || hostname.includes('o2tv.org')) return true
     return false
   } catch {
     return false
@@ -843,77 +849,56 @@ async function resolveO2TvPage(pageUrl) {
   try {
     const parsed = new URL(pageUrl)
     const hostname = parsed.hostname.toLowerCase()
-    if (!hostname.includes('o2tvseries') && !hostname.includes('o2tv.org')) {
+    if (!hostname.includes('o2tvseries') && !hostname.includes('o2tv.org') && !hostname.includes('tvshows4mobile')) {
       return null
     }
 
-    const parts = parsed.pathname.split('/').filter(Boolean)
+    const parts = parsed.pathname.split('/').filter(Boolean).map(p => decodeURIComponent(p))
     let showRaw = parts[0] || 'Show'
-    let seasonRaw = parts[1] || 'Season-01'
-    let episodeRaw = parts[2] || 'Episode-01'
+    let seasonRaw = parts[1] || 'Season 01'
+    let episodeRaw = parts[2] || 'Episode 01'
 
-    const showClean = decodeURIComponent(showRaw)
+    const showClean = showRaw
       .replace(/^Download-/i, '')
       .replace(/-otv[a-z0-9]+$/i, '')
       .replace(/-/g, ' ')
       .trim()
 
-    const seasonMatch = seasonRaw.match(/\d+/)
-    const seasonNum = seasonMatch ? seasonMatch[0].padStart(2, '0') : '01'
+    const showSlug = showRaw
 
-    const epMatch = episodeRaw.match(/\d+/)
-    const epNum = epMatch ? epMatch[0].padStart(2, '0') : '01'
+    // Extract season number — handles both "Season 01" and "Season-01"
+    const seasonMatch = seasonRaw.match(/Season[\s-]*(\d+)/i)
+    const seasonNum = seasonMatch ? parseInt(seasonMatch[1], 10) : 1
 
-    const showEncoded = encodeURIComponent(showClean)
-    const cdns = ['d6.o2tv.org', 'd2.o2tv.org', 'd4.o2tv.org', 'd8.o2tv.org', 'd1.o2tv.org']
-    const suffixes = [
-      `%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`,
-      `%20(TvShows4Mobile.Com).mp4`,
-      `%20otv.mp4`,
-      `.mp4`,
-    ]
+    // Extract episode number — handles both "Episode 01" and "Episode-01"
+    const epMatch = episodeRaw.match(/Episode[\s-]*(\d+)/i) || episodeRaw.match(/S\d+E(\d+)/i)
+    const epNum = epMatch ? parseInt(epMatch[1], 10) : 1
 
-    const candidates = []
-    for (const cdn of cdns) {
-      for (const suffix of suffixes) {
-        candidates.push(`http://${cdn}/${showEncoded}/Season%20${seasonNum}/${showEncoded}%20-%20S${seasonNum}E${epNum}${suffix}`)
-      }
+    // If this is a season page (no episode), resolve all episodes
+    if (!episodeRaw || episodeRaw.startsWith('Season')) {
+      const results = await resolveO2TvShow(showClean, 1, 10)
+      // Filter to just the requested season
+      const seasonPrefix = `S${String(seasonNum).padStart(2, '0')}E`
+      return results.filter(r => r.title.includes(seasonPrefix))
     }
 
-    for (const candidateUrl of candidates) {
-      try {
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), 2500)
-        const check = await fetch(candidateUrl, {
-          method: 'HEAD',
-          signal: controller.signal,
-          headers: { 'User-Agent': 'Mozilla/5.0' },
-        })
-        clearTimeout(timer)
-        if (check.ok || check.status === 206 || check.status === 302) {
-          return [{
-            title: `${showClean} - S${seasonNum}E${epNum}`,
-            url: candidateUrl,
-            link: candidateUrl,
-            source: 'o2tv',
-            isDirect: true,
-            playableInRoom: true,
-            resolvedFrom: pageUrl,
-          }]
-        }
-      } catch {
-        /* check next candidate */
-      }
-    }
+    // If this is an episode page, try to probe for the CDN URL
+    const result = await resolveO2TvEpisode(showClean, showSlug, seasonNum, epNum)
+    if (result) return [result]
 
-    const primaryCandidate = `http://d6.o2tv.org/${showEncoded}/Season%20${seasonNum}/${showEncoded}%20-%20S${seasonNum}E${epNum}%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`
+    // Fallback: probe and fix the URL
+    const s = String(seasonNum).padStart(2, '0')
+    const e = String(epNum).padStart(2, '0')
+    const slugSuffix = showSlug.match(/otv([a-z0-9]+)$/i)?.[1] || '1awrk'
+    const fallbackUrl = `http://d6.o2tv.org/${encodeURIComponent(showClean)}/Season%20${s}/${encodeURIComponent(showClean)}%20-%20S${s}E${e}%20(TvShows4Mobile.Com)%20otv-${slugSuffix}.mp4`
+    const fixedUrl = await probeAndFixO2TvUrl(fallbackUrl)
     return [{
-      title: `${showClean} - S${seasonNum}E${epNum}`,
-      url: primaryCandidate,
-      link: primaryCandidate,
+      title: `${showClean} - S${s}E${e}`,
+      url: fixedUrl,
+      link: fixedUrl,
       source: 'o2tv',
       isDirect: true,
-      playableInRoom: true,
+      playableInRoom: fixedUrl !== fallbackUrl,
       resolvedFrom: pageUrl,
     }]
   } catch (err) {
@@ -924,7 +909,7 @@ async function resolveO2TvPage(pageUrl) {
 
 export async function resolvePageChain(startUrl, site) {
   const rootHost = new URL(startUrl).hostname.toLowerCase().replace(/^www\\./, '')
-  if (rootHost.includes('o2tvseries') || rootHost.includes('o2tv.org')) {
+  if (rootHost.includes('o2tvseries') || rootHost.includes('o2tv.org') || rootHost.includes('tvshows4mobile')) {
     const o2tvDirect = await resolveO2TvPage(startUrl)
     if (o2tvDirect && o2tvDirect.length) return o2tvDirect
   }

@@ -68,6 +68,8 @@ export const SITE_CONFIGS = {
       const encodedShow = encodeURIComponent(cleanShow)
       const seasonNum = String(season).padStart(2, '0')
       const epNum = String(episode).padStart(2, '0')
+      // NOTE: The suffix (otv-XXXXX) is per-file random and must be resolved
+      // via the o2tvResolver engine. This URL is a fallback that may 404.
       return `http://d6.o2tv.org/${encodedShow}/Season%20${seasonNum}/${encodedShow}%20-%20S${seasonNum}E${epNum}%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`
     },
   },
