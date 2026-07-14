@@ -142,6 +142,19 @@ export function cleanTitleForMatching(str) {
     .trim()
 }
 
+export function cleanTitleForOMDb(str) {
+  if (!str) return ''
+  return String(str)
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
+    .replace(/\b(s\d+e\d+|e\d+|s\d+|season\s*\d+|episode\s*\d+)\b/gi, ' ')
+    .replace(/\b(19\d\d|20\d\d)\b/g, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\.(mp4|mkv|m3u8|avi|mov)$/i, ' ')
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+}
+
 export function isTitleMatch(title, query) {
   if (!title || !query) return false
   const qRaw = String(query).trim()

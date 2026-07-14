@@ -2,7 +2,7 @@ import * as cheerio from 'cheerio'
 import { createHash } from 'node:crypto'
 import { preflight, ok, fail, statusForError } from '../server-lib/http.js'
 import { getDb, FieldValue, verifyIdToken } from '../server-lib/firebaseAdmin.js'
-import { getSiteConfig, resolveUrl, isSuitableThumbnail, isTitleMatch, cleanTitleForMatching } from '../server-lib/sources.js'
+import { getSiteConfig, resolveUrl, isSuitableThumbnail, isTitleMatch, cleanTitleForMatching, cleanTitleForOMDb } from '../server-lib/sources.js'
 import { checkIptvChannel, getIptvChannels, getPlaylistChannels } from '../server-lib/iptv.js'
 import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
@@ -243,11 +243,14 @@ async function enrichWithOMDbPosters(items, query = null) {
     const isAdult = item.isNSFW === true || item.type === 'nsfw' || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.source || '').toLowerCase()) || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.provider || '').toLowerCase())
     if (isAdult) return item
 
-    const isTargetType = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella'].includes(item.source)
+    const isTargetType = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv', 'downloadwella'].includes(item.source)
     if (!isTargetType) return item
 
-    // 1. If we have the exact OMDb poster for the searched query and this item closely matches the query, always use OMDb poster!
-    if (queryPoster && query && isTitleMatch(item.title, query)) {
+    const cleanItemName = cleanTitleForOMDb(item.title)
+    const cleanQueryName = cleanTitleForOMDb(query || '')
+
+    // 1. If we have the exact OMDb poster for the searched query AND this exact show/movie is what was queried, use queryPoster!
+    if (queryPoster && query && cleanItemName && cleanQueryName && cleanItemName.toLowerCase() === cleanQueryName.toLowerCase()) {
       return {
         ...item,
         thumbnail: queryPoster,
@@ -257,19 +260,18 @@ async function enrichWithOMDbPosters(items, query = null) {
     }
 
     let thumb = item.thumbnail || item.image || null
-    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|fzmovies|9jarocks|animedrive|o2tv/i.test(thumb)
+    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|fzmovies|9jarocks|o2tv/i.test(thumb)
     if (isSuitableThumbnail(thumb) && !isScrapedHost) return item
 
-    // 2. Otherwise, check OMDb by clean item title
-    const cleanName = cleanTitleForMatching(item.title)
-    if (!cleanName || cleanName.length < 3) return { ...item, thumbnail: null, image: null }
+    // 2. Otherwise, look up OMDb specifically for this item's own clean name (e.g. "Avatar The Last Airbender" vs "Avatar")
+    if (!cleanItemName || cleanItemName.length < 2) return { ...item, thumbnail: null, image: null }
 
-    if (!posterCache.has(cleanName)) {
-      const fetched = await fetchBestOMDbPoster(cleanName, query)
-      posterCache.set(cleanName, fetched || null)
+    if (!posterCache.has(cleanItemName)) {
+      const fetched = await fetchBestOMDbPoster(cleanItemName, query)
+      posterCache.set(cleanItemName, fetched || null)
     }
 
-    const matchedPoster = posterCache.get(cleanName) || null
+    const matchedPoster = posterCache.get(cleanItemName) || null
     return {
       ...item,
       thumbnail: matchedPoster,
@@ -442,12 +444,14 @@ async function searchDirectLinks(query, options = {}) {
     }
   }
 
-  const finalResults = interleaved.length ? interleaved : deduplicated
+  const validResults = (interleaved.length ? interleaved : deduplicated).filter(
+    (item) => item && (item.url || item.link) && item.title
+  )
   const offset = Math.max(0, Number(options.offset) || 0)
   const limit = Math.min(100, Math.max(1, Number(options.limit) || 60))
   return {
-    results: finalResults.slice(offset, offset + limit),
-    hasMore: offset + limit < finalResults.length,
+    results: validResults.slice(offset, offset + limit),
+    hasMore: offset + limit < validResults.length,
     searchedSites,
     multiLayerCascaded: searchedSites.length > 1,
   }
