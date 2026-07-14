@@ -107,14 +107,35 @@
 
 /* ==================== ADVANCED CUSTOM PLAYER CONTROLS ==================== */
 
+.videoOuterContainer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.touchCatcher {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  cursor: pointer;
+}
+
+.playerWrapper, .videoElement, .customControlsOverlay, .touchCatcher {
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
 .customControlsOverlay {
   position: absolute;
   inset: 0;
   z-index: 20;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  background: rgba(0, 0, 0, 0.35);
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.25);
   transition: opacity 0.25s ease;
   opacity: 0;
   pointer-events: none;
@@ -132,54 +153,79 @@
   pointer-events: auto;
 }
 
-.centerOverlayButtons {
+.overlayBottomBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 36px 16px 14px;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.5) 70%, transparent 100%);
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 28px;
-  margin: auto 0;
+  gap: 12px;
+  z-index: 22;
 }
 
-.centerCircleBtn {
-  width: 52px;
-  height: 52px;
+.overlayPlayBtn {
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   background: #18191D;
-  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  border: 1.5px solid #fff;
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  flex-shrink: 0;
   transition: transform 0.15s ease, background 0.15s ease;
-  backdrop-filter: none;
-  box-shadow: none;
 }
 
-.centerCircleBtn:hover {
+.overlayPlayBtn:hover {
   background: #2a2a2a;
   transform: scale(1.08);
 }
 
-.centerMainPlayBtn {
-  width: 68px;
-  height: 68px;
-  border-radius: 50%;
-  background: #18191D;
-  border: 2px solid #fff;
-  color: #fff;
+.externalVideoControlsBar {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: space-evenly;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--room-surface);
+  border: 1px solid var(--room-divider);
+  border-radius: var(--radius-card);
+  margin-top: 10px;
+  flex-shrink: 0;
+}
+
+.externalVideoControlsBar button {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: transform 0.15s ease, background 0.15s ease;
-  backdrop-filter: none;
-  box-shadow: none;
+  transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
-.centerMainPlayBtn:hover {
-  background: #2a2a2a;
-  transform: scale(1.08);
+.externalVideoControlsBar button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.popupContainer {
+  position: relative;
+  display: inline-flex;
 }
 
 .customBottomBar {

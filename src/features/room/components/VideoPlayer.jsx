@@ -494,13 +494,15 @@ export default function VideoPlayer({
   }
 
   return (
-    <div
-      ref={playerWrapperRef}
-      className={styles.playerWrapper}
-      onMouseMove={handleMouseMove}
-      onClick={handleToggleControls}
-    >
-      {isHLS ? (
+    <div className={styles.videoOuterContainer}>
+      <div
+        ref={playerWrapperRef}
+        className={styles.playerWrapper}
+        onMouseMove={handleMouseMove}
+        onClick={handleToggleControls}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        {isHLS ? (
         <video
           ref={videoRef}
           className={styles.videoElement}
@@ -534,7 +536,7 @@ export default function VideoPlayer({
           }}
         />
       ) : (
-        <div style={{ width: '100%', height: '100%', filter: activeFilterCss }}>
+        <div style={{ width: '100%', height: '100%', filter: activeFilterCss }} onContextMenu={(e) => e.preventDefault()}>
           <ReactPlayer
             ref={playerRef}
             url={resolvedUrl}
@@ -572,225 +574,232 @@ export default function VideoPlayer({
         </div>
       )}
 
+      {/* Transparent touch layer to ensure 1st tap toggles controls reliably & blocks long press context menu */}
+      <div
+        className={styles.touchCatcher}
+        onClick={handleToggleControls}
+        onContextMenu={(e) => e.preventDefault()}
+      />
+
       {!isReady && <div className={styles.loadingOverlay}>Loading stream...</div>}
       {isLive && <div className={styles.liveIndicator}><Radio size={10} /> LIVE</div>}
 
-      {/* Advanced Custom Controls Overlay (Watch Only, No Download) */}
+      {/* Netflix-Style Minimal Overlay (ONLY Play/Pause Button + Seekbar overlayed at the bottom of the player) */}
       <div
         className={`${styles.customControlsOverlay} ${showControls ? styles.controlsVisible : ''}`}
         onClick={handleToggleControls}
+        onContextMenu={(e) => e.preventDefault()}
       >
-        <div className={styles.centerOverlayButtons}>
+        <div className={styles.overlayBottomBar} onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
-            className={styles.centerCircleBtn}
-            onClick={(e) => jumpSeconds(-10, e)}
-            disabled={!canControl}
-            title="Rewind 10 seconds"
-          >
-            <RotateCcw size={22} />
-          </button>
-
-          <button
-            type="button"
-            className={styles.centerMainPlayBtn}
+            className={styles.overlayPlayBtn}
             onClick={togglePlayPause}
             disabled={!canControl}
             title={isPlayingState ? 'Pause' : 'Play'}
           >
-            {isPlayingState ? <Pause size={34} /> : <Play size={34} style={{ marginLeft: '4px' }} />}
+            {isPlayingState ? <Pause size={22} /> : <Play size={22} style={{ marginLeft: '2px' }} />}
           </button>
 
-          <button
-            type="button"
-            className={styles.centerCircleBtn}
-            onClick={(e) => jumpSeconds(10, e)}
-            disabled={!canControl}
-            title="Forward 10 seconds"
-          >
-            <RotateCw size={22} />
-          </button>
-        </div>
+          <span className={styles.timeText}>{formatTime(currentSec)}</span>
 
-        <div className={styles.customBottomBar}>
-          <div className={styles.trackRow}>
-            <span className={styles.timeText}>{formatTime(currentSec)}</span>
-            
-            <div className={styles.seekbarContainer}>
-              <div className={styles.seekbarTrack}>
-                <div className={styles.seekbarLoaded} style={{ width: `${loadedPercent}%` }} />
-                <div className={styles.seekbarProgress} style={{ width: `${playedPercent}%` }} />
-                
-                {/* Stage Pins along Seekbar */}
-                {stagePins.map((pin) => {
-                  const pinPercent = durationSec > 0 ? (pin.timeSec / durationSec) * 100 : 0
-                  return (
-                    <div
-                      key={pin.id}
-                      className={styles.stagePinDot}
-                      style={{ left: `${pinPercent}%` }}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (canControl) adapter.seekTo(pin.timeSec, 'seconds')
-                        toast(`${formatTime(pin.timeSec)} - ${pin.displayName}: "${pin.text}"`, { variant: 'info' })
-                      }}
-                      title={`Stage pin at ${formatTime(pin.timeSec)} - ${pin.displayName}: ${pin.text}`}
-                    />
-                  )
-                })}
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="1000"
-                value={seekbarValue}
-                onChange={handleSeekSlider}
-                disabled={!canControl || isLive}
-                className={styles.rangeInput}
-                title="Seek position"
-              />
+          <div className={styles.seekbarContainer}>
+            <div className={styles.seekbarTrack}>
+              <div className={styles.seekbarLoaded} style={{ width: `${loadedPercent}%` }} />
+              <div className={styles.seekbarProgress} style={{ width: `${playedPercent}%` }} />
+
+              {/* Stage Pins along Seekbar */}
+              {stagePins.map((pin) => {
+                const pinPercent = durationSec > 0 ? (pin.timeSec / durationSec) * 100 : 0
+                return (
+                  <div
+                    key={pin.id}
+                    className={styles.stagePinDot}
+                    style={{ left: `${pinPercent}%` }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (canControl) adapter.seekTo(pin.timeSec, 'seconds')
+                      toast(`${formatTime(pin.timeSec)} - ${pin.displayName}: "${pin.text}"`, { variant: 'info' })
+                    }}
+                    title={`Stage pin at ${formatTime(pin.timeSec)} - ${pin.displayName}: ${pin.text}`}
+                  />
+                )
+              })}
             </div>
-
-            <span className={styles.timeText}>{formatTime(durationSec)}</span>
+            <input
+              type="range"
+              min="0"
+              max="1000"
+              value={seekbarValue}
+              onChange={handleSeekSlider}
+              disabled={!canControl || isLive}
+              className={styles.rangeInput}
+              title="Seek position"
+            />
           </div>
 
-          <div className={styles.bottomButtonsRow}>
-            {/* Bottom Row: Audio & Secondary Tools */}
-            <div className={styles.toolsRow} onClick={(e) => e.stopPropagation()}>
-              <div className={styles.leftControls}>
-                <button
-                  type="button"
-                  className={styles.controlIconBtn}
-                  onClick={toggleMute}
-                  title={localMuted ? 'Unmute' : 'Mute'}
-                >
-                  {localMuted || localVolume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-                </button>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={localMuted ? 0 : localVolume}
-                  onChange={handleVolumeChange}
-                  className={styles.volumeSlider}
-                  title="Volume"
-                />
-              </div>
-
-              <div className={styles.rightControls}>
-                <button
-                  type="button"
-                  className={styles.controlIconBtn}
-                  onClick={addStagePin}
-                  title="Drop timestamp bookmark pin"
-                >
-                  <Bookmark size={16} />
-                  <span>Pin</span>
-                </button>
-
-              <button
-                type="button"
-                className={styles.controlIconBtn}
-                onClick={togglePiP}
-                title="Picture in Picture"
-              >
-                <PictureInPicture2 size={16} />
-              </button>
-
-              {/* Brightness Control */}
-              <button
-                type="button"
-                className={`${styles.controlIconBtn} ${brightnessMultiplier > 1 ? styles.activeBrightnessBtn : ''}`}
-                onClick={handleBrightnessCycle}
-                title="Brightness (Tap: 1x -> 1.5x -> 2x -> 1x)"
-              >
-                <Sun size={16} style={{ color: brightnessMultiplier > 1 ? '#FAB005' : 'inherit' }} />
-                <span>{brightnessMultiplier === 1 ? 'Brightness' : `${brightnessMultiplier}x`}</span>
-              </button>
-
-              {/* Cinema LUT Filters Menu */}
-              <button
-                type="button"
-                className={styles.controlIconBtn}
-                onClick={(e) => { e.stopPropagation(); setShowFilterMenu(!showFilterMenu); setShowQualityMenu(false) }}
-                title="Video LUT Filters"
-              >
-                <Palette size={16} />
-                <span>{VIDEO_FILTERS[videoFilter]?.label || 'Filter'}</span>
-              </button>
-              {showFilterMenu && (
-                <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
-                  {Object.entries(VIDEO_FILTERS).map(([key, item]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className={`${styles.popupMenuItem} ${videoFilter === key ? styles.popupMenuItemActive : ''}`}
-                      onClick={() => { setVideoFilter(key); setShowFilterMenu(false) }}
-                    >
-                      <span>{item.label}</span>
-                      <span className={styles.popupMenuSub}>{item.desc}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* HLS Quality Selector Menu */}
-              {isHLS && hlsLevels.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    className={styles.controlIconBtn}
-                    onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); setShowFilterMenu(false) }}
-                    title="Stream Quality"
-                  >
-                    <Settings size={16} />
-                    <span>{currentLevel === -1 ? 'Auto' : `${hlsLevels[currentLevel]?.height || 'HD'}p`}</span>
-                  </button>
-                  {showQualityMenu && (
-                    <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        className={`${styles.popupMenuItem} ${currentLevel === -1 ? styles.popupMenuItemActive : ''}`}
-                        onClick={() => {
-                          if (hlsRef.current) hlsRef.current.currentLevel = -1
-                          setCurrentLevel(-1)
-                          setShowQualityMenu(false)
-                        }}
-                      >
-                        Auto (Adaptive)
-                      </button>
-                      {hlsLevels.map((lvl, index) => (
-                        <button
-                          key={index}
-                          type="button"
-                          className={`${styles.popupMenuItem} ${currentLevel === index ? styles.popupMenuItemActive : ''}`}
-                          onClick={() => {
-                            if (hlsRef.current) hlsRef.current.currentLevel = index
-                            setCurrentLevel(index)
-                            setShowQualityMenu(false)
-                          }}
-                        >
-                          {lvl.height}p ({Math.round((lvl.bitrate || 0) / 1000)} kbps)
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-
-              <button
-                type="button"
-                className={styles.controlIconBtn}
-                onClick={toggleFullscreen}
-                title="Fullscreen"
-              >
-                <Maximize size={18} />
-              </button>
-            </div>
-          </div>
+          <span className={styles.timeText}>{formatTime(durationSec)}</span>
         </div>
       </div>
+    </div>
+
+    {/* External Netflix-Style Secondary Controls Bar right underneath the 50vh video player */}
+    <div className={styles.externalVideoControlsBar}>
+      <div className={styles.leftControls}>
+        <button
+          type="button"
+          className={styles.controlIconBtn}
+          onClick={toggleMute}
+          title={localMuted ? 'Unmute' : 'Mute'}
+        >
+          {localMuted || localVolume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+        </button>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          value={localMuted ? 0 : localVolume}
+          onChange={handleVolumeChange}
+          className={styles.volumeSlider}
+          title="Volume"
+        />
+      </div>
+
+      <button
+        type="button"
+        className={styles.controlIconBtn}
+        onClick={(e) => jumpSeconds(-10, e)}
+        disabled={!canControl}
+        title="Rewind 10s"
+      >
+        <RotateCcw size={16} />
+        <span>-10s</span>
+      </button>
+
+      <button
+        type="button"
+        className={styles.controlIconBtn}
+        onClick={(e) => jumpSeconds(10, e)}
+        disabled={!canControl}
+        title="Forward 10s"
+      >
+        <RotateCw size={16} />
+        <span>+10s</span>
+      </button>
+
+      <button
+        type="button"
+        className={styles.controlIconBtn}
+        onClick={addStagePin}
+        title="Drop timestamp bookmark pin"
+      >
+        <Bookmark size={16} />
+        <span>Pin</span>
+      </button>
+
+      {/* Brightness Control */}
+      <button
+        type="button"
+        className={`${styles.controlIconBtn} ${brightnessMultiplier > 1 ? styles.activeBrightnessBtn : ''}`}
+        onClick={handleBrightnessCycle}
+        title="Brightness (Tap: 1x -> 1.5x -> 2x -> 1x)"
+      >
+        <Sun size={16} style={{ color: brightnessMultiplier > 1 ? '#FAB005' : 'inherit' }} />
+        <span>{brightnessMultiplier === 1 ? 'Brightness' : `${brightnessMultiplier}x`}</span>
+      </button>
+
+      {/* Cinema LUT Filters Menu */}
+      <div className={styles.popupContainer}>
+        <button
+          type="button"
+          className={styles.controlIconBtn}
+          onClick={(e) => { e.stopPropagation(); setShowFilterMenu(!showFilterMenu); setShowQualityMenu(false) }}
+          title="Video LUT Filters"
+        >
+          <Palette size={16} />
+          <span>{VIDEO_FILTERS[videoFilter]?.label || 'Filter'}</span>
+        </button>
+        {showFilterMenu && (
+          <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
+            {Object.entries(VIDEO_FILTERS).map(([key, item]) => (
+              <button
+                key={key}
+                type="button"
+                className={`${styles.popupMenuItem} ${videoFilter === key ? styles.popupMenuItemActive : ''}`}
+                onClick={() => { setVideoFilter(key); setShowFilterMenu(false) }}
+              >
+                <span>{item.label}</span>
+                <span className={styles.popupMenuSub}>{item.desc}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* HLS Quality Selector Menu */}
+      {isHLS && hlsLevels.length > 1 && (
+        <div className={styles.popupContainer}>
+          <button
+            type="button"
+            className={styles.controlIconBtn}
+            onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); setShowFilterMenu(false) }}
+            title="Stream Quality"
+          >
+            <Settings size={16} />
+            <span>{currentLevel === -1 ? 'Auto' : `${hlsLevels[currentLevel]?.height || 'HD'}p`}</span>
+          </button>
+          {showQualityMenu && (
+            <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className={`${styles.popupMenuItem} ${currentLevel === -1 ? styles.popupMenuItemActive : ''}`}
+                onClick={() => {
+                  if (hlsRef.current) hlsRef.current.currentLevel = -1
+                  setCurrentLevel(-1)
+                  setShowQualityMenu(false)
+                }}
+              >
+                Auto (Adaptive)
+              </button>
+              {hlsLevels.map((lvl, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  className={`${styles.popupMenuItem} ${currentLevel === index ? styles.popupMenuItemActive : ''}`}
+                  onClick={() => {
+                    if (hlsRef.current) hlsRef.current.currentLevel = index
+                    setCurrentLevel(index)
+                    setShowQualityMenu(false)
+                  }}
+                >
+                  {lvl.height}p ({Math.round((lvl.bitrate || 0) / 1000)} kbps)
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        className={styles.controlIconBtn}
+        onClick={togglePiP}
+        title="Picture in Picture"
+      >
+        <PictureInPicture2 size={16} />
+        <span>PiP</span>
+      </button>
+
+      <button
+        type="button"
+        className={styles.controlIconBtn}
+        onClick={toggleFullscreen}
+        title="Fullscreen"
+      >
+        <Maximize size={16} />
+        <span>Full</span>
+      </button>
     </div>
     </div>
   )
