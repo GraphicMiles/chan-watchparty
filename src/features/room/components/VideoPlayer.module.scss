@@ -189,11 +189,11 @@
 .externalVideoControlsBar {
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-evenly;
   align-items: center;
-  gap: 10px;
+  justify-content: flex-start;
+  gap: 8px;
   width: 100%;
-  padding: 10px 14px;
+  padding: 12px 14px;
   background: var(--room-surface);
   border: 1px solid var(--room-divider);
   border-radius: var(--radius-card);
@@ -201,26 +201,38 @@
   flex-shrink: 0;
 }
 
-.externalVideoControlsBar button {
+.leftControls {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 6px;
-  height: 36px;
-  padding: 0 14px;
-  border-radius: 100px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 500;
+  flex: 0 0 auto;
+  width: fit-content;
+}
+
+.externalVideoControlsBar button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  height: 38px !important;
+  padding: 0 20px !important;
+  border-radius: 20px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #fff !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
   cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
+  transition: all 0.15s ease !important;
+  white-space: nowrap !important;
+  flex: 0 0 auto !important;
+  width: fit-content !important;
+  min-width: 0 !important;
 }
 
 .externalVideoControlsBar button:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
 }
 
 .popupContainer {
