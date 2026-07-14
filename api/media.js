@@ -57,8 +57,10 @@ function deduplicateAndEnrich(items, query = null) {
   return items.filter((item) => {
     if (!item) return false
     
+    const isAdult = item.isNSFW === true || item.type === 'nsfw' || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.source || '').toLowerCase()) || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.provider || '').toLowerCase())
+
     // Strict close match verification for direct and movie search results against the query
-    if (query && String(query).trim()) {
+    if (query && String(query).trim() && !isAdult) {
       const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'omdb'].includes(item.source)
       if (isDirectOrMovie && !isTitleMatch(item.title, query)) {
         return false
@@ -67,7 +69,7 @@ function deduplicateAndEnrich(items, query = null) {
 
     // Ensure thumbnail property is synced and suitable
     let thumb = item.thumbnail || item.image || item.poster || null
-    if (!isSuitableThumbnail(thumb)) {
+    if (!isAdult && !isSuitableThumbnail(thumb)) {
       thumb = null
     }
     item.thumbnail = thumb
@@ -238,6 +240,9 @@ async function enrichWithOMDbPosters(items, query = null) {
 
   const updated = await Promise.all(items.map(async (item) => {
     if (!item) return item
+    const isAdult = item.isNSFW === true || item.type === 'nsfw' || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.source || '').toLowerCase()) || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.provider || '').toLowerCase())
+    if (isAdult) return item
+
     const isTargetType = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella'].includes(item.source)
     if (!isTargetType) return item
 
@@ -1179,46 +1184,19 @@ export default async function handler(req, res) {
           break
         case 'nsfw': {
           const searchResults = await searchNSFW(query, options)
-          if (options.resolve) {
-            const provider = options.provider || process.env.NSFW_PROVIDER || 'xvideos'
-            const resolved = await Promise.all(searchResults.slice(0, 6).map(async (result) => {
-              const pageResults = await resolvePageChain(result.url, provider)
-              if (pageResults.length) {
-                return pageResults.map((item) => {
-                  const thumb = item.thumbnail || item.image || result.thumbnail || result.image || null
-                  return {
-                    ...item,
-                    title: item.title || result.title,
-                    thumbnail: thumb,
-                    image: thumb,
-                    duration: item.duration || result.duration || null,
-                    quality: item.quality || result.quality || null,
-                  }
-                })
-              }
-              return [result]
-            }))
-            results = resolved.flat().map((result) => {
-              const thumb = result.thumbnail || result.image || null
-              return {
-                ...result,
-                thumbnail: thumb,
-                image: thumb,
-                source: result.source || 'xvideos',
-                type: 'nsfw',
-                isNSFW: true,
-              }
-            })
-          } else {
-            results = searchResults.map((result) => {
-              const thumb = result.thumbnail || result.image || null
-              return {
-                ...result,
-                thumbnail: thumb,
-                image: thumb,
-              }
-            })
-          }
+          results = searchResults.map((result) => {
+            const thumb = result.thumbnail || result.image || null
+            return {
+              ...result,
+              thumbnail: thumb,
+              image: thumb,
+              source: result.source || result.provider || 'xvideos',
+              type: 'nsfw',
+              isNSFW: true,
+              isDirect: false,
+              requiresUserAction: true,
+            }
+          })
           break
         }
         default:

@@ -206,6 +206,63 @@
   transform: scale(1.08);
 }
 
+.mainControlsBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--room-surface);
+  border: 1px solid var(--room-divider);
+  border-radius: var(--radius-card);
+  margin-top: 10px;
+  flex-shrink: 0;
+}
+
+.overlayControlsStack {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 30px 16px 14px;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 75%, transparent 100%);
+  z-index: 22;
+}
+
+.overlaySecondaryBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 0;
+}
+
+.overlaySecondaryBar button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  height: 34px !important;
+  padding: 6px 14px !important;
+  border-radius: 10px !important;
+  background: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  color: #fff !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  cursor: pointer;
+  transition: all 0.15s ease !important;
+  white-space: nowrap !important;
+  flex: 0 0 auto !important;
+  width: fit-content !important;
+  min-width: 0 !important;
+}
+
 .externalVideoControlsBar {
   display: flex;
   flex-wrap: wrap;

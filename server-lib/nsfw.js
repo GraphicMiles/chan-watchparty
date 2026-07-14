@@ -71,6 +71,132 @@ async function searchXVideos(query, limit = 20) {
   }
 }
 
+async function searchPornhub(query, limit = 20) {
+  const searchUrl = `https://www.pornhub.com/video/search?search=${encodeURIComponent(query)}`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS)
+
+  try {
+    const response = await fetch(searchUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+    })
+    if (!response.ok) return []
+
+    const html = await response.text()
+    const $ = cheerio.load(html)
+    const results = []
+    const seen = new Set()
+
+    $('li.pcVideoListItem, .videoblock, .videoBox').each((_, element) => {
+      if (results.length >= limit) return false
+      const item = $(element)
+      const link = item.find('a[href*="/view_video.php"]').first().attr('href') || item.find('a[href]').first().attr('href')
+      if (!link) return
+
+      try {
+        const url = new URL(link, 'https://www.pornhub.com').href
+        if (seen.has(url) || !/pornhub\.com\/view_video\.php/i.test(url)) return
+        seen.add(url)
+
+        const title = item.find('.title a, .videoTitle, a[title]').first().attr('title') || item.find('.title a, .videoTitle').first().text().replace(/\s+/g, ' ').trim() || 'Untitled'
+        const img = item.find('img[data-thumb_url], img[data-src], img[src]').first()
+        const thumbnail = img.attr('data-thumb_url') || img.attr('data-src') || img.attr('src') || null
+        const duration = item.find('.duration').first().text().replace(/\s+/g, ' ').trim() || null
+
+        results.push({
+          id: item.attr('data-video-vkey') || url,
+          title,
+          url,
+          link: url,
+          thumbnail,
+          duration,
+          source: 'pornhub',
+          provider: 'pornhub',
+          type: 'nsfw',
+          isNSFW: true,
+          isDirect: false,
+          requiresUserAction: true,
+        })
+      } catch {
+        /* ignore */
+      }
+    })
+
+    return results
+  } catch {
+    return []
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function searchSpankBang(query, limit = 20) {
+  const searchUrl = `https://spankbang.com/s/${encodeURIComponent(query)}/`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS)
+
+  try {
+    const response = await fetch(searchUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+    })
+    if (!response.ok) return []
+
+    const html = await response.text()
+    const $ = cheerio.load(html)
+    const results = []
+    const seen = new Set()
+
+    $('.video-item, .thumb-item').each((_, element) => {
+      if (results.length >= limit) return false
+      const item = $(element)
+      const link = item.find('a[href*="/video/"]').first().attr('href') || item.find('a.n[href]').first().attr('href') || item.find('a[href]').first().attr('href')
+      if (!link) return
+
+      try {
+        const url = new URL(link, 'https://spankbang.com').href
+        if (seen.has(url) || !/spankbang\.com\/.*\/video\//i.test(url)) return
+        seen.add(url)
+
+        const title = item.find('a.n, .n, .title').first().text().replace(/\s+/g, ' ').trim() || item.find('img').first().attr('alt') || 'Untitled'
+        const img = item.find('img[data-src], img[src]').first()
+        const thumbnail = img.attr('data-src') || img.attr('src') || null
+        const duration = item.find('.l, .duration').first().text().replace(/\s+/g, ' ').trim() || null
+
+        results.push({
+          id: item.attr('data-id') || url,
+          title,
+          url,
+          link: url,
+          thumbnail,
+          duration,
+          source: 'spankbang',
+          provider: 'spankbang',
+          type: 'nsfw',
+          isNSFW: true,
+          isDirect: false,
+          requiresUserAction: true,
+        })
+      } catch {
+        /* ignore */
+      }
+    })
+
+    return results
+  } catch {
+    return []
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 // Provider registry: add a new adapter module here rather than changing the
 // media API dispatcher. Each adapter must return the shared result schema and
 // must not bypass login, paywall, CAPTCHA, or anti-bot controls.
@@ -80,6 +206,16 @@ const NSFW_PROVIDERS = {
     label: 'XVIDEOS',
     search: searchXVideos,
   },
+  pornhub: {
+    id: 'pornhub',
+    label: 'PORNHUB',
+    search: searchPornhub,
+  },
+  spankbang: {
+    id: 'spankbang',
+    label: 'SPANKBANG',
+    search: searchSpankBang,
+  },
 }
 
 export function getNsfwProviderIds() {
@@ -87,7 +223,26 @@ export function getNsfwProviderIds() {
 }
 
 export async function searchNsfwProvider(provider, query, limit = 20) {
+  if (!provider || provider === 'all' || !NSFW_PROVIDERS[provider]) {
+    const [xv, ph, sb] = await Promise.all([
+      searchXVideos(query, Math.max(12, limit)).catch(() => []),
+      searchPornhub(query, Math.max(12, limit)).catch(() => []),
+      searchSpankBang(query, Math.max(12, limit)).catch(() => []),
+    ])
+    const all = []
+    const lists = [xv, ph, sb].filter((l) => l.length > 0)
+    let added = true
+    while (added) {
+      added = false
+      for (const l of lists) {
+        if (l.length > 0) {
+          all.push(l.shift())
+          added = true
+        }
+      }
+    }
+    return all.slice(0, Math.max(36, limit))
+  }
   const adapter = NSFW_PROVIDERS[provider]
-  if (!adapter) throw Object.assign(new Error(`Unsupported NSFW provider: ${provider}`), { status: 400 })
   return adapter.search(query, limit)
 }

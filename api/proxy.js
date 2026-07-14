@@ -92,8 +92,6 @@ export default async function handler(req, res) {
 
     // Binary / Segment / MP4 Proxy
     res.setHeader('Content-Type', contentType || 'application/octet-stream')
-    const contentLength = response.headers.get('content-length')
-    if (contentLength) res.setHeader('Content-Length', contentLength)
     const contentRange = response.headers.get('content-range')
     if (contentRange) {
       res.setHeader('Content-Range', contentRange)
@@ -102,18 +100,10 @@ export default async function handler(req, res) {
       res.status(200)
     }
 
-    if (response.body) {
-      const reader = response.body.getReader()
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        res.write(value)
-      }
-      res.end()
-    } else {
-      const buffer = await response.arrayBuffer()
-      res.end(Buffer.from(buffer))
-    }
+    const arrayBuffer = await response.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+    res.setHeader('Content-Length', String(buffer.length))
+    res.send(buffer)
   } catch (err) {
     console.error('Proxy error:', err)
     return fail(res, 502, err.message || 'Upstream stream request failed')
