@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream'
 import { preflight, fail } from '../server-lib/http.js'
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:'])
@@ -30,8 +31,8 @@ function validateProxyUrl(rawUrl) {
 }
 
 export default async function handler(req, res) {
-  if (preflight(req, res, { methods: ['GET', 'OPTIONS'] })) return
-  if (req.method !== 'GET') return fail(res, 405, 'Method not allowed')
+  if (preflight(req, res, { methods: ['GET', 'HEAD', 'OPTIONS'] })) return
+  if (req.method !== 'GET' && req.method !== 'HEAD') return fail(res, 405, 'Method not allowed')
 
   try {
     const rawUrl = req.query?.url
@@ -108,20 +109,31 @@ export default async function handler(req, res) {
     const contentLength = response.headers.get('content-length')
     if (contentLength) res.setHeader('Content-Length', contentLength)
 
+    if (req.method === 'HEAD') {
+      res.end()
+      return
+    }
+
     const isLargeFile = contentLength && Number(contentLength) > 4500000 || /\.(mp4|mkv|mov|avi)$/i.test(targetUrl.pathname)
     if (isLargeFile && response.body) {
       if (typeof response.body.pipe === 'function') {
         response.body.pipe(res)
         return
       }
-      const reader = response.body.getReader()
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        res.write(value)
+      try {
+        const nodeStream = Readable.fromWeb(response.body)
+        nodeStream.pipe(res)
+        return
+      } catch {
+        const reader = response.body.getReader()
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          res.write(value)
+        }
+        res.end()
+        return
       }
-      res.end()
-      return
     }
 
     const arrayBuffer = await response.arrayBuffer()
