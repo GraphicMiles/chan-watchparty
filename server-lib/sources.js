@@ -138,6 +138,8 @@ export function isSuitableThumbnail(url) {
   const clean = url.trim().toLowerCase()
   if (!clean || clean.startsWith('data:') || clean === 'null' || clean === 'undefined') return false
   if (clean.includes('downloadwella.com') || clean.includes('downloadwella')) return false
+  if (clean.includes('np-downloader.com') || clean.includes('wildshare.net')) return false
+  if (clean.includes('naijaprey.tv/wp-content') && /telegram|logo|banner|favicon|badge/i.test(clean)) return false
   if (/\b(arrow|download|logo|icon|placeholder|default|avatar|gravatar|spinner|loading|no-image|missing|blank|button|1x1|pixel)(\.|-|_|\b)/i.test(clean)) return false
   if (clean.endsWith('.svg') || clean.endsWith('.ico')) return false
   return true
@@ -158,8 +160,11 @@ export function cleanTitleForMatching(str) {
 export function cleanTitleForOMDb(str) {
   if (!str) return ''
   return String(str)
-    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
-    .replace(/\b(s\d+e\d+|e\d+|s\d+|season\s*\d+|episode\s*\d+)\b/gi, ' ')
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|naijaprey\.com|naijaprey\.tv|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
+    .replace(/\b(s\d+\s*e\d+|e\d+|s\d+|season\s*\d+|episode\s*\d+)\b/gi, ' ')
+    .replace(/\b(part\s*\d+)\b/gi, ' ')
+    .replace(/\b(complete|full|movie|film|download|free|watch|online|hd|uhd)\b/gi, ' ')
+    .replace(/\b(com|net|org|tv)\b/g, ' ')
     .replace(/\b(19\d\d|20\d\d)\b/g, ' ')
     .replace(/\([^)]*\)/g, ' ')
     .replace(/\[[^\]]*\]/g, ' ')

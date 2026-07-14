@@ -3,6 +3,7 @@ export function isSuitableThumbnail(url) {
   const clean = url.trim().toLowerCase()
   if (!clean || clean.startsWith('data:') || clean === 'null' || clean === 'undefined') return false
   if (clean.includes('downloadwella.com') || clean.includes('downloadwella')) return false
+  if (clean.includes('np-downloader.com') || clean.includes('wildshare.net')) return false
   if (/\b(arrow|download|logo|icon|placeholder|default|avatar|gravatar|spinner|loading|no-image|missing|blank|button|1x1|pixel)(\.|-|_|\b)/i.test(clean)) return false
   if (clean.endsWith('.svg') || clean.endsWith('.ico')) return false
   return true
@@ -11,7 +12,7 @@ export function isSuitableThumbnail(url) {
 export function cleanTitleForMatching(str) {
   if (!str) return ''
   return String(str)
-    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
     .replace(/\([^)]*\)/g, ' ')
     .replace(/\[[^\]]*\]/g, ' ')
     .replace(/\.(mp4|mkv|m3u8|avi|mov)$/i, ' ')

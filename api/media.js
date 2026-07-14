@@ -271,16 +271,24 @@ async function enrichWithOMDbPosters(items, query = null) {
   const CONCURRENCY = 4
   const updated = await mapConcurrent(items, CONCURRENCY, async (item) => {
     if (!item) return item
+
+    // Never enrich NSFW items with OMDb
     const isAdult = item.isNSFW === true || item.type === 'nsfw' || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.source || '').toLowerCase()) || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.provider || '').toLowerCase())
     if (isAdult) return item
 
-    const isTargetType = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv', 'downloadwella', 'naijaprey'].includes(item.source)
-    if (!isTargetType) return item
+    // YouTube thumbnails are already high quality — skip OMDb
+    if (item.source === 'youtube' || item.type === 'youtube') return item
+
+    // IPTV channel logos are domain-specific — skip OMDb
+    if (item.source === 'iptv' || item.type === 'iptv') return item
+
+    // Sports emblems are match-specific — skip OMDb
+    if (item.source === 'sports' || item.type === 'sports') return item
 
     const cleanItemName = cleanTitleForOMDb(item.title)
     const cleanQueryName = cleanTitleForOMDb(query || '')
 
-    // 1. If we have the exact OMDb poster for the searched query AND this exact show/movie is what was queried, use queryPoster!
+    // 1. If we have the exact OMDb poster for the searched query AND this item matches, use queryPoster
     if (queryPoster && query && cleanItemName && cleanQueryName && cleanItemName.toLowerCase() === cleanQueryName.toLowerCase()) {
       return {
         ...item,
@@ -290,12 +298,18 @@ async function enrichWithOMDbPosters(items, query = null) {
       }
     }
 
+    // 2. Check if current thumbnail is already good (not from a scraped host)
     let thumb = item.thumbnail || item.image || null
-    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|fzmovies|9jarocks|o2tv|naijaprey/i.test(thumb)
-    if (isSuitableThumbnail(thumb) && !isScrapedHost) return item
+    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|fzmovies|9jarocks|o2tv|naijaprey|np-downloader|wildshare|downloadwella/i.test(thumb)
+    const hasGoodThumbnail = isSuitableThumbnail(thumb) && !isScrapedHost
 
-    // 2. Otherwise, look up OMDb specifically for this item's own clean name (e.g. "Avatar The Last Airbender" vs "Avatar")
-    if (!cleanItemName || cleanItemName.length < 2) return { ...item, thumbnail: null, image: null }
+    if (hasGoodThumbnail) return item
+
+    // 3. No good thumbnail — look up OMDb poster for this item's clean name
+    if (!cleanItemName || cleanItemName.length < 2) {
+      // Can't look up OMDb without a name — clear the bad thumbnail
+      return { ...item, thumbnail: null, image: null }
+    }
 
     if (!posterCache.has(cleanItemName)) {
       const fetched = await fetchBestOMDbPoster(cleanItemName, query)

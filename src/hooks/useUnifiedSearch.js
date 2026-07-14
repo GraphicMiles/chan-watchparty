@@ -14,9 +14,18 @@ function deduplicateAndSyncThumbnails(items, query = null) {
     if (!item) return false
 
     if (query && String(query).trim()) {
-      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'omdb'].includes(item.source)
-      if (isDirectOrMovie && !isTitleMatch(item.title, query)) {
-        return false
+      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'omdb'].includes(item.source)
+      if (isDirectOrMovie) {
+        if (isTitleMatch(item.title, query)) {
+          // matches directly — keep
+        } else {
+          // Allow season-specific results matching the base query
+          const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
+          const itemBase = (item.title || '').replace(/\s*[-–]\s*season\s*\d+.*$/i, '').replace(/\s*s\d+\s*e\d+.*$/i, '').trim()
+          if (!isTitleMatch(itemBase, baseQuery) && !isTitleMatch(item.title, baseQuery)) {
+            return false
+          }
+        }
       }
     }
 
