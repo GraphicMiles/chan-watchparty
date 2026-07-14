@@ -11,6 +11,7 @@ import { searchNsfwProvider } from '../server-lib/nsfw.js'
 import { searchNaijaprey, resolveNaijapreyChain } from '../server-lib/naijapreyResolver.js'
 import { resolveO2TvShow, resolveO2TvEpisode, probeAndFixO2TvUrl, warmO2TvCache } from '../server-lib/o2tvResolver.js'
 import { resolveMeetDownload, resolveWaploaded, resolveGenericBrowser, getRenderedHtml } from '../server-lib/browser.js'
+import { searchNetNaija, resolveNetNaijaChain } from '../server-lib/netnaijaResolver.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY // server-side only — never use VITE_ prefix
@@ -302,7 +303,7 @@ async function enrichWithOMDbPosters(items, query = null) {
 
     // 2. Check if current thumbnail is already good (not from a scraped host)
     let thumb = item.thumbnail || item.image || null
-    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|fzmovies|9jarocks|o2tv|naijaprey|np-downloader|wildshare|downloadwella|fztvseries|wideshares|archive\.org|meetdownload|waploaded/i.test(thumb)
+    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|mynetnaija|fzmovies|9jarocks|o2tv|naijaprey|np-downloader|wildshare|downloadwella|fztvseries|wideshares|archive\.org|meetdownload|waploaded|kissorgrab/i.test(thumb)
     const hasGoodThumbnail = isSuitableThumbnail(thumb) && !isScrapedHost
 
     if (hasGoodThumbnail) return item
@@ -380,6 +381,45 @@ async function searchDirectLinks(query, options = {}) {
           }
         } catch (err) {
           console.error('naijaprey search failed:', err.message)
+        }
+        return
+      }
+
+      // ─── NetNaija: dedicated search with full chain resolution ───
+      if (siteKey === 'netnaija') {
+        try {
+          // Search all season variants in parallel
+          const allNnResults = await Promise.all(
+            queries.map((q) => searchNetNaija(q, 10).catch(() => []))
+          )
+          const nnResults = allNnResults.flat()
+          if (nnResults.length > 0) {
+            // Filter against the base query (allow season-specific results)
+            const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
+            const filtered = nnResults.filter((item) => {
+              if (!item?.title) return false
+              if (isTitleMatch(item.title, query)) return true
+              if (isTitleMatch(item.title, baseQuery)) return true
+              const itemBase = item.title.replace(/\s*[-–]\s*season\s*\d+.*$/i, '').replace(/\s*s\d+\s*e\d+.*$/i, '').trim()
+              return isTitleMatch(itemBase, baseQuery)
+            })
+            const enriched = filtered.length > 0 ? filtered : nnResults
+            for (const result of enriched) {
+              const thumb = result.thumbnail || result.image || null
+              results.push({
+                ...result,
+                thumbnail: thumb,
+                image: thumb,
+                source: 'netnaija',
+                type: 'direct',
+                isDirect: result.isDirect === true,
+                playableInRoom: result.playableInRoom === true,
+                quality: extractQuality(result.title),
+              })
+            }
+          }
+        } catch (err) {
+          console.error('netnaija search failed:', err.message)
         }
         return
       }
@@ -1033,7 +1073,7 @@ function providerActionResult(url) {
 function siteConfigForUrl(url, fallbackSite) {
   const hostname = new URL(url).hostname.toLowerCase()
   if (hostname === 'thenkiri.com' || hostname.endsWith('.thenkiri.com') || hostname === 'nkiri.com' || hostname.endsWith('.nkiri.com')) return getSiteConfig('nkiri')
-  if (hostname === 'thenetnaija.ng' || hostname.endsWith('.thenetnaija.ng')) return getSiteConfig('netnaija')
+  if (hostname === 'thenetnaija.ng' || hostname.endsWith('.thenetnaija.ng') || hostname === 'mynetnaija.ng' || hostname.endsWith('.mynetnaija.ng')) return getSiteConfig('netnaija')
   if (hostname.includes('9jarocks')) return getSiteConfig('9jarocks')
   if (hostname.includes('animedrive')) return getSiteConfig('animedrive')
   if (hostname.includes('naijaprey')) return getSiteConfig('naijaprey')
@@ -1059,6 +1099,9 @@ function isResolverHost(url, rootHost) {
     if (hostname.includes('wideshares.org')) return true
     // MeetDownload needs browser resolution for tokens
     if (hostname.includes('meetdownload.com')) return true
+    // NetNaija chain: mynetnaija.ng is the download subdomain, kissorgrab.com is the CDN
+    if (hostname.includes('mynetnaija.ng')) return true
+    if (hostname.includes('kissorgrab.com')) return true
     return false
   } catch {
     return false
@@ -1186,6 +1229,16 @@ export async function resolvePageChain(startUrl, site) {
       if (naijapreyResults && naijapreyResults.length) return naijapreyResults
     } catch (err) {
       console.error('NaijaPrey chain resolution failed:', err.message)
+    }
+  }
+
+  // NetNaija full-chain resolution: thenetnaija → mynetnaija → meetdownload → kissorgrab CDN
+  if (rootHost.includes('thenetnaija.ng') || rootHost.includes('mynetnaija.ng') || rootHost.includes('meetdownload.com') || rootHost.includes('kissorgrab.com')) {
+    try {
+      const nnResults = await resolveNetNaijaChain(startUrl)
+      if (nnResults && nnResults.length) return nnResults
+    } catch (err) {
+      console.error('NetNaija chain resolution failed:', err.message)
     }
   }
 
@@ -1482,6 +1535,27 @@ export default async function handler(req, res) {
           }
         } catch (err) {
           console.error('NaijaPrey scrape resolution failed:', err.message)
+        }
+      }
+
+      // NetNaija URL resolution (thenetnaija → mynetnaija → meetdownload → kissorgrab CDN)
+      if (target.hostname.toLowerCase().includes('thenetnaija') || target.hostname.toLowerCase().includes('mynetnaija') || target.hostname.toLowerCase().includes('meetdownload') || target.hostname.toLowerCase().includes('kissorgrab')) {
+        try {
+          const nnResults = await resolveNetNaijaChain(url)
+          if (nnResults && nnResults.length > 0) {
+            const omdbResults = await enrichWithOMDbPosters(nnResults, query || '')
+            const results = deduplicateAndEnrich(omdbResults, query || '')
+            return ok(res, {
+              results,
+              count: results.length,
+              directCount: results.filter((item) => item.isDirect).length,
+              resolved: true,
+              url,
+              site: 'netnaija',
+            })
+          }
+        } catch (err) {
+          console.error('NetNaija scrape resolution failed:', err.message)
         }
       }
 

@@ -17,15 +17,14 @@ export const SITE_CONFIGS = {
   netnaija: {
     label: 'NetNaija',
     baseUrl: 'https://thenetnaija.ng',
-    items: '.file-item, article.post, .video-item, .content-box',
-    title: '.file-title, .entry-title h1, h1, h2, .title',
-    image: 'img.wp-post-image, .featured-image img, img[data-src]',
-    link: 'a[href*="/download/"], a[href*=".mp4"], a[href*=".mkv"], a.dlm-button',
-    meta: '.file-meta, .post-meta, .category',
-    buildSearchUrl: (q) => `https://thenetnaija.ng/search?q=${encodeURIComponent(q)}`,
+    items: 'article, .post, a[href*="-movie-download/"], a[href*="-series-download/"]',
+    title: '.entry-title a, h2 a, h3 a, a[href*="-movie-download/"], a[href*="-series-download/"], .title',
+    image: 'img.wp-post-image, .featured-image img, img[src], img[data-src]',
+    link: 'a[href*="mynetnaija.ng"], a[href*="-movie-download/"], a[href*="-series-download/"], a[href*="meetdownload.com"]',
+    meta: '.post-meta, .entry-meta, .category',
+    // WordPress search: only ?s= works; /search?q= returns 404
+    buildSearchUrl: (q) => `https://thenetnaija.ng/?s=${encodeURIComponent(q)}`,
     buildSearchUrls: (q) => [
-      `https://thenetnaija.ng/search?q=${encodeURIComponent(q)}`,
-      `https://thenetnaija.ng/videos/search?q=${encodeURIComponent(q)}`,
       `https://thenetnaija.ng/?s=${encodeURIComponent(q)}`,
     ],
   },
@@ -197,6 +196,8 @@ export function isSuitableThumbnail(url) {
   if (clean.includes('np-downloader.com') || clean.includes('wildshare.net')) return false
   if (clean.includes('naijaprey.tv/wp-content') && /telegram|logo|banner|favicon|badge/i.test(clean)) return false
   if (clean.includes('meetdownload.com') && /logo|banner|favicon/i.test(clean)) return false
+  if (clean.includes('mynetnaija.ng') && /logo|banner|favicon|home-round/i.test(clean)) return false
+  if (clean.includes('kissorgrab.com')) return false
   if (/\b(arrow|download|logo|icon|placeholder|default|avatar|gravatar|spinner|loading|no-image|missing|blank|button|1x1|pixel)(\.|-|_|\b)/i.test(clean)) return false
   if (clean.endsWith('.svg') || clean.endsWith('.ico')) return false
   return true
@@ -205,7 +206,7 @@ export function isSuitableThumbnail(url) {
 export function cleanTitleForMatching(str) {
   if (!str) return ''
   return String(str)
-    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|fztvseries|wideshares|archive\.org|archiveorg|meetdownload|waploaded|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|mynetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|fztvseries|wideshares|archive\.org|archiveorg|meetdownload|waploaded|kissorgrab|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
     .replace(/\([^)]*\)/g, ' ')
     .replace(/\[[^\]]*\]/g, ' ')
     .replace(/\.(mp4|mkv|m3u8|avi|mov)$/i, ' ')
@@ -217,7 +218,7 @@ export function cleanTitleForMatching(str) {
 export function cleanTitleForOMDb(str) {
   if (!str) return ''
   return String(str)
-    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|naijaprey\.com|naijaprey\.tv|fztvseries|fztvseries\.ng|wideshares|archive\.org|archiveorg|meetdownload|waploaded|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|mynetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|naijaprey\.com|naijaprey\.tv|fztvseries|fztvseries\.ng|wideshares|archive\.org|archiveorg|meetdownload|waploaded|kissorgrab|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
     .replace(/\b(s\d+\s*e\d+|e\d+|s\d+|season\s*\d+|episode\s*\d+)\b/gi, ' ')
     .replace(/\b(part\s*\d+)\b/gi, ' ')
     .replace(/\b(complete|full|movie|film|download|free|watch|online|hd|uhd)\b/gi, ' ')
