@@ -1126,16 +1126,18 @@ export default async function handler(req, res) {
       // Provider controls are detected but not bypassed.
       if (options.resolve === true) {
         const chainResults = await resolvePageChain(url, site || 'custom')
-        const omdbResults = await enrichWithOMDbPosters(chainResults, query || '')
-        const results = deduplicateAndEnrich(omdbResults, query || '')
-        return ok(res, {
-          results,
-          count: results.length,
-          directCount: results.filter((item) => item.isDirect).length,
-          resolved: true,
-          url,
-          site: site || 'custom',
-        })
+        if (chainResults.length > 0) {
+          const omdbResults = await enrichWithOMDbPosters(chainResults, query || '')
+          const results = deduplicateAndEnrich(omdbResults, query || '')
+          return ok(res, {
+            results,
+            count: results.length,
+            directCount: results.filter((item) => item.isDirect).length,
+            resolved: true,
+            url,
+            site: site || 'custom',
+          })
+        }
       }
 
       // Single-page scrape fallback.

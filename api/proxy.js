@@ -105,22 +105,57 @@ export default async function handler(req, res) {
         return fail(res, chunkResponse.status, `Upstream chunk returned ${chunkResponse.status}`)
       }
 
-      const chunkRange = chunkResponse.headers.get('content-range') || `bytes ${start}-${end}/${totalLength > 0 ? totalLength : '*'}`
-      const chunkLen = chunkResponse.headers.get('content-length') || String(end - start + 1)
+      // Safely read up to CHUNK_SIZE bytes so Vercel Serverless memory never overflows even if upstream ignored Range
+      const chunks = []
+      let bytesRead = 0
+      if (chunkResponse.body && typeof chunkResponse.body.getReader === 'function') {
+        const reader = chunkResponse.body.getReader()
+        while (bytesRead < CHUNK_SIZE) {
+          const { done, value } = await reader.read()
+          if (done || !value) break
+          const remaining = CHUNK_SIZE - bytesRead
+          if (value.length > remaining) {
+            chunks.push(value.slice(0, remaining))
+            bytesRead += remaining
+            break
+          } else {
+            chunks.push(value)
+            bytesRead += value.length
+          }
+        }
+        await reader.cancel().catch(() => {})
+      } else {
+        const buf = Buffer.from(await chunkResponse.arrayBuffer())
+        const sliced = buf.slice(0, CHUNK_SIZE)
+        chunks.push(sliced)
+        bytesRead = sliced.length
+      }
 
+      const buffer = Buffer.concat(chunks)
+      const actualEnd = start + buffer.length - 1
+      const chunkRange = `bytes ${start}-${actualEnd}/${totalLength > 0 ? totalLength : '*'}`
+
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
+      res.setHeader('Access-Control-Allow-Headers', '*')
       res.setHeader('Content-Type', contentType || 'video/mp4')
       res.setHeader('Accept-Ranges', 'bytes')
-      res.setHeader('Content-Range', chunkRange)
-      res.setHeader('Content-Length', chunkLen)
-      res.status(206)
+
+      if (req.headers.range || chunkResponse.status === 206) {
+        res.setHeader('Content-Range', chunkRange)
+        res.setHeader('Content-Length', String(buffer.length))
+        res.status(206)
+      } else {
+        res.setHeader('Content-Length', String(buffer.length))
+        res.status(200)
+      }
 
       if (req.method === 'HEAD') {
         res.end()
         return
       }
 
-      const arrayBuffer = await chunkResponse.arrayBuffer()
-      res.send(Buffer.from(arrayBuffer))
+      res.send(buffer)
       return
     }
 
