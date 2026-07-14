@@ -13,6 +13,7 @@
  */
 
 import * as cheerio from 'cheerio'
+import { resolveO2TvEpisodeViaCaptcha, suffixCache as captchaSuffixCache } from './o2tvCaptchaResolver.js'
 
 const BASE_URL = 'https://tvshows4mobile.org'
 const CDN_HOSTS = ['d6', 'd2', 'd4', 'd8', 'd1']
@@ -20,7 +21,7 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 const TIMEOUT_MS = 8000
 
 // ─── In-memory CDN suffix cache: showKey → { suffix, ts } ───
-const suffixCache = new Map()
+const suffixCache = captchaSuffixCache  // Shared with o2tvCaptchaResolver
 const CACHE_TTL = 4 * 60 * 60 * 1000 // 4 hours
 
 // ─── Fetch HTML from tvshows4mobile.org ───
@@ -398,6 +399,16 @@ export async function resolveO2TvShow(query, maxSeasons = 4, maxEpisodes = 10) {
                 quality: 'HD',
               })
             } else {
+              // Try captcha-based resolution (Groq vision + download page)
+              try {
+                const captchaResults = await resolveO2TvEpisodeViaCaptcha(show.showSlug, item.season.number, item.ep.number)
+                if (captchaResults.length && captchaResults[0].playableInRoom) {
+                  results.push(captchaResults[0])
+                  continue // skip the fallback below
+                }
+              } catch (err) {
+                console.error('Captcha resolution failed for', item.cacheKey, err.message)
+              }
               // Last resort: fallback URL (may 404 at playback)
               const slugSuffix = show.showSlug.match(/-otv([a-z0-9]+)$/i)?.[1] || '1awrk'
               const fallbackUrl = buildCdnUrl(CDN_HOSTS[0], show.showName, item.season.number, item.ep.number, `otv-${slugSuffix}`)
@@ -470,10 +481,19 @@ async function resolveO2TvByName(showName, slugHint, maxSeasons, maxEpisodes) {
       if (result) {
         results.push(result)
       } else {
+        // Try captcha-based resolution
+        try {
+          const captchaResults = await resolveO2TvEpisodeViaCaptcha(slugSuffix, season, ep)
+          if (captchaResults.length && captchaResults[0].playableInRoom) {
+            results.push(captchaResults[0])
+            continue
+          }
+        } catch { /* fallback */ }
+        
         const s = String(season).padStart(2, '0')
         const e = String(ep).padStart(2, '0')
         const suffix = slugSuffix.match(/otv([a-z0-9]+)$/i)?.[1] || '1awrk'
-        const fallbackUrl = buildCdnUrl(CDN_HOSTS[0], show.showName || showName, season, ep, `otv-${suffix}`)
+        const fallbackUrl = buildCdnUrl(CDN_HOSTS[0], showName, season, ep, `otv-${suffix}`)
         results.push({
           title: `${showName} - S${s}E${e}`,
           url: fallbackUrl,
@@ -512,6 +532,17 @@ export async function probeAndFixO2TvUrl(originalUrl) {
 
     const result = await probeCdnForEpisode(showName, seasonNum, epNum, '')
     if (result) return result.url
+
+    // Try captcha-based resolution if probing fails
+    try {
+      // Search for the show slug on tvshows4mobile
+      const shows = await searchO2Tv(showName, 3)
+      const match = shows.find(s => s.showName.toLowerCase() === showName.toLowerCase()) || shows[0]
+      if (match) {
+        const captchaResults = await resolveO2TvEpisodeViaCaptcha(match.showSlug, seasonNum, epNum)
+        if (captchaResults.length && captchaResults[0].url) return captchaResults[0].url
+      }
+    } catch { /* keep original */ }
 
     return originalUrl
   } catch {
