@@ -86,7 +86,7 @@ function deduplicateAndEnrich(items, query = null) {
 
     // Strict close match verification for direct and movie search results against the query
     if (query && String(query).trim() && !isAdult) {
-      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'omdb'].includes(item.source)
+      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'fztvseries', 'archiveorg', 'omdb'].includes(item.source)
       if (isDirectOrMovie) {
         // Allow season-specific results through (e.g. "silo season 2" when querying "silo")
         const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
@@ -301,7 +301,7 @@ async function enrichWithOMDbPosters(items, query = null) {
 
     // 2. Check if current thumbnail is already good (not from a scraped host)
     let thumb = item.thumbnail || item.image || null
-    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|fzmovies|9jarocks|o2tv|naijaprey|np-downloader|wildshare|downloadwella/i.test(thumb)
+    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|fzmovies|9jarocks|o2tv|naijaprey|np-downloader|wildshare|downloadwella|fztvseries|wideshares|archive\.org/i.test(thumb)
     const hasGoodThumbnail = isSuitableThumbnail(thumb) && !isScrapedHost
 
     if (hasGoodThumbnail) return item
@@ -334,7 +334,7 @@ async function searchDirectLinks(query, options = {}) {
   const requestedSite = options.site && options.site !== 'custom' && options.site !== 'all' ? options.site : null
   const scrapers = requestedSite
     ? [requestedSite]
-    : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv', 'naijaprey']
+    : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv', 'naijaprey', 'fztvseries', 'archiveorg']
   
   const searchedSites = [...scrapers]
   
@@ -379,6 +379,83 @@ async function searchDirectLinks(query, options = {}) {
           }
         } catch (err) {
           console.error('naijaprey search failed:', err.message)
+        }
+        return
+      }
+
+      // ─── Internet Archive: JSON API search ───
+      if (siteKey === 'archiveorg') {
+        try {
+          const archiveResults = await searchArchiveOrg(query)
+          for (const result of archiveResults) {
+            results.push(result)
+          }
+        } catch (err) {
+          console.error('archive.org search failed:', err.message)
+        }
+        return
+      }
+
+      // ─── FZTVSeries: HTML scraping search (links go to downloadwella/wideshares) ───
+      if (siteKey === 'fztvseries') {
+        try {
+          const config = getSiteConfig('fztvseries')
+          let siteCandidates = []
+          const seenUrls = new Set()
+
+          const allVariantResults = await Promise.all(
+            queries.map(async (q) => {
+              const queryUrls = config?.buildSearchUrls ? config.buildSearchUrls(q) : (config?.buildSearchUrl ? [config.buildSearchUrl(q)] : [])
+              for (const searchUrl of queryUrls) {
+                if (!searchUrl) continue
+                try {
+                  const html = await fetchHtml(searchUrl)
+                  const items = parseListing(html, searchUrl, config)
+                  if (items && items.length > 0) return items
+                } catch { /* try next */ }
+              }
+              return []
+            })
+          )
+
+          for (const variantItems of allVariantResults) {
+            for (const item of variantItems) {
+              if (item?.url && !seenUrls.has(item.url)) {
+                seenUrls.add(item.url)
+                siteCandidates.push(item)
+              }
+            }
+          }
+
+          // Filter against query
+          if (query && String(query).trim()) {
+            const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
+            siteCandidates = siteCandidates.filter((item) => {
+              if (isTitleMatch(item?.title, query)) return true
+              if (isTitleMatch(item?.title, baseQuery)) return true
+              const itemBase = (item?.title || '').replace(/\s*[-–]\s*season\s*\d+.*$/i, '').replace(/\s*s\d+\s*e\d+.*$/i, '').trim()
+              return isTitleMatch(itemBase, baseQuery)
+            })
+          }
+
+          for (const result of siteCandidates) {
+            const thumb = result.thumbnail || result.image || null
+            // FZTVSeries links go to its own pages which link to downloadwella/wideshares
+            // These need resolution, but some links are already to downloadwella
+            const isDirectLink = /downloadwella\.com|wideshares\.org|\.mp4|\.mkv/i.test(result.url || '')
+            results.push({
+              ...result,
+              thumbnail: thumb,
+              image: thumb,
+              source: 'fztvseries',
+              type: 'direct',
+              isDirect: isDirectLink,
+              playableInRoom: isDirectLink,
+              quality: extractQuality(result.title),
+            })
+          }
+        } catch (err) {
+          console.error('fztvseries search failed:', err.message)
         }
         return
       }
@@ -562,6 +639,43 @@ async function searchDirectLinks(query, options = {}) {
     hasMore: offset + limit < validResults.length,
     searchedSites,
     multiLayerCascaded: searchedSites.length > 1,
+  }
+}
+
+async function searchArchiveOrg(query, limit = 20) {
+  try {
+    const searchUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent('"' + query + '"')}+mediatype:movies&output=json&rows=${limit}&fl[]=identifier,title,mediatype,downloads,year,description`
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 8000)
+    const res = await fetch(searchUrl, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    })
+    clearTimeout(timer)
+    if (!res.ok) return []
+    const data = await res.json()
+    const docs = data?.response?.docs || []
+    return docs.map((item) => {
+      // Build a direct MP4 download URL for the identifier
+      const mp4Url = `https://archive.org/download/${item.identifier}/${item.identifier}.mp4`
+      return {
+        title: item.title || item.identifier,
+        thumbnail: `https://archive.org/services/img/${item.identifier}`,
+        image: `https://archive.org/services/img/${item.identifier}`,
+        url: mp4Url,
+        link: mp4Url,
+        description: item.description ? String(item.description).slice(0, 200) : null,
+        meta: item.year ? `Year: ${item.year} | Downloads: ${item.downloads || 0}` : null,
+        source: 'archiveorg',
+        type: 'direct',
+        isDirect: true,
+        playableInRoom: true,
+        quality: 'SD',
+      }
+    })
+  } catch (err) {
+    console.error('Archive.org search error:', err.message)
+    return []
   }
 }
 
@@ -827,6 +941,9 @@ function siteConfigForUrl(url, fallbackSite) {
   if (hostname.includes('animedrive')) return getSiteConfig('animedrive')
   if (hostname.includes('naijaprey')) return getSiteConfig('naijaprey')
   if (hostname.includes('np-downloader')) return getSiteConfig('naijaprey')
+  if (hostname.includes('fztvseries')) return getSiteConfig('fztvseries')
+  if (hostname.includes('wideshares')) return getSiteConfig('fztvseries')
+  if (hostname.includes('archive.org')) return getSiteConfig('archiveorg')
   return getSiteConfig(fallbackSite)
 }
 
@@ -839,6 +956,8 @@ function isResolverHost(url, rootHost) {
     if (hostname.includes('np-downloader.com') || hostname.includes('wildshare.net')) return true
     // O2TV / tvshows4mobile are cross-linked resolver hosts
     if (hostname.includes('tvshows4mobile') || hostname.includes('o2tvseries') || hostname.includes('o2tv.org')) return true
+    // Wideshares is used by FZTVSeries for direct file downloads
+    if (hostname.includes('wideshares.org')) return true
     return false
   } catch {
     return false
@@ -907,6 +1026,51 @@ async function resolveO2TvPage(pageUrl) {
   }
 }
 
+async function resolveWidesharesPage(pageUrl) {
+  try {
+    const html = await fetchHtml(pageUrl)
+    // Extract the force_download URL from the JavaScript
+    const forceMatch = html.match(/force_download\.php\?path=[^"'\s]+/)
+    if (forceMatch) {
+      const forceUrl = forceMatch[0].startsWith('http') ? forceMatch[0] : `https://wideshares.org/${forceMatch[0]}`
+      // Follow the redirect chain to get the final direct URL
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 6000)
+      try {
+        const res = await fetch(forceUrl, {
+          method: 'HEAD',
+          signal: controller.signal,
+          redirect: 'follow',
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
+            'Referer': pageUrl,
+          },
+        })
+        clearTimeout(timer)
+        const finalUrl = res.url || forceUrl
+        const filename = decodeURIComponent(finalUrl.split('/').pop().split('?')[0])
+        return [{
+          title: filename.replace(/\.[^.]+$/, '').replace(/[._]/g, ' '),
+          url: finalUrl,
+          link: finalUrl,
+          source: 'fztvseries',
+          isDirect: true,
+          playableInRoom: /\.(mp4|webm|m3u8)/i.test(finalUrl),
+          resolvedFrom: pageUrl,
+        }]
+      } catch {
+        clearTimeout(timer)
+      }
+    }
+
+    // Fallback: extract any direct media URLs from the page
+    return extractDirectMedia(html, pageUrl, 'fztvseries')
+  } catch (err) {
+    console.error('Wideshares resolution error:', err.message)
+    return null
+  }
+}
+
 export async function resolvePageChain(startUrl, site) {
   const rootHost = new URL(startUrl).hostname.toLowerCase().replace(/^www\\./, '')
   if (rootHost.includes('o2tvseries') || rootHost.includes('o2tv.org') || rootHost.includes('tvshows4mobile')) {
@@ -921,6 +1085,16 @@ export async function resolvePageChain(startUrl, site) {
       if (naijapreyResults && naijapreyResults.length) return naijapreyResults
     } catch (err) {
       console.error('NaijaPrey chain resolution failed:', err.message)
+    }
+  }
+
+  // Wideshares resolution (used by FZTVSeries): download page → force_download → direct URL
+  if (rootHost.includes('wideshares.org')) {
+    try {
+      const wsResults = await resolveWidesharesPage(startUrl)
+      if (wsResults && wsResults.length) return wsResults
+    } catch (err) {
+      console.error('Wideshares resolution failed:', err.message)
     }
   }
   

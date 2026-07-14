@@ -101,6 +101,31 @@ export const SITE_CONFIGS = {
       `https://www.naijaprey.tv/?s=${encodeURIComponent(q)}`,
     ],
   },
+  fztvseries: {
+    label: 'FZTVSeries',
+    baseUrl: 'https://fztvseries.ng',
+    items: 'article.post, article, .search-entry',
+    title: '.search-entry-title a, .entry-title a, h2 a, a[rel="bookmark"]',
+    image: 'img.wp-post-image, .search-entry img, img[src], img[data-src]',
+    link: 'a[href*="wideshares.org"], a[href*="downloadwella.com"], .search-entry-readmore a, a[rel="bookmark"]',
+    meta: '.search-entry-summary, .entry-meta',
+    buildSearchUrl: (q) => `https://fztvseries.ng/?s=${encodeURIComponent(q)}`,
+    buildSearchUrls: (q) => [
+      `https://fztvseries.ng/?s=${encodeURIComponent(q)}`,
+    ],
+  },
+  archiveorg: {
+    label: 'Internet Archive',
+    baseUrl: 'https://archive.org',
+    items: 'div.result, .item-ia',
+    title: '.ttl, .item-title, h2',
+    image: 'img[src]',
+    link: 'a[href*="archive.org/download/"], a[href*="archive.org/details/"]',
+    meta: '.result-metadata',
+    // Internet Archive has its own JSON API — handled in api/media.js
+    isJsonApi: true,
+    buildSearchUrl: (q) => `https://archive.org/advancedsearch.php?q=${encodeURIComponent(q)}+mediatype:movies&output=json&rows=20&fl[]=identifier,title,mediatype,downloads,year,description`,
+  },
   spankbang: {
     label: 'SpankBang',
     baseUrl: 'https://spankbang.party',
@@ -151,7 +176,7 @@ export function isSuitableThumbnail(url) {
 export function cleanTitleForMatching(str) {
   if (!str) return ''
   return String(str)
-    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|fztvseries|wideshares|archive\.org|archiveorg|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
     .replace(/\([^)]*\)/g, ' ')
     .replace(/\[[^\]]*\]/g, ' ')
     .replace(/\.(mp4|mkv|m3u8|avi|mov)$/i, ' ')
@@ -163,7 +188,7 @@ export function cleanTitleForMatching(str) {
 export function cleanTitleForOMDb(str) {
   if (!str) return ''
   return String(str)
-    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|naijaprey\.com|naijaprey\.tv|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|naijaprey\.com|naijaprey\.tv|fztvseries|fztvseries\.ng|wideshares|archive\.org|archiveorg|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
     .replace(/\b(s\d+\s*e\d+|e\d+|s\d+|season\s*\d+|episode\s*\d+)\b/gi, ' ')
     .replace(/\b(part\s*\d+)\b/gi, ' ')
     .replace(/\b(complete|full|movie|film|download|free|watch|online|hd|uhd)\b/gi, ' ')

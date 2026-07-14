@@ -14,7 +14,7 @@ function deduplicateAndSyncThumbnails(items, query = null) {
     if (!item) return false
 
     if (query && String(query).trim()) {
-      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'omdb'].includes(item.source)
+      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'fztvseries', 'archiveorg', 'omdb'].includes(item.source)
       if (isDirectOrMovie) {
         if (isTitleMatch(item.title, query)) {
           // matches directly — keep
