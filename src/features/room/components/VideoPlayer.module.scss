@@ -154,16 +154,12 @@
 }
 
 .overlayBottomBar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 36px 16px 14px;
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.5) 70%, transparent 100%);
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
-  z-index: 22;
+  width: 100%;
+  z-index: 26;
 }
 
 .overlayPlayBtn {
@@ -226,10 +222,10 @@
   right: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 30px 16px 14px;
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 75%, transparent 100%);
-  z-index: 22;
+  gap: 10px;
+  padding: 24px 14px 12px;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 80%, transparent 100%);
+  z-index: 25;
 }
 
 .overlaySecondaryBar {
@@ -239,7 +235,9 @@
   justify-content: flex-start;
   gap: 8px;
   width: 100%;
-  padding: 8px 0;
+  padding: 4px 0;
+  position: relative;
+  z-index: 27;
 }
 
 .overlaySecondaryBar button {

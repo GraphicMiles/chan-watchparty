@@ -97,6 +97,72 @@ export default async function handler(req, res) {
     }
 
     // Binary / Segment / MP4 Proxy
+    const isVideoFile = /\.(mp4|mkv|mov|avi)$/i.test(targetUrl.pathname) || (contentType && /video\//i.test(contentType))
+    if (isVideoFile || req.headers.range) {
+      let start = 0
+      let end = null
+      const rangeMatch = req.headers.range?.match(/bytes=(\d+)-(\d*)/)
+      if (rangeMatch) {
+        start = parseInt(rangeMatch[1], 10) || 0
+        if (rangeMatch[2]) {
+          end = parseInt(rangeMatch[2], 10)
+        }
+      }
+
+      const headResponse = await fetch(targetUrl.href, {
+        method: 'HEAD',
+        redirect: 'follow',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Referer': targetUrl.origin,
+        },
+      }).catch(() => null)
+
+      const totalLength = Number(headResponse?.headers.get('content-length') || response.headers.get('content-length')) || 0
+      const CHUNK_SIZE = 3500000 // 3.5MB safe chunk boundary under Vercel 4.5MB Hobby payload limit
+
+      if (totalLength > 0 && (end === null || (end - start + 1) > CHUNK_SIZE)) {
+        end = Math.min(start + CHUNK_SIZE - 1, totalLength - 1)
+      } else if (end === null) {
+        end = start + CHUNK_SIZE - 1
+      }
+
+      const chunkResponse = await fetch(targetUrl.href, {
+        redirect: 'follow',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Referer': targetUrl.origin,
+          'Range': `bytes=${start}-${end}`,
+        },
+      })
+
+      if (!chunkResponse.ok && chunkResponse.status !== 206) {
+        return fail(res, chunkResponse.status, `Upstream chunk returned ${chunkResponse.status}`)
+      }
+
+      const chunkRange = chunkResponse.headers.get('content-range') || `bytes ${start}-${end}/${totalLength > 0 ? totalLength : '*'}`
+      const chunkLen = chunkResponse.headers.get('content-length') || String(end - start + 1)
+
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
+      res.setHeader('Access-Control-Allow-Headers', '*')
+      res.setHeader('Content-Type', contentType || 'video/mp4')
+      res.setHeader('Accept-Ranges', 'bytes')
+      res.setHeader('Content-Range', chunkRange)
+      res.setHeader('Content-Length', chunkLen)
+      res.status(206)
+
+      if (req.method === 'HEAD') {
+        res.end()
+        return
+      }
+
+      const arrayBuffer = await chunkResponse.arrayBuffer()
+      res.send(Buffer.from(arrayBuffer))
+      return
+    }
+
     res.setHeader('Content-Type', contentType || 'application/octet-stream')
     const contentRange = response.headers.get('content-range')
     if (contentRange) {
@@ -112,28 +178,6 @@ export default async function handler(req, res) {
     if (req.method === 'HEAD') {
       res.end()
       return
-    }
-
-    const isLargeFile = contentLength && Number(contentLength) > 4500000 || /\.(mp4|mkv|mov|avi)$/i.test(targetUrl.pathname)
-    if (isLargeFile && response.body) {
-      if (typeof response.body.pipe === 'function') {
-        response.body.pipe(res)
-        return
-      }
-      try {
-        const nodeStream = Readable.fromWeb(response.body)
-        nodeStream.pipe(res)
-        return
-      } catch {
-        const reader = response.body.getReader()
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          res.write(value)
-        }
-        res.end()
-        return
-      }
     }
 
     const arrayBuffer = await response.arrayBuffer()
