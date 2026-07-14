@@ -186,6 +186,26 @@
   transform: scale(1.08);
 }
 
+.overlayFullscreenBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(24, 25, 29, 0.8);
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.overlayFullscreenBtn:hover {
+  background: #2a2a2a;
+  transform: scale(1.08);
+}
+
 .externalVideoControlsBar {
   display: flex;
   flex-wrap: wrap;
