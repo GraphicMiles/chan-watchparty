@@ -269,6 +269,31 @@ export function useRoom(roomId, inviteCode = null) {
     return () => clearInterval(interval)
   }, [user, roomId, room?.hostId])
 
+  // Auto-end room when host closes the tab / navigates away
+  useEffect(() => {
+    if (!user || !roomId || room?.hostId !== user.uid) return
+
+    let endToken = null
+    user.getIdToken().then(t => { endToken = t }).catch(() => {})
+
+    const handleUnload = () => {
+      // Fire-and-forget endRoom on tab close / navigation
+      // keepalive ensures the request is sent even during unload
+      fetch('/api/room', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(endToken ? { Authorization: `Bearer ${endToken}` } : {}),
+        },
+        body: JSON.stringify({ action: 'end', roomId, uid: user.uid }),
+        keepalive: true,
+      }).catch(() => {})
+    }
+
+    window.addEventListener('beforeunload', handleUnload)
+    return () => window.removeEventListener('beforeunload', handleUnload)
+  }, [user, roomId, room?.hostId])
+
   // Auto join; leave only on real unmount (not StrictMode remount race)
   useEffect(() => {
     if (!user || !roomId) return
