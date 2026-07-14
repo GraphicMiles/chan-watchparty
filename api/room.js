@@ -11,6 +11,8 @@ import { deleteRoomAndSubcollections, runCleanupStaleRooms } from '../server-lib
 import { kickParticipant, promoteParticipant, muteParticipant } from '../server-lib/moderateHelper.js'
 import { generateLiveKitToken } from '../server-lib/livekitHelper.js'
 import { generateAiSummary, generateSmartCatchup, generateRoomQuiz, voteRoomQuiz, generateAiSubtitles } from '../server-lib/aiHelper.js'
+import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
+import { timingSafeEqual } from 'node:crypto'
 
 async function requireUser(req, expectedUid) {
   const token = req.headers.authorization?.split('Bearer ')[1]
@@ -28,12 +30,16 @@ async function requireUser(req, expectedUid) {
 }
 
 function requireCronSecret(req) {
-  const cronSecret = process.env.CRON_SECRET
-  if (cronSecret) {
-    const provided = req.headers['x-cron-secret'] || req.headers['X-Cron-Secret']
-    if (provided !== cronSecret) {
-      throw Object.assign(new Error('Unauthorized'), { status: 401 })
-    }
+  const expected = process.env.CRON_SECRET
+  if (!expected) {
+    throw Object.assign(new Error('CRON_SECRET is not configured — set it in your environment'), { status: 503 })
+  }
+  const provided = req.headers['x-cron-secret'] || req.headers['X-Cron-Secret'] || ''
+  // Timing-safe comparison to prevent timing attacks
+  const a = Buffer.from(String(provided), 'utf8')
+  const b = Buffer.from(String(expected), 'utf8')
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    throw Object.assign(new Error('Unauthorized'), { status: 401 })
   }
 }
 
@@ -149,6 +155,14 @@ async function endRoom(db, body) {
 
 export default async function handler(req, res) {
   try {
+    // --- Rate limiting (per IP) ---
+    const ip = clientKey(req)
+    const rl = checkRateLimit(`room:${ip}`, { limit: 60, windowMs: 60_000 })
+    if (!rl.allowed) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' })
+      res.end(JSON.stringify({ success: false, error: 'Too many requests — slow down' }))
+      return
+    }
     if (req.method === 'OPTIONS') {
       return sendResponse(res, 200, { ok: true }, JSON_HEADERS)
     }

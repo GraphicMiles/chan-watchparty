@@ -3,13 +3,14 @@ import { createHash } from 'node:crypto'
 import { preflight, ok, fail, statusForError } from '../server-lib/http.js'
 import { getDb, FieldValue, verifyIdToken } from '../server-lib/firebaseAdmin.js'
 import { getSiteConfig, resolveUrl, isSuitableThumbnail, isTitleMatch, cleanTitleForMatching, cleanTitleForOMDb } from '../server-lib/sources.js'
+import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
 import { checkIptvChannel, getIptvChannels, getPlaylistChannels } from '../server-lib/iptv.js'
 import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY
-const OMDB_API_KEY = process.env.OMDB_API_KEY || process.env.VITE_OMDB_API_KEY || 'trilogy'
+const OMDB_API_KEY = process.env.OMDB_API_KEY || null  // no hardcoded fallback — must be configured
 const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY
 
 // ==================== UTILITY FUNCTIONS ====================
@@ -238,7 +239,9 @@ async function enrichWithOMDbPosters(items, query = null) {
     posterCache.set(cleanTitleForMatching(query), queryPoster)
   }
 
-  const updated = await Promise.all(items.map(async (item) => {
+  // Parallelise OMDb lookups with a concurrency cap to avoid rate-limiting
+  const CONCURRENCY = 4
+  const updated = await mapConcurrent(items, CONCURRENCY, async (item) => {
     if (!item) return item
     const isAdult = item.isNSFW === true || item.type === 'nsfw' || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.source || '').toLowerCase()) || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.provider || '').toLowerCase())
     if (isAdult) return item
@@ -278,7 +281,7 @@ async function enrichWithOMDbPosters(items, query = null) {
       image: matchedPoster,
       posterSource: matchedPoster ? 'omdb' : item.posterSource,
     }
-  }))
+  })
 
   return updated
 }
@@ -588,10 +591,15 @@ async function searchSports(query) {
   }
 }
 
-async function searchNSFW(query, options = {}) {
+async function searchNSFW(query, options = {}, user = null) {
   if (process.env.NSFW_ENABLED !== 'true') {
-    throw Object.assign(new Error('NSFW search is not enabled'), { status: 503 })
+    throw Object.assign(new Error('NSFW search is not enabled'), { status: 403 })
   }
+  // Require both client assertion and authenticated user (server-verified)
+  if (!user) {
+    throw Object.assign(new Error('You must be signed in to access adult content'), { status: 401 })
+  }
+  // Client-side adultVerified is kept for UX, but server-side we enforce auth
   if (!options.adultVerified) {
     throw Object.assign(new Error('Age verification required. You must be 18+ to search this content.'), { status: 403 })
   }
@@ -1055,6 +1063,15 @@ export default async function handler(req, res) {
   if (preflight(req, res)) return
   if (req.method !== 'POST') return fail(res, 405, 'Method not allowed')
 
+  // --- Rate limiting (per IP + per UID when available) ---
+  const ip = clientKey(req)
+  const ipRl = checkRateLimit(`media:${ip}`, { limit: 40, windowMs: 60_000 })
+  if (!ipRl.allowed) {
+    res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' })
+    res.end(JSON.stringify({ success: false, error: 'Too many requests — slow down' }))
+    return
+  }
+
   try {
     const body = req.body || {}
     const action = body.action || req.query?.legacy || 'search'
@@ -1064,6 +1081,7 @@ export default async function handler(req, res) {
     }
 
     await requireUser(req)
+    const decoded = await verifyIdToken(req.headers.authorization?.split('Bearer ')[1] || '')
     const layer = body.layer || body.source || 'youtube'
     const { query, options = {}, url, site } = body
     
@@ -1202,7 +1220,7 @@ export default async function handler(req, res) {
           results = await searchSports(query)
           break
         case 'nsfw': {
-          const searchResults = await searchNSFW(query, options)
+          const searchResults = await searchNSFW(query, options, decoded)
           results = searchResults.map((result) => {
             const thumb = result.thumbnail || result.image || null
             return {

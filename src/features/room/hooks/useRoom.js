@@ -6,6 +6,7 @@ import {
   onSnapshot,
   query,
   orderBy,
+  limit,
   addDoc,
   serverTimestamp,
   updateDoc,
@@ -189,9 +190,8 @@ export function useRoom(roomId, inviteCode = null) {
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       setParticipants(list)
-      if (room && typeof room.participantCount === 'number' && room.participantCount !== list.length) {
-        updateDoc(doc(db, 'rooms', roomId), { participantCount: list.length }).catch(() => {})
-      }
+      // Participant count is managed server-side via transactions;
+      // only host/co-host can update room doc (Firestore rules), so skip client-side sync.
       const me = list.find((p) => p.id === user.uid)
       if (me) {
         wasParticipant.current = true
@@ -208,7 +208,7 @@ export function useRoom(roomId, inviteCode = null) {
   // Messages listener
   useEffect(() => {
     if (!roomId) return
-    const q = query(collection(db, 'rooms', roomId, 'messages'), orderBy('createdAt', 'asc'))
+    const q = query(collection(db, 'rooms', roomId, 'messages'), orderBy('createdAt', 'asc'), limit(200))
     const unsub = onSnapshot(q, (snap) => {
       setMessages(
         snap.docs.map((d) => ({
@@ -260,7 +260,7 @@ export function useRoom(roomId, inviteCode = null) {
     updateDoc(doc(db, 'rooms', roomId), { lastHeartbeat: serverTimestamp() }).catch(() => {})
     const interval = setInterval(() => {
       updateDoc(doc(db, 'rooms', roomId), { lastHeartbeat: serverTimestamp() }).catch(() => {})
-    }, 30000)
+    }, 60000)
     return () => clearInterval(interval)
   }, [user, roomId, room?.hostId])
 

@@ -1,4 +1,8 @@
-import { sendResponse } from './response.js'
+import { sendResponse, buildHeaders } from './response.js'
+
+export function corsHeadersForRequest(req) {
+  return buildHeaders(req)
+}
 
 export const JSON_HEADERS = {
   'Content-Type': 'application/json',
@@ -9,11 +13,11 @@ export const JSON_HEADERS = {
 
 export function preflight(req, res, { methods = ['GET', 'POST'] } = {}) {
   if (req.method === 'OPTIONS') {
-    sendResponse(res, 200, { ok: true })
+    sendResponse(res, 200, { ok: true }, buildHeaders(req))
     return true
   }
   if (!methods.includes(req.method)) {
-    sendResponse(res, 405, { error: `Method ${req.method} not allowed` })
+    sendResponse(res, 405, { error: `Method ${req.method} not allowed` }, buildHeaders(req))
     return true
   }
   return false

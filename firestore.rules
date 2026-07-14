@@ -42,15 +42,16 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isAuthed();
-      allow create, update: if isOwner(uid) || isAuthed();
-      
+      allow create: if isOwner(uid);
+      allow update: if isOwner(uid);
+
       match /stats/{statId} {
         allow read: if isAuthed();
-        allow create, update: if isOwner(uid) || isAuthed();
+        allow create, update: if isOwner(uid);
       }
 
       match /watchLater/{bookmarkId} {
-        allow read, write, delete: if isOwner(uid) || isAuthed();
+        allow read, write, delete: if isOwner(uid);
       }
     }
 
@@ -71,11 +72,13 @@ service cloud.firestore {
       allow create: if isAuthed()
         && request.resource.data.hostId == request.auth.uid;
 
-      allow update: if isRoomHostOrCoHost(roomId) || isRoomParticipant(roomId);
+      // Only host/co-host can update room properties
+      // (participantCount sync from client is a nice-to-have; server manages it via transactions)
+      allow update: if isRoomHostOrCoHost(roomId);
 
       match /playerState/{docId} {
         allow read: if isAuthed() && docId == 'current';
-        allow write: if (isRoomHostOrCoHost(roomId) || isAuthed()) && docId == 'current';
+        allow write: if isRoomHostOrCoHost(roomId) && docId == 'current';
       }
 
       match /queue/{itemId} {
@@ -110,12 +113,14 @@ service cloud.firestore {
 
       match /quiz/{docId} {
         allow read: if isAuthed();
-        allow write: if isAuthed(); // API / users voting or creating room quiz
+        // Only host/co-host can create/overwrite quiz; any authed user can vote (update)
+        allow create: if isRoomHostOrCoHost(roomId);
+        allow update: if isAuthed();
       }
 
       match /aiState/{docId} {
         allow read: if isAuthed();
-        allow write: if isRoomHostOrCoHost(roomId) || isAuthed();
+        allow write: if isRoomHostOrCoHost(roomId);
       }
 
       match /participants/{uid} {

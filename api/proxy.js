@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream'
 import { preflight, fail } from '../server-lib/http.js'
+import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:'])
 const PRIVATE_IPV4_RE = /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|0\.0\.0\.0)/
@@ -9,6 +10,26 @@ function isPrivateHost(hostname) {
     return true
   }
   return PRIVATE_IPV4_RE.test(hostname)
+}
+
+/** Read optional domain allow-list from env (JSON array of hostnames). */
+function getProxyDomainAllowlist() {
+  const raw = process.env.PROXY_ALLOWED_DOMAINS
+  if (!raw) return null // null = allow all (backward compat)
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed) && parsed.length) {
+      return parsed.map(h => h.toLowerCase().replace(/^\.*/, '.'))
+    }
+  } catch { /* ignore */ }
+  return null
+}
+
+function isDomainAllowed(hostname) {
+  const allowlist = getProxyDomainAllowlist()
+  if (!allowlist) return true // no allowlist configured → permissive
+  const lower = hostname.toLowerCase()
+  return allowlist.some(domain => lower === domain.slice(1) || lower.endsWith(domain))
 }
 
 function validateProxyUrl(rawUrl) {
@@ -27,12 +48,33 @@ function validateProxyUrl(rawUrl) {
     throw new Error('Access to private or loopback network targets is forbidden')
   }
 
+  if (!isDomainAllowed(parsed.hostname)) {
+    throw new Error('Target domain is not allowed by proxy policy')
+  }
+
   return parsed
+}
+
+/** Choose Cache-Control based on content type. */
+function cacheControlForType(contentType = '', isM3u8 = false) {
+  if (isM3u8) return 'public, max-age=2, must-revalidate' // playlists change often
+  if (/video\/|\/octet-stream/i.test(contentType)) return 'public, max-age=3600' // segments / video chunks
+  if (/image\//i.test(contentType)) return 'public, max-age=86400'
+  return 'public, max-age=300' // default 5 min
 }
 
 export default async function handler(req, res) {
   if (preflight(req, res, { methods: ['GET', 'HEAD', 'OPTIONS'] })) return
   if (req.method !== 'GET' && req.method !== 'HEAD') return fail(res, 405, 'Method not allowed')
+
+  // --- Rate limiting (IP-based, since browser <video> can't send Bearer) ---
+  const ip = clientKey(req)
+  const rl = checkRateLimit(`proxy:${ip}`, { limit: 120, windowMs: 60_000 })
+  if (!rl.allowed) {
+    res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' })
+    res.end(JSON.stringify({ success: false, error: 'Too many proxy requests — slow down' }))
+    return
+  }
 
   try {
     const rawUrl = req.query?.url
@@ -140,6 +182,7 @@ export default async function handler(req, res) {
       res.setHeader('Access-Control-Allow-Headers', '*')
       res.setHeader('Content-Type', contentType || 'video/mp4')
       res.setHeader('Accept-Ranges', 'bytes')
+      res.setHeader('Cache-Control', cacheControlForType(contentType))
 
       if (totalLength > 0 || req.headers.range || chunkResponse.status === 206) {
         res.setHeader('Content-Range', chunkRange)
@@ -204,6 +247,7 @@ export default async function handler(req, res) {
       }).join('\n')
 
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl')
+      res.setHeader('Cache-Control', cacheControlForType(contentType, true))
       res.status(200).send(rewritten)
       return
     }
@@ -263,6 +307,7 @@ export default async function handler(req, res) {
       res.setHeader('Accept-Ranges', 'bytes')
       res.setHeader('Content-Range', chunkRange)
       res.setHeader('Content-Length', chunkLen)
+      res.setHeader('Cache-Control', cacheControlForType(contentType))
       res.status(206)
 
       if (req.method === 'HEAD') {
@@ -276,6 +321,7 @@ export default async function handler(req, res) {
     }
 
     res.setHeader('Content-Type', contentType || 'application/octet-stream')
+    res.setHeader('Cache-Control', cacheControlForType(contentType))
     const contentRange = response.headers.get('content-range')
     if (contentRange) {
       res.setHeader('Content-Range', contentRange)
@@ -298,6 +344,6 @@ export default async function handler(req, res) {
     res.send(buffer)
   } catch (err) {
     console.error('Proxy error:', err)
-    return fail(res, 502, err.message || 'Upstream stream request failed')
+    return fail(res, 502, 'Upstream request failed')
   }
 }
