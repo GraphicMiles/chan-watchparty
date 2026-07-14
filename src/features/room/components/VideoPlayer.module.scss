@@ -234,9 +234,9 @@
   align-items: center !important;
   justify-content: center !important;
   gap: 6px !important;
-  height: 38px !important;
-  padding: 0 20px !important;
-  border-radius: 20px !important;
+  height: 36px !important;
+  padding: 6px 14px !important;
+  border-radius: 10px !important;
   background: rgba(255, 255, 255, 0.08) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   color: #fff !important;
@@ -472,6 +472,20 @@
   height: 4px;
   accent-color: #fff;
   cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .externalVideoControlsBar {
+    padding: 8px 10px !important;
+    gap: 6px !important;
+  }
+  .externalVideoControlsBar button {
+    border-radius: 10px !important;
+    padding: 5px 10px !important;
+    height: 32px !important;
+    font-size: 12px !important;
+    gap: 4px !important;
+  }
 }
 
 @media (max-width: 640px) {
