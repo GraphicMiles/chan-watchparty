@@ -72,63 +72,75 @@ async function searchXVideos(query, limit = 20) {
 }
 
 async function searchPornhub(query, limit = 20) {
-  const searchUrl = `https://www.pornhub.com/video/search?search=${encodeURIComponent(query)}`
+  const PORNHUB_BASE = 'https://www.pornhub.com'
+  // Try both URL patterns and merge results
+  const searchUrls = [
+    `${PORNHUB_BASE}/video/search?search=${encodeURIComponent(query)}`,
+    `${PORNHUB_BASE}/s/${encodeURIComponent(query)}`,
+  ]
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS)
+  const results = []
+  const seen = new Set()
 
   try {
-    const response = await fetch(searchUrl, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml',
-      },
-    })
-    if (!response.ok) return []
-
-    const html = await response.text()
-    const $ = cheerio.load(html)
-    const results = []
-    const seen = new Set()
-
-    $('li.pcVideoListItem, .videoblock, .videoBox').each((_, element) => {
-      if (results.length >= limit) return false
-      const item = $(element)
-      const link = item.find('a[href*="/view_video.php"]').first().attr('href') || item.find('a[href]').first().attr('href')
-      if (!link) return
-
+    for (const searchUrl of searchUrls) {
+      if (results.length >= limit) break
       try {
-        const url = new URL(link, 'https://www.pornhub.com').href
-        if (seen.has(url) || !/pornhub\.com\/view_video\.php/i.test(url)) return
-        seen.add(url)
+        const response = await fetch(searchUrl, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml',
+          },
+        })
+        if (!response.ok) continue
 
-        const title = item.find('.title a, .videoTitle, a[title]').first().attr('title') || item.find('.title a, .videoTitle').first().text().replace(/\s+/g, ' ').trim() || 'Untitled'
-        const img = item.find('img[data-thumb_url], img[data-src], img[src]').first()
-        const thumbnail = img.attr('data-thumb_url') || img.attr('data-src') || img.attr('src') || null
-        const duration = item.find('.duration').first().text().replace(/\s+/g, ' ').trim() || null
+        const html = await response.text()
+        const $ = cheerio.load(html)
 
-        results.push({
-          id: item.attr('data-video-vkey') || url,
-          title,
-          url,
-          link: url,
-          thumbnail,
-          duration,
-          source: 'pornhub',
-          provider: 'pornhub',
-          type: 'nsfw',
-          isNSFW: true,
-          isDirect: false,
-          requiresUserAction: true,
+        $('li.pcVideoListItem, .videoblock, .videoBox').each((_, element) => {
+          if (results.length >= limit) return false
+          const item = $(element)
+          const link = item.find('a[href*="/view_video.php"]').first().attr('href') || item.find('a[href]').first().attr('href')
+          if (!link) return
+
+          try {
+            const url = new URL(link, PORNHUB_BASE).href
+            if (seen.has(url) || !/pornhub\.com\/view_video\.php/i.test(url)) return
+            seen.add(url)
+
+            const title = item.find('.title a, .videoTitle, a[title]').first().attr('title') || item.find('.title a, .videoTitle').first().text().replace(/\s+/g, ' ').trim() || 'Untitled'
+            const img = item.find('img[data-thumb_url], img[data-src], img[src]').first()
+            const thumbnail = img.attr('data-thumb_url') || img.attr('data-src') || img.attr('src') || null
+            const duration = item.find('.duration').first().text().replace(/\s+/g, ' ').trim() || null
+
+            results.push({
+              id: item.attr('data-video-vkey') || url,
+              title,
+              url,
+              link: url,
+              thumbnail,
+              duration,
+              source: 'pornhub',
+              provider: 'pornhub',
+              type: 'nsfw',
+              isNSFW: true,
+              isDirect: false,
+              requiresUserAction: true,
+            })
+          } catch {
+            /* ignore */
+          }
         })
       } catch {
-        /* ignore */
+        /* try next URL pattern */
       }
-    })
+    }
 
     return results
   } catch {
-    return []
+    return results
   } finally {
     clearTimeout(timer)
   }
