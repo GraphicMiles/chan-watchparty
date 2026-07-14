@@ -270,7 +270,7 @@ export async function voteRoomQuiz(db, user, body) {
 }
 
 export async function generateAiSubtitles(db, user, body) {
-  const { roomId } = body || {}
+  const { roomId, currentTimeSec = 0 } = body || {}
   if (!roomId) throw Object.assign(new Error('Missing roomId'), { status: 400 })
 
   if (!GROQ_API_KEY) {
@@ -282,8 +282,21 @@ export async function generateAiSubtitles(db, user, body) {
   const roomData = roomSnap.data()
 
   const title = roomData.title || 'Ongoing Movie Stream'
-  const prompt = `You are a Hollywood closed-caption / subtitle engineer. Create a realistic, highly engaging 3-minute opening WebVTT subtitle track (strictly WebVTT format with timestamp cues 00:00:01.000 --> 00:00:05.000) tailored specifically to the movie or show title: "${title}".
-Include atmospheric dialogue, dramatic sound cues (e.g. [dramatic orchestral music swells], [distant footsteps approach]), and character lines fitting the exact genre and tone of "${title}".
+  const startSec = Math.max(0, Math.floor(Number(currentTimeSec) || 0))
+  const formatCueTime = (sec) => {
+    const h = Math.floor(sec / 3600)
+    const m = Math.floor((sec % 3600) / 60)
+    const s = sec % 60
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.000`
+  }
+
+  const startStr = formatCueTime(startSec + 1)
+  const endStr = formatCueTime(startSec + 6)
+  const timeInfo = startSec > 10 ? `The viewer is currently around timestamp ${formatCueTime(startSec)} (${startSec} seconds into the stream). Start your WebVTT cues around timestamp ${startStr} --> ${endStr}, continuing sequentially across ~180 seconds.` : `Start cues from 00:00:01.000 --> 00:00:05.000, continuing sequentially across ~180 seconds.`
+
+  const prompt = `You are a Hollywood closed-caption / subtitle engineer. Create a realistic, highly engaging 3-minute WebVTT subtitle track (strictly WebVTT format) tailored specifically to the movie or show title: "${title}".
+${timeInfo}
+Include atmospheric dialogue, dramatic sound cues (e.g. [dramatic orchestral music swells], [distant footsteps approach]), and character dialogue fitting the exact genre and tone of "${title}".
 Output ONLY valid WebVTT format starting with WEBVTT on line 1, no markdown codeblocks or extra text.`
 
   const groqRes = await fetch(GROQ_API_URL, {
@@ -308,7 +321,7 @@ Output ONLY valid WebVTT format starting with WEBVTT on line 1, no markdown code
   let vttText = groqData.choices?.[0]?.message?.content?.trim() || ''
   vttText = vttText.replace(/^```vtt\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()
   if (!vttText.startsWith('WEBVTT')) {
-    vttText = `WEBVTT\n\n00:00:01.000 --> 00:00:05.000\n[Atmospheric audio for ${title} begins]\n\n` + vttText
+    vttText = `WEBVTT\n\n${startStr} --> ${endStr}\n[Atmospheric audio for ${title} begins]\n\n` + vttText
   }
 
   await db.collection('rooms').doc(roomId).update({

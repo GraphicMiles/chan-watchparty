@@ -137,6 +137,49 @@ export default function VideoPlayer({
     }
   }, [subtitleVtt])
 
+  const parsedSubtitleCues = useMemo(() => {
+    if (!subtitleVtt || typeof subtitleVtt !== 'string') return []
+    const cues = []
+    const lines = subtitleVtt.split(/\r?\n/)
+    let i = 0
+    while (i < lines.length) {
+      const line = lines[i].trim()
+      const timeMatch = line.match(/^(\d{2}:)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}:)?(\d{2}):(\d{2})[.,](\d{3})/)
+      if (timeMatch) {
+        const toSec = (h, m, s, ms) => (Number(h || 0) * 3600) + (Number(m || 0) * 60) + Number(s || 0) + (Number(ms || 0) / 1000)
+        const startTime = toSec(timeMatch[1] ? timeMatch[1].slice(0, 2) : 0, timeMatch[2], timeMatch[3], timeMatch[4])
+        const endTime = toSec(timeMatch[5] ? timeMatch[5].slice(0, 2) : 0, timeMatch[6], timeMatch[7], timeMatch[8])
+        let textLines = []
+        i++
+        while (i < lines.length && lines[i].trim() !== '') {
+          textLines.push(lines[i].trim())
+          i++
+        }
+        if (textLines.length > 0) {
+          cues.push({ startTime, endTime, text: textLines.join('\n') })
+        }
+      } else {
+        i++
+      }
+    }
+    return cues
+  }, [subtitleVtt])
+
+  const currentSubtitleCueText = useMemo(() => {
+    if (!subtitlesEnabled || !parsedSubtitleCues.length) return null
+    const exact = parsedSubtitleCues.find((c) => currentSec >= c.startTime && currentSec <= c.endTime)
+    if (exact) return exact.text
+    return null
+  }, [subtitlesEnabled, parsedSubtitleCues, currentSec])
+
+  useEffect(() => {
+    if (!videoRef.current || !videoRef.current.textTracks) return
+    const tracks = videoRef.current.textTracks
+    for (let i = 0; i < tracks.length; i++) {
+      tracks[i].mode = subtitlesEnabled ? 'showing' : 'hidden'
+    }
+  }, [subtitlesEnabled, subtitleBlobUrl])
+
   useEffect(() => {
     const onFsChange = () => {
       const fsElement = document.fullscreenElement || document.webkitFullscreenElement
@@ -199,7 +242,7 @@ export default function VideoPlayer({
       const res = await fetch('/api/room', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'subtitles', roomId, uid: user.uid }),
+        body: JSON.stringify({ action: 'subtitles', roomId, uid: user.uid, currentTimeSec: Math.floor(currentTime()) }),
       })
       const data = await res.json()
       if (!res.ok || !data.success) {
@@ -800,6 +843,17 @@ export default function VideoPlayer({
 
       {!isReady && <div className={styles.loadingOverlay}>Loading stream...</div>}
       {isLive && <div className={styles.liveIndicator}><Radio size={10} /> LIVE</div>}
+
+      {/* Universal Hollywood Cinema AI Closed Captions / Subtitle Overlay */}
+      {subtitlesEnabled && currentSubtitleCueText && (
+        <div className={styles.customSubtitleOverlay}>
+          <div className={styles.customSubtitleBox}>
+            {currentSubtitleCueText.split('\n').map((line, idx) => (
+              <p key={idx}>{line}</p>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* VLC Double-Tap Seek Gesture Indicator */}
       {vlcGesture && (
