@@ -10,6 +10,7 @@ import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
 import { searchNaijaprey, resolveNaijapreyChain } from '../server-lib/naijapreyResolver.js'
 import { resolveO2TvShow, resolveO2TvEpisode, probeAndFixO2TvUrl, warmO2TvCache } from '../server-lib/o2tvResolver.js'
+import { resolveMeetDownload, resolveWaploaded, resolveGenericBrowser, getRenderedHtml } from '../server-lib/browser.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY // server-side only — never use VITE_ prefix
@@ -86,7 +87,7 @@ function deduplicateAndEnrich(items, query = null) {
 
     // Strict close match verification for direct and movie search results against the query
     if (query && String(query).trim() && !isAdult) {
-      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'fztvseries', 'archiveorg', 'omdb'].includes(item.source)
+      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'fztvseries', 'archiveorg', 'meetdownload', 'waploaded', 'omdb'].includes(item.source)
       if (isDirectOrMovie) {
         // Allow season-specific results through (e.g. "silo season 2" when querying "silo")
         const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
@@ -301,7 +302,7 @@ async function enrichWithOMDbPosters(items, query = null) {
 
     // 2. Check if current thumbnail is already good (not from a scraped host)
     let thumb = item.thumbnail || item.image || null
-    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|fzmovies|9jarocks|o2tv|naijaprey|np-downloader|wildshare|downloadwella|fztvseries|wideshares|archive\.org/i.test(thumb)
+    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|fzmovies|9jarocks|o2tv|naijaprey|np-downloader|wildshare|downloadwella|fztvseries|wideshares|archive\.org|meetdownload|waploaded/i.test(thumb)
     const hasGoodThumbnail = isSuitableThumbnail(thumb) && !isScrapedHost
 
     if (hasGoodThumbnail) return item
@@ -334,7 +335,7 @@ async function searchDirectLinks(query, options = {}) {
   const requestedSite = options.site && options.site !== 'custom' && options.site !== 'all' ? options.site : null
   const scrapers = requestedSite
     ? [requestedSite]
-    : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv', 'naijaprey', 'fztvseries', 'archiveorg']
+    : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv', 'naijaprey', 'fztvseries', 'archiveorg', 'meetdownload', 'waploaded']
   
   const searchedSites = [...scrapers]
   
@@ -392,6 +393,102 @@ async function searchDirectLinks(query, options = {}) {
           }
         } catch (err) {
           console.error('archive.org search failed:', err.message)
+        }
+        return
+      }
+
+      // ─── MeetDownload: Puppeteer-based resolution (JS countdown + tokens) ───
+      if (siteKey === 'meetdownload') {
+        try {
+          // First try scraping the search page for result links
+          const config = getSiteConfig('meetdownload')
+          const searchUrl = config?.buildSearchUrl?.(query)
+          if (searchUrl) {
+            const html = await fetchHtml(searchUrl).catch(() => null)
+            if (html) {
+              const $ = cheerio.load(html)
+              const links = []
+              $('a[href]').each((_, el) => {
+                const href = $(el).attr('href') || ''
+                const text = $(el).text().trim()
+                // MeetDownload links have the pattern /HASH/filename
+                if (href.includes('meetdownload.com/') && text && !href.includes('?s=')) {
+                  links.push({ url: href, title: text })
+                }
+              })
+
+              // Filter by query
+              const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
+              const filtered = links.filter((item) =>
+                isTitleMatch(item.title, query) || isTitleMatch(item.title, baseQuery)
+              )
+              const toResolve = (filtered.length > 0 ? filtered : links).slice(0, 5)
+
+              // Resolve each link with Puppeteer
+              for (const link of toResolve) {
+                try {
+                  const resolved = await resolveMeetDownload(link.url)
+                  for (const r of resolved) {
+                    results.push({
+                      ...r,
+                      source: 'meetdownload',
+                      title: r.title || link.title,
+                      quality: extractQuality(r.title || link.title),
+                    })
+                  }
+                } catch (err) {
+                  console.error('MeetDownload resolution error:', err.message)
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error('meetdownload search failed:', err.message)
+        }
+        return
+      }
+
+      // ─── Waploaded: Puppeteer-based search (JS-rendered results) ───
+      if (siteKey === 'waploaded') {
+        try {
+          const config = getSiteConfig('waploaded')
+          const searchUrls = config?.buildSearchUrls ? config.buildSearchUrls(query) : [config?.buildSearchUrl?.(query)].filter(Boolean)
+
+          for (const searchUrl of searchUrls) {
+            if (!searchUrl) continue
+            try {
+              // Try Puppeteer-rendered search first
+              const html = await getRenderedHtml(searchUrl, { timeout: 8000, waitForSelector: 'a[href*="/movie/"], a[href*="/series/"]' })
+              if (html) {
+                const $ = cheerio.load(html)
+                $('a[href]').each((_, el) => {
+                  const href = $(el).attr('href') || ''
+                  const text = $(el).text().trim()
+                  const isMedia = /\/movie\/|\/series\/|\/video\/|\.mp4|\.mkv/i.test(href)
+                  if (isMedia && text && text.length > 3 && text.length < 200) {
+                    const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
+                    if (isTitleMatch(text, query) || isTitleMatch(text, baseQuery)) {
+                      results.push({
+                        title: text,
+                        url: href,
+                        link: href,
+                        source: 'waploaded',
+                        type: 'direct',
+                        isDirect: /\.(mp4|mkv|m3u8)/i.test(href),
+                        playableInRoom: /\.(mp4|webm|m3u8)/i.test(href),
+                        quality: extractQuality(text),
+                      })
+                    }
+                  }
+                })
+              }
+            } catch (err) {
+              console.error('Waploaded browser search failed:', err.message)
+            }
+            if (results.length > 0) break
+          }
+        } catch (err) {
+          console.error('waploaded search failed:', err.message)
         }
         return
       }
@@ -944,6 +1041,8 @@ function siteConfigForUrl(url, fallbackSite) {
   if (hostname.includes('fztvseries')) return getSiteConfig('fztvseries')
   if (hostname.includes('wideshares')) return getSiteConfig('fztvseries')
   if (hostname.includes('archive.org')) return getSiteConfig('archiveorg')
+  if (hostname.includes('meetdownload')) return getSiteConfig('meetdownload')
+  if (hostname.includes('waploaded')) return getSiteConfig('waploaded')
   return getSiteConfig(fallbackSite)
 }
 
@@ -958,6 +1057,8 @@ function isResolverHost(url, rootHost) {
     if (hostname.includes('tvshows4mobile') || hostname.includes('o2tvseries') || hostname.includes('o2tv.org')) return true
     // Wideshares is used by FZTVSeries for direct file downloads
     if (hostname.includes('wideshares.org')) return true
+    // MeetDownload needs browser resolution for tokens
+    if (hostname.includes('meetdownload.com')) return true
     return false
   } catch {
     return false
@@ -1095,6 +1196,16 @@ export async function resolvePageChain(startUrl, site) {
       if (wsResults && wsResults.length) return wsResults
     } catch (err) {
       console.error('Wideshares resolution failed:', err.message)
+    }
+  }
+
+  // MeetDownload resolution: Puppeteer-based (JS countdown + tokens)
+  if (rootHost.includes('meetdownload')) {
+    try {
+      const mdResults = await resolveMeetDownload(startUrl)
+      if (mdResults && mdResults.length) return mdResults
+    } catch (err) {
+      console.error('MeetDownload resolution failed:', err.message)
     }
   }
   

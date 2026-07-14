@@ -126,6 +126,34 @@ export const SITE_CONFIGS = {
     isJsonApi: true,
     buildSearchUrl: (q) => `https://archive.org/advancedsearch.php?q=${encodeURIComponent(q)}+mediatype:movies&output=json&rows=20&fl[]=identifier,title,mediatype,downloads,year,description`,
   },
+  meetdownload: {
+    label: 'MeetDownload',
+    baseUrl: 'https://meetdownload.com',
+    items: 'a[href]',
+    title: 'title, h1, h2',
+    image: 'img[src]',
+    link: 'a[href*=".mp4"], a[href*=".mkv"], a[href*="download"]',
+    meta: '.meta, .info',
+    // Requires Puppeteer — JS countdown + temporary tokens
+    requiresBrowser: true,
+    buildSearchUrl: (q) => `https://meetdownload.com/?s=${encodeURIComponent(q)}`,
+  },
+  waploaded: {
+    label: 'Waploaded',
+    baseUrl: 'https://waploaded.com',
+    items: 'a[href*="/movie/"], a[href*="/series/"], a[href*="/video/"]',
+    title: '.entry-title a, h2 a, h3 a, .title',
+    image: 'img[src], .poster img',
+    link: 'a[href*="/movie/"], a[href*="/series/"], a[href*="/video/"], a[href*="download"]',
+    meta: '.meta, .posted-on',
+    // Search results are JS-rendered — requires Puppeteer
+    requiresBrowser: true,
+    buildSearchUrl: (q) => `https://waploaded.com/search/${encodeURIComponent(q)}/page/1?type=series`,
+    buildSearchUrls: (q) => [
+      `https://waploaded.com/search/${encodeURIComponent(q)}/page/1?type=series`,
+      `https://waploaded.com/search/${encodeURIComponent(q)}/page/1?type=movie`,
+    ],
+  },
   spankbang: {
     label: 'SpankBang',
     baseUrl: 'https://spankbang.party',
@@ -168,6 +196,7 @@ export function isSuitableThumbnail(url) {
   if (clean.includes('downloadwella.com') || clean.includes('downloadwella')) return false
   if (clean.includes('np-downloader.com') || clean.includes('wildshare.net')) return false
   if (clean.includes('naijaprey.tv/wp-content') && /telegram|logo|banner|favicon|badge/i.test(clean)) return false
+  if (clean.includes('meetdownload.com') && /logo|banner|favicon/i.test(clean)) return false
   if (/\b(arrow|download|logo|icon|placeholder|default|avatar|gravatar|spinner|loading|no-image|missing|blank|button|1x1|pixel)(\.|-|_|\b)/i.test(clean)) return false
   if (clean.endsWith('.svg') || clean.endsWith('.ico')) return false
   return true
@@ -176,7 +205,7 @@ export function isSuitableThumbnail(url) {
 export function cleanTitleForMatching(str) {
   if (!str) return ''
   return String(str)
-    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|fztvseries|wideshares|archive\.org|archiveorg|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|fztvseries|wideshares|archive\.org|archiveorg|meetdownload|waploaded|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
     .replace(/\([^)]*\)/g, ' ')
     .replace(/\[[^\]]*\]/g, ' ')
     .replace(/\.(mp4|mkv|m3u8|avi|mov)$/i, ' ')
@@ -188,7 +217,7 @@ export function cleanTitleForMatching(str) {
 export function cleanTitleForOMDb(str) {
   if (!str) return ''
   return String(str)
-    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|naijaprey\.com|naijaprey\.tv|fztvseries|fztvseries\.ng|wideshares|archive\.org|archiveorg|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|fzmovies|9jarocks|animedrive|o2tvseries|o2tv|downloadwella|tvshows4mobile|naijaprey|naijaprey\.com|naijaprey\.tv|fztvseries|fztvseries\.ng|wideshares|archive\.org|archiveorg|meetdownload|waploaded|webrip|hdrip|bluray|brrip|720p|1080p|2160p|4k|x264|h264|x265|hevc|mp4|mkv|avi|m3u8|webm)\b/gi, ' ')
     .replace(/\b(s\d+\s*e\d+|e\d+|s\d+|season\s*\d+|episode\s*\d+)\b/gi, ' ')
     .replace(/\b(part\s*\d+)\b/gi, ' ')
     .replace(/\b(complete|full|movie|film|download|free|watch|online|hd|uhd)\b/gi, ' ')
