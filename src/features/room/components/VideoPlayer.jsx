@@ -414,14 +414,46 @@ export default function VideoPlayer({
     emitSeek(targetSec)
   }, [canControl, adapter, durationSec, emitSeek])
 
-  const toggleFullscreen = useCallback((e) => {
-    e.stopPropagation()
+  const toggleFullscreen = useCallback(async (e) => {
+    e?.stopPropagation()
     const root = playerWrapperRef.current
     if (!root) return
-    if (!document.fullscreenElement) {
-      root.requestFullscreen?.() || root.webkitRequestFullscreen?.()
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      try {
+        if (root.requestFullscreen) {
+          await root.requestFullscreen()
+        } else if (root.webkitRequestFullscreen) {
+          await root.webkitRequestFullscreen()
+        } else if (videoRef.current?.webkitEnterFullscreen) {
+          videoRef.current.webkitEnterFullscreen()
+        }
+      } catch (err) {
+        console.error('Fullscreen request failed:', err)
+      }
+      try {
+        if (window.screen?.orientation?.lock) {
+          await window.screen.orientation.lock('landscape').catch(() => {})
+        }
+      } catch {
+        /* orientation lock unsupported or permission denied */
+      }
     } else {
-      document.exitFullscreen?.() || document.webkitExitFullscreen?.()
+      try {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen()
+        } else if (document.webkitExitFullscreen) {
+          await document.webkitExitFullscreen()
+        }
+      } catch (err) {
+        console.error('Exit fullscreen failed:', err)
+      }
+      try {
+        if (window.screen?.orientation?.unlock) {
+          window.screen.orientation.unlock()
+        }
+      } catch {
+        /* ignore */
+      }
     }
   }, [])
 
@@ -638,9 +670,19 @@ export default function VideoPlayer({
             />
           </div>
 
-          <span className={styles.timeText}>{formatTime(durationSec)}</span>
+            <span className={styles.timeText}>{formatTime(durationSec)}</span>
+
+            {/* Fullscreen & Landscape Rotate Control */}
+            <button
+              type="button"
+              className={styles.overlayFullscreenBtn}
+              onClick={toggleFullscreen}
+              title="Fullscreen & Landscape Rotate"
+            >
+              <Maximize size={18} />
+            </button>
+          </div>
         </div>
-      </div>
     </div>
 
     {/* External Netflix-Style Secondary Controls Bar right underneath the 50vh video player */}
