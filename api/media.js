@@ -864,6 +864,7 @@ async function resolveO2TvPage(pageUrl) {
     const epMatch = episodeRaw.match(/\d+/)
     const epNum = epMatch ? epMatch[0].padStart(2, '0') : '01'
 
+    const showEncoded = encodeURIComponent(showClean)
     const cdns = ['d6.o2tv.org', 'd2.o2tv.org', 'd4.o2tv.org', 'd8.o2tv.org', 'd1.o2tv.org']
     const suffixes = [
       `%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`,
@@ -875,7 +876,7 @@ async function resolveO2TvPage(pageUrl) {
     const candidates = []
     for (const cdn of cdns) {
       for (const suffix of suffixes) {
-        candidates.push(`http://${cdn}/${showClean}/Season%20${seasonNum}/${showClean}%20-%20S${seasonNum}E${epNum}${suffix}`)
+        candidates.push(`http://${cdn}/${showEncoded}/Season%20${seasonNum}/${showEncoded}%20-%20S${seasonNum}E${epNum}${suffix}`)
       }
     }
 
@@ -905,7 +906,7 @@ async function resolveO2TvPage(pageUrl) {
       }
     }
 
-    const primaryCandidate = `http://d6.o2tv.org/${showClean}/Season%20${seasonNum}/${showClean}%20-%20S${seasonNum}E${epNum}%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`
+    const primaryCandidate = `http://d6.o2tv.org/${showEncoded}/Season%20${seasonNum}/${showEncoded}%20-%20S${seasonNum}E${epNum}%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`
     return [{
       title: `${showClean} - S${seasonNum}E${epNum}`,
       url: primaryCandidate,

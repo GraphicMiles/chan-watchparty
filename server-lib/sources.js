@@ -65,9 +65,10 @@ export const SITE_CONFIGS = {
         .replace(/-otv[a-z0-9]+$/i, '')
         .replace(/-/g, ' ')
         .trim()
+      const encodedShow = encodeURIComponent(cleanShow)
       const seasonNum = String(season).padStart(2, '0')
       const epNum = String(episode).padStart(2, '0')
-      return `http://d6.o2tv.org/${cleanShow}/Season%20${seasonNum}/${cleanShow}%20-%20S${seasonNum}E${epNum}%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`
+      return `http://d6.o2tv.org/${encodedShow}/Season%20${seasonNum}/${encodedShow}%20-%20S${seasonNum}E${epNum}%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`
     },
   },
   '9jarocks': {
