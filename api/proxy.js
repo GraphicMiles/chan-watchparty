@@ -130,9 +130,6 @@ export default async function handler(req, res) {
       }
 
       // If upstream returned 200 (not 206), it doesn't support Range — return 200 to client too
-      // otherwise the browser's decoder gets confused by a mismatched Content-Range
-      const upstreamSupportsRange = chunkResponse.status === 206
-      const chunks = []
       let bytesRead = 0
       if (chunkResponse.body && typeof chunkResponse.body.getReader === 'function') {
         const reader = chunkResponse.body.getReader()
@@ -168,14 +165,14 @@ export default async function handler(req, res) {
       res.setHeader('Accept-Ranges', 'bytes')
       res.setHeader('Cache-Control', cacheControlForType(contentType))
 
-      if (upstreamSupportsRange && (totalLength > 0 || req.headers.range)) {
-        // Upstream actually supports Range — pass through 206 with correct Content-Range
+      // Always return 206 with Content-Range when we're sending a partial chunk.
+      // Even if upstream doesn't support Range (returns 200), the PROXY is chunking
+      // the data — the browser needs 206 to know there's more data to fetch.
+      if (totalLength > 0 || req.headers.range) {
         res.setHeader('Content-Range', chunkRange)
         res.setHeader('Content-Length', String(buffer.length))
         res.status(206)
       } else {
-        // Upstream returned full file (no Range support, like o2tv)
-        // Return 200 with just the data — no Content-Range header
         res.setHeader('Content-Length', String(buffer.length))
         res.status(200)
       }
@@ -296,8 +293,7 @@ export default async function handler(req, res) {
         return fail(res, 502, 'Stream server returned a web page instead of video — channel may be offline')
       }
 
-      const upstreamSupportsRange = chunkResponse.status === 206
-      const chunkRange = chunkResponse.headers.get('content-range') || (upstreamSupportsRange ? `bytes ${start}-${end}/${totalLength > 0 ? totalLength : '*'}` : null)
+      const chunkRange = chunkResponse.headers.get('content-range') || 'bytes ' + start + '-' + end + '/' + (totalLength > 0 ? totalLength : '*')
       const chunkLen = chunkResponse.headers.get('content-length') || String(end - start + 1)
 
       res.setHeader('Access-Control-Allow-Origin', '*')
@@ -308,11 +304,12 @@ export default async function handler(req, res) {
       res.setHeader('Content-Length', chunkLen)
       res.setHeader('Cache-Control', cacheControlForType(contentType))
 
-      if (upstreamSupportsRange && chunkRange) {
+      // Always return 206 with Content-Range for partial chunks
+      // (same reason as above — proxy is chunking, browser needs 206)
+      if (chunkRange) {
         res.setHeader('Content-Range', chunkRange)
         res.status(206)
       } else {
-        // Upstream doesn't support Range — return 200 (fixes o2tv object-entry error)
         res.status(200)
       }
 
