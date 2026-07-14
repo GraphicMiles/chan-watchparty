@@ -61,18 +61,9 @@ const BUILTIN_EXTRA_CHANNELS = [
   { name: 'IN: SONY MAX HD (VPN)', url: 'http://216.144.250.174/Sony_MaX_HD/playlist.m3u8', group: 'Movies', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'UK: SONY MAX 2 (VPN)', url: 'http://216.144.250.174/Sony_MaX_HD_02/playlist.m3u8', group: 'Movies', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'IN: SONY MIX (VPN)', url: 'http://216.144.250.174/Sony_Mix_HD/playlist.m3u8', group: 'Music', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'IN: SONY MAX', url: 'https://sony247channels.akamaized.net/hls/live/2011745/SonyMaxSD/master.m3u8?hdnea=exp=1594424839~acl=/*~hmac=83f1aab290adcecd58296efe621ec7c8ed08d086c488a97c87cf62465105997c&__nn__=5606168722001&hdne', group: 'Movies', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'IN: SONY MAX HD', url: 'https://sony247channels.akamaized.net/hls/live/2011670/SonyMaxhd/master.m3u8?hdnea=exp=1594424839~acl=/*~hmac=83f1aab290adcecd58296efe621ec7c8ed08d086c488a97c87cf62465105997c&__nn__=5606168722001&hdne', group: 'Movies', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'IN: SONY TV HD', url: 'https://sony247channels.akamaized.net/hls/live/2011671/SETHD/master.m3u8?hdnea=exp=1594424839~acl=/*~hmac=83f1aab290adcecd58296efe621ec7c8ed08d086c488a97c87cf62465105997c&__nn__=5606168722001&hdne', group: 'Entertainment', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'IN: SONY SAB HD', url: 'https://sony247channels.akamaized.net/hls/live/2011749/SABHD/master.m3u8?hdnea=exp=1594424839~acl=/*~hmac=83f1aab290adcecd58296efe621ec7c8ed08d086c488a97c87cf62465105997c&__nn__=5606168722001&hdne', group: 'Entertainment', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'IN: SONY MIX', url: 'https://sony247channels.akamaized.net/hls/live/2011739/SonyMixSD/master.m3u8?hdnea=exp=1594424839~acl=/*~hmac=83f1aab290adcecd58296efe621ec7c8ed08d086c488a97c87cf62465105997c&__nn__=5606168722001&hdne', group: 'Music', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'IN: SONY BBC EARTH HD', url: 'https://sony247channels.akamaized.net/hls/live/2011907/SonyBBCEarthHD/master.m3u8?hdnea=exp=1594424839~acl=/*~hmac=83f1aab290adcecd58296efe621ec7c8ed08d086c488a97c87cf62465105997c&__nn__=5606168722001&hdne', group: 'Science & Tech', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'IN: SONY YAY', url: 'https://sony247channels.akamaized.net/hls/live/2011746/SonyYaySD/master.m3u8?hdnea=exp=1594424839~acl=/*~hmac=83f1aab290adcecd58296efe621ec7c8ed08d086c488a97c87cf62465105997c&__nn__=5606168722001&hdne', group: 'Kids', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'IN: SONY PIX HD', url: 'https://sony247channels.akamaized.net/hls/live/2011748/PIXHD/master.m3u8?hdnea=exp=1594424839~acl=/*~hmac=83f1aab290adcecd58296efe621ec7c8ed08d086c488a97c87cf62465105997c&__nn__=5606168722001&hdne', group: 'Movies', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'UK: SONY TEN 2', url: 'https://sony247channels.akamaized.net/hls/live/2004808/SonyTen2SD/master.m3u8?hdnea=exp=1594424839~acl=/*~hmac=83f1aab290adcecd58296efe621ec7c8ed08d086c488a97c87cf62465105997c&__nn__=5606168722001&hdne', group: 'Sports', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'IN: SONY TEN 3 HD', url: 'https://sony247channels.akamaized.net/hls/live/2004804/SONYTEN3HD/master.m3u8?hdnea=exp=1594424839~acl=/*~hmac=83f1aab290adcecd58296efe621ec7c8ed08d086c488a97c87cf62465105997c&__nn__=5606168722001&hdne', group: 'Sports', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'IN: SONY SIX HD', url: 'https://sony247channels.akamaized.net/hls/live/2004801/SonySIXHD/master.m3u8?hdnea=exp=1594424839~acl=/*~hmac=83f1aab290adcecd58296efe621ec7c8ed08d086c488a97c87cf62465105997c&__nn__=5606168722001&hdne', group: 'Sports', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'IN: SONY ESPN', url: 'https://sony247channels.akamaized.net/hls/live/2004806/SONYESPNSD/master.m3u8?hdnea=exp=1594424839~acl=/*~hmac=83f1aab290adcecd58296efe621ec7c8ed08d086c488a97c87cf62465105997c&__nn__=5606168722001&hdne', group: 'Sports', provider: 'Chan Curated Live TV', isNSFW: false },
+  // Sony channels with expired hdnea tokens (exp=1594424839 = June 2020) removed.
+  // If valid tokens become available, add them via IPTV_CHANNELS_JSON env var instead.
+
   { name: 'IN: SONY SAB', url: 'http://ddn.amrbd.com:8081/live/sonysab/playlist.m3u8', group: 'Entertainment', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'IN: SONY TV HD', url: 'http://channels.ooguy.com:80/auth?channel=SonyTvHdIndia&type=index.m3u8&authorization=RnJFZUFjQ2VTcw==', group: 'Entertainment', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'UK: SONY TV HD', url: 'http://channels.ooguy.com:80/auth?channel=SonyTvHdUk&type=index.m3u8&authorization=RnJFZUFjQ2VTcw==', group: 'Entertainment', provider: 'Chan Curated Live TV', isNSFW: false },
@@ -92,7 +83,8 @@ const BUILTIN_EXTRA_CHANNELS = [
   { name: 'CARAC5', url: 'https://edge14.vedge.infomaniak.com/livecast/ik:carac5/playlist.m3u8', group: 'Entertainment', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'DMF', url: 'https://d-m-f.iptv-playoutcenter.de/dmf/dmf1/playlist.m3u8', group: 'Music', provider: 'Chan Curated Live TV', isNSFW: false },
 
-  // Adult / XXX 18+ Channels
+  // Adult / XXX 18+ Channels — only included when NSFW_ENABLED=true
+  ...(process.env.NSFW_ENABLED === 'true' ? [
   { name: 'Babes', url: 'http://88.212.7.11/live/test_basbes_hd_hevc/playlist.m3u8', group: 'XXX 18+', provider: 'Chan Curated XXX 18+', isNSFW: true },
   { name: 'Brazzers', url: 'http://88.212.7.11/live/test_brazzers_hd_hevc/playlist.m3u8', group: 'XXX 18+', provider: 'Chan Curated XXX 18+', isNSFW: true },
   { name: 'Extasy', url: 'http://88.212.7.11/live/test_extasy_hd_hevc/playlist.m3u8', group: 'XXX 18+', provider: 'Chan Curated XXX 18+', isNSFW: true },
@@ -107,6 +99,7 @@ const BUILTIN_EXTRA_CHANNELS = [
   { name: 'Playboy La', url: 'http://190.11.225.124:5000/live/playboy_hd/playlist.m3u8', group: 'XXX 18+', provider: 'Chan Curated XXX 18+', isNSFW: true },
   { name: 'Babes TV', url: 'https://cdn4.skygo.mn/live/disk1/Babes/HLSv3-FTA/Babes.m3u8', group: 'XXX 18+', provider: 'Chan Curated XXX 18+', isNSFW: true },
   { name: 'PLAYBOY TV', url: 'http://31.148.48.15:80/Playboy_TV/playlist.m3u8', group: 'XXX 18+', provider: 'Chan Curated XXX 18+', isNSFW: true },
+  ] : []),
 ]
 
 function readAttribute(line, name) {
@@ -222,12 +215,12 @@ function readPlaylistSources() {
       url: 'https://iptv-org.github.io/iptv/categories/xxx.m3u',
       isNSFW: true,
     },
-    {
+    ...(process.env.NSFW_ENABLED === 'true' ? [{
       id: 'iptvmate-xxx',
       provider: 'IPTVMate XXX 18+',
       url: 'https://iptvmate.net/files/xxx.m3u',
       isNSFW: true,
-    },
+    }] : []),
   ]
 }
 

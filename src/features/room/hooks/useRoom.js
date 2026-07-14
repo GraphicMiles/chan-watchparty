@@ -111,11 +111,16 @@ export function useRoom(roomId, inviteCode = null) {
 
   const sendMessage = useCallback(async (text, replyTo = null) => {
     if (!user || !roomId || !text.trim()) return null
-    const trimmed = text.trim().slice(0, 500)
+    // Basic sanitization: strip HTML tags, limit length
+    const sanitized = text.trim()
+      .replace(/<[^>]*>/g, '')   // strip HTML tags
+      .replace(/&/g, '&amp;')    // encode ampersands
+      .slice(0, 500)
+    if (!sanitized) return null
     const payload = {
       uid: user.uid,
       displayName: user.displayName || 'Viewer',
-      text: trimmed,
+      text: sanitized,
       createdAt: serverTimestamp(),
     }
     if (replyTo) payload.replyTo = replyTo

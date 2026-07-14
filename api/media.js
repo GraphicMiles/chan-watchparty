@@ -4,12 +4,13 @@ import { preflight, ok, fail, statusForError } from '../server-lib/http.js'
 import { getDb, FieldValue, verifyIdToken } from '../server-lib/firebaseAdmin.js'
 import { getSiteConfig, resolveUrl, isSuitableThumbnail, isTitleMatch, cleanTitleForMatching, cleanTitleForOMDb } from '../server-lib/sources.js'
 import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
+import { validateFetchUrl, isPrivateHost } from '../server-lib/ssrf.js'
 import { checkIptvChannel, getIptvChannels, getPlaylistChannels } from '../server-lib/iptv.js'
 import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY // server-side only — never use VITE_ prefix
 const OMDB_API_KEY = process.env.OMDB_API_KEY || null  // no hardcoded fallback — must be configured
 const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY
 
@@ -610,45 +611,8 @@ async function searchNSFW(query, options = {}, user = null) {
 
 // ==================== SCRAPER HELPERS ====================
 
-function isPrivateIpv4(hostname) {
-  const parts = hostname.split('.').map(Number)
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
-    return false
-  }
-  const [a, b] = parts
-  return a === 10 || a === 127 || a === 0 ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 169 && b === 254)
-}
-
 function validateFetchTarget(rawUrl) {
-  let parsed
-  try {
-    parsed = new URL(rawUrl)
-  } catch {
-    throw new Error('Invalid URL')
-  }
-
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error('Only http(s) URLs are allowed')
-  }
-  if (parsed.username || parsed.password) {
-    throw new Error('URLs with embedded credentials are not allowed')
-  }
-
-  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  if (
-    hostname === 'localhost' ||
-    hostname.endsWith('.localhost') ||
-    hostname.endsWith('.local') ||
-    hostname === '::1' ||
-    isPrivateIpv4(hostname)
-  ) {
-    throw new Error('Private and local network URLs are not allowed')
-  }
-
-  return parsed
+  return validateFetchUrl(rawUrl)
 }
 
 async function fetchHtml(targetUrl) {
@@ -1256,6 +1220,8 @@ export default async function handler(req, res) {
     return fail(res, 400, `Unknown action: ${action}`)
   } catch (err) {
     console.error('Media API error:', err)
-    return fail(res, statusForError(err), err.message || 'Request failed')
+    // Don't leak internal error details to the client
+    const safeMessage = statusForError(err) >= 500 ? 'Internal server error' : (err.message || 'Request failed')
+    return fail(res, statusForError(err), safeMessage)
   }
 }

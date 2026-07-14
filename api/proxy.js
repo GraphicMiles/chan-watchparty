@@ -1,16 +1,7 @@
 import { Readable } from 'node:stream'
 import { preflight, fail } from '../server-lib/http.js'
+import { validateFetchUrl, isPrivateHost } from '../server-lib/ssrf.js'
 import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
-
-const ALLOWED_PROTOCOLS = new Set(['http:', 'https:'])
-const PRIVATE_IPV4_RE = /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|0\.0\.0\.0)/
-
-function isPrivateHost(hostname) {
-  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '::1') {
-    return true
-  }
-  return PRIVATE_IPV4_RE.test(hostname)
-}
 
 /** Read optional domain allow-list from env (JSON array of hostnames). */
 function getProxyDomainAllowlist() {
@@ -33,25 +24,10 @@ function isDomainAllowed(hostname) {
 }
 
 function validateProxyUrl(rawUrl) {
-  let parsed
-  try {
-    parsed = new URL(rawUrl)
-  } catch {
-    throw new Error('Invalid or malformed target URL')
-  }
-
-  if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
-    throw new Error('Only HTTP and HTTPS URLs can be proxied')
-  }
-
-  if (isPrivateHost(parsed.hostname)) {
-    throw new Error('Access to private or loopback network targets is forbidden')
-  }
-
+  const parsed = validateFetchUrl(rawUrl)
   if (!isDomainAllowed(parsed.hostname)) {
     throw new Error('Target domain is not allowed by proxy policy')
   }
-
   return parsed
 }
 

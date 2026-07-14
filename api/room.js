@@ -32,7 +32,7 @@ async function requireUser(req, expectedUid) {
 function requireCronSecret(req) {
   const expected = process.env.CRON_SECRET
   if (!expected) {
-    throw Object.assign(new Error('CRON_SECRET is not configured — set it in your environment'), { status: 503 })
+    throw Object.assign(new Error('Cron authentication is not configured on the server'), { status: 503 })
   }
   const provided = req.headers['x-cron-secret'] || req.headers['X-Cron-Secret'] || ''
   // Timing-safe comparison to prevent timing attacks
@@ -227,6 +227,8 @@ export default async function handler(req, res) {
     return ok(res, result)
   } catch (err) {
     console.error('room API error', err)
-    return fail(res, statusForError(err), err.message || 'Internal error')
+    // Don't leak internal error details for 5xx errors
+    const safeMessage = statusForError(err) >= 500 ? 'Internal server error' : (err.message || 'Request failed')
+    return fail(res, statusForError(err), safeMessage)
   }
 }

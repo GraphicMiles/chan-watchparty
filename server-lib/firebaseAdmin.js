@@ -8,7 +8,7 @@ function getCredentials() {
   let privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY
 
   if (!projectId || !clientEmail || !privateKey) {
-    throw new Error('Firebase Admin credentials are missing. Check FIREBASE_ADMIN_PROJECT_ID, FIREBASE_ADMIN_CLIENT_EMAIL, and FIREBASE_ADMIN_PRIVATE_KEY.')
+    throw new Error('Firebase Admin credentials are missing. Please check your server configuration.')
   }
 
   if (privateKey.trim().startsWith('{')) {
