@@ -112,6 +112,7 @@ export default function VideoPlayer({
   const [stagePins, setStagePins] = useState([])
   
   const controlsTimeoutRef = useRef(null)
+  const lastTapTimeRef = useRef(0)
 
   const activeFilterCss = useMemo(() => {
     const baseCss = VIDEO_FILTERS[videoFilter]?.css || 'none'
@@ -362,7 +363,11 @@ export default function VideoPlayer({
   }, [])
 
   const handleToggleControls = useCallback((e) => {
-    e.stopPropagation()
+    e?.stopPropagation()
+    const now = Date.now()
+    if (now - lastTapTimeRef.current < 250) return
+    lastTapTimeRef.current = now
+
     setShowControls((prev) => {
       const next = !prev
       if (!next) {
@@ -377,12 +382,18 @@ export default function VideoPlayer({
               setShowFilterMenu(false)
               setShowQualityMenu(false)
             }
-          }, 3500)
+          }, 4000)
         }
       }
       return next
     })
   }, [])
+
+  const handlePointerTouch = useCallback((e) => {
+    if (e.pointerType === 'touch') {
+      handleToggleControls(e)
+    }
+  }, [handleToggleControls])
 
   const togglePlayPause = useCallback((e) => {
     e?.stopPropagation()
@@ -532,17 +543,20 @@ export default function VideoPlayer({
         className={styles.playerWrapper}
         onMouseMove={handleMouseMove}
         onClick={handleToggleControls}
+        onPointerDown={handlePointerTouch}
         onContextMenu={(e) => e.preventDefault()}
       >
         {isHLS ? (
-        <video
-          ref={videoRef}
-          className={styles.videoElement}
-          style={{ filter: activeFilterCss }}
-          autoPlay={playing}
-          muted={localMuted}
-          controls={false}
-          playsInline
+          <video
+            ref={videoRef}
+            className={styles.videoElement}
+            style={{ filter: activeFilterCss }}
+            autoPlay={playing}
+            muted={localMuted}
+            controls={false}
+            playsInline
+            onPointerDown={handlePointerTouch}
+            onClick={handleToggleControls}
           onPlay={() => { setIsReady(true); emitPlay() }}
           onPause={emitPause}
           onSeeked={() => emitSeek(currentTime())}
@@ -610,6 +624,7 @@ export default function VideoPlayer({
       <div
         className={styles.touchCatcher}
         onClick={handleToggleControls}
+        onPointerDown={handlePointerTouch}
         onContextMenu={(e) => e.preventDefault()}
       />
 
@@ -620,6 +635,7 @@ export default function VideoPlayer({
       <div
         className={`${styles.customControlsOverlay} ${showControls ? styles.controlsVisible : ''}`}
         onClick={handleToggleControls}
+        onPointerDown={handlePointerTouch}
         onContextMenu={(e) => e.preventDefault()}
       >
         <div className={styles.overlayBottomBar} onClick={(e) => e.stopPropagation()}>
