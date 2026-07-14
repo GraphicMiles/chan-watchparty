@@ -135,63 +135,75 @@ async function searchPornhub(query, limit = 20) {
 }
 
 async function searchSpankBang(query, limit = 20) {
-  const searchUrl = `https://spankbang.com/s/${encodeURIComponent(query)}/`
+  const SPANKBANG_BASE = 'https://spankbang.party'
+  // Try both URL patterns and merge results
+  const searchUrls = [
+    `${SPANKBANG_BASE}/s/${encodeURIComponent(query)}/`,
+    `${SPANKBANG_BASE}/video/search?search=${encodeURIComponent(query)}`,
+  ]
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS)
+  const results = []
+  const seen = new Set()
 
   try {
-    const response = await fetch(searchUrl, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml',
-      },
-    })
-    if (!response.ok) return []
-
-    const html = await response.text()
-    const $ = cheerio.load(html)
-    const results = []
-    const seen = new Set()
-
-    $('.video-item, .thumb-item').each((_, element) => {
-      if (results.length >= limit) return false
-      const item = $(element)
-      const link = item.find('a[href*="/video/"]').first().attr('href') || item.find('a.n[href]').first().attr('href') || item.find('a[href]').first().attr('href')
-      if (!link) return
-
+    for (const searchUrl of searchUrls) {
+      if (results.length >= limit) break
       try {
-        const url = new URL(link, 'https://spankbang.com').href
-        if (seen.has(url) || !/spankbang\.com\/.*\/video\//i.test(url)) return
-        seen.add(url)
+        const response = await fetch(searchUrl, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml',
+          },
+        })
+        if (!response.ok) continue
 
-        const title = item.find('a.n, .n, .title').first().text().replace(/\s+/g, ' ').trim() || item.find('img').first().attr('alt') || 'Untitled'
-        const img = item.find('img[data-src], img[src]').first()
-        const thumbnail = img.attr('data-src') || img.attr('src') || null
-        const duration = item.find('.l, .duration').first().text().replace(/\s+/g, ' ').trim() || null
+        const html = await response.text()
+        const $ = cheerio.load(html)
 
-        results.push({
-          id: item.attr('data-id') || url,
-          title,
-          url,
-          link: url,
-          thumbnail,
-          duration,
-          source: 'spankbang',
-          provider: 'spankbang',
-          type: 'nsfw',
-          isNSFW: true,
-          isDirect: false,
-          requiresUserAction: true,
+        $('.video-item, .thumb-item').each((_, element) => {
+          if (results.length >= limit) return false
+          const item = $(element)
+          const link = item.find('a[href*="/video/"]').first().attr('href') || item.find('a.n[href]').first().attr('href') || item.find('a[href]').first().attr('href')
+          if (!link) return
+
+          try {
+            const url = new URL(link, SPANKBANG_BASE).href
+            if (seen.has(url) || !/spankbang\.(com|party)\/.*\/video\//i.test(url)) return
+            seen.add(url)
+
+            const title = item.find('a.n, .n, .title').first().text().replace(/\s+/g, ' ').trim() || item.find('img').first().attr('alt') || 'Untitled'
+            const img = item.find('img[data-src], img[src]').first()
+            const thumbnail = img.attr('data-src') || img.attr('src') || null
+            const duration = item.find('.l, .duration').first().text().replace(/\s+/g, ' ').trim() || null
+
+            results.push({
+              id: item.attr('data-id') || url,
+              title,
+              url,
+              link: url,
+              thumbnail,
+              duration,
+              source: 'spankbang',
+              provider: 'spankbang',
+              type: 'nsfw',
+              isNSFW: true,
+              isDirect: false,
+              requiresUserAction: true,
+            })
+          } catch {
+            /* ignore */
+          }
         })
       } catch {
-        /* ignore */
+        /* try next URL pattern */
       }
-    })
+    }
 
     return results
   } catch {
-    return []
+    return results
   } finally {
     clearTimeout(timer)
   }

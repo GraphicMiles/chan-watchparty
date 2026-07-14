@@ -87,7 +87,7 @@ export const SITE_CONFIGS = {
   },
   spankbang: {
     label: 'SpankBang',
-    baseUrl: 'https://spankbang.com',
+    baseUrl: 'https://spankbang.party',
     items: '.video-item, .thumb',
     title: '.title, h1, h2',
     image: 'img[src], img[data-src]',
