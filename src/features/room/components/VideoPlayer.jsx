@@ -306,7 +306,12 @@ export default function VideoPlayer({
       handleError(video.error?.message || `Video error: ${video.error?.code || 'unknown'}`)
     }
 
-    if (Hls.isSupported()) {
+    const canPlayNativeHls = video.canPlayType('application/vnd.apple.mpegurl') || (/iPad|iPhone|iPod|Safari/i.test(navigator.userAgent) && !/Chrome|CriOS|FxiOS|Edg/i.test(navigator.userAgent))
+
+    if (canPlayNativeHls && video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = resolvedUrl
+      video.addEventListener('loadedmetadata', onLoadedMetadata)
+    } else if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
@@ -333,9 +338,6 @@ export default function VideoPlayer({
         else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError()
         else handleError(new Error(`HLS fatal error: ${data.details}`))
       })
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = resolvedUrl
-      video.addEventListener('loadedmetadata', onLoadedMetadata)
     } else {
       handleError(new Error('HLS is not supported in this browser'))
     }

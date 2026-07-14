@@ -70,21 +70,6 @@ export const SITE_CONFIGS = {
       return `http://d6.o2tv.org/${cleanShow}/Season%20${seasonNum}/${cleanShow}%20-%20S${seasonNum}E${epNum}%20(TvShows4Mobile.Com)%20otv-1awrk.mp4`
     },
   },
-  animedrive: {
-    label: 'AnimeDrive',
-    baseUrl: 'https://animedrive.in',
-    items: 'article.post, .video-item, .entry, .search-result, .post-item',
-    title: 'h2 a, .entry-title a, .video-title, h3 a, .title',
-    image: 'img[src], .thumbnail img, .post-thumbnail img, img[data-src], img.wp-post-image',
-    link: 'a[href*="/download/"], a[href*="/watch/"], a[href*="/anime/"], a[href*=".mp4"], a[href*=".mkv"], h2 a, .entry-title a',
-    meta: '.posted-on, .meta, .video-meta, .date',
-    buildSearchUrl: (q) => `https://animedrive.in/?s=${encodeURIComponent(q)}`,
-    buildSearchUrls: (q) => [
-      `https://animedrive.in/?s=${encodeURIComponent(q)}`,
-      `https://animedrive.in/search/${encodeURIComponent(q)}`,
-      `https://animedrive.in/?q=${encodeURIComponent(q)}`,
-    ],
-  },
   '9jarocks': {
     label: '9jaRocks',
     baseUrl: 'https://9jarocks.net',

@@ -39,16 +39,21 @@ export default async function handler(req, res) {
 
     const targetUrl = validateProxyUrl(rawUrl)
 
+    const fetchHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Referer': targetUrl.origin,
+    }
+    if (req.headers.range) {
+      fetchHeaders['Range'] = req.headers.range
+    }
+
     const response = await fetch(targetUrl.href, {
       redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Referer': targetUrl.origin,
-      },
+      headers: fetchHeaders,
     })
 
-    if (!response.ok) {
+    if (!response.ok && response.status !== 206) {
       return fail(res, response.status, `Upstream server returned HTTP ${response.status}`)
     }
 
@@ -97,12 +102,31 @@ export default async function handler(req, res) {
       res.setHeader('Content-Range', contentRange)
       res.status(206)
     } else {
-      res.status(200)
+      res.status(response.status === 206 ? 206 : 200)
+    }
+
+    const contentLength = response.headers.get('content-length')
+    if (contentLength) res.setHeader('Content-Length', contentLength)
+
+    const isLargeFile = contentLength && Number(contentLength) > 4500000 || /\.(mp4|mkv|mov|avi)$/i.test(targetUrl.pathname)
+    if (isLargeFile && response.body) {
+      if (typeof response.body.pipe === 'function') {
+        response.body.pipe(res)
+        return
+      }
+      const reader = response.body.getReader()
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        res.write(value)
+      }
+      res.end()
+      return
     }
 
     const arrayBuffer = await response.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
-    res.setHeader('Content-Length', String(buffer.length))
+    if (!contentLength) res.setHeader('Content-Length', String(buffer.length))
     res.send(buffer)
   } catch (err) {
     console.error('Proxy error:', err)

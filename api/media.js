@@ -286,7 +286,7 @@ async function searchDirectLinks(query, options = {}) {
   const requestedSite = options.site && options.site !== 'custom' && options.site !== 'all' ? options.site : null
   const scrapers = requestedSite
     ? [requestedSite]
-    : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv']
+    : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv']
   
   const searchedSites = [...scrapers]
   
@@ -364,11 +364,10 @@ async function searchDirectLinks(query, options = {}) {
 
       if (siteCandidates.length === 0) return
 
-      const candidates = options.resolve
-        ? siteCandidates.slice(0, Math.min(6, Math.max(1, Number(options.resolveLimit) || 4)))
-        : siteCandidates
+      const toResolve = options.resolve ? siteCandidates.slice(0, 10) : siteCandidates
+      const remainder = options.resolve ? siteCandidates.slice(10, 60) : []
 
-      const enriched = await Promise.all(candidates.map(async (result) => {
+      const enriched = await Promise.all(toResolve.map(async (result) => {
         if (options.resolve && !result.isDirect) {
           const resolved = await resolvePageChain(result.url, siteKey)
           if (resolved.length) {
@@ -380,7 +379,7 @@ async function searchDirectLinks(query, options = {}) {
                 thumbnail: thumb,
                 image: thumb,
                 source: item.source || siteKey,
-                type: siteKey === 'animedrive' ? 'anime' : 'direct',
+                type: 'direct',
                 quality: extractQuality(item.title || result.title),
               }
             })
@@ -393,14 +392,28 @@ async function searchDirectLinks(query, options = {}) {
           thumbnail: thumb,
           image: thumb,
           source: siteKey,
-          type: siteKey === 'animedrive' ? 'anime' : 'direct',
+          type: 'direct',
           isDirect: result.isDirect === true,
           playableInRoom: result.isDirect === true,
           quality: extractQuality(result.title),
         }]
       }))
       
-      results.push(...enriched.flat())
+      const remainderEnriched = remainder.map((result) => {
+        const thumb = result.thumbnail || result.image || null
+        return {
+          ...result,
+          thumbnail: thumb,
+          image: thumb,
+          source: siteKey,
+          type: 'direct',
+          isDirect: result.isDirect === true,
+          playableInRoom: result.isDirect === true,
+          quality: extractQuality(result.title),
+        }
+      })
+
+      results.push(...enriched.flat(), ...remainderEnriched)
     } catch (err) {
       console.error(`${siteKey} search failed:`, err.message)
     }
@@ -431,7 +444,7 @@ async function searchDirectLinks(query, options = {}) {
 
   const finalResults = interleaved.length ? interleaved : deduplicated
   const offset = Math.max(0, Number(options.offset) || 0)
-  const limit = Math.min(60, Math.max(1, Number(options.limit) || 30))
+  const limit = Math.min(100, Math.max(1, Number(options.limit) || 60))
   return {
     results: finalResults.slice(offset, offset + limit),
     hasMore: offset + limit < finalResults.length,
