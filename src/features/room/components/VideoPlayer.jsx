@@ -374,19 +374,49 @@ export default function VideoPlayer({
     onPlayerEventRef.current?.({ isPlaying: playingRef.current, currentTime: newTimeSec })
   }, [])
 
-  const handleError = useCallback((err) => {
-    const nextError = err instanceof Error ? err : new Error(String(err || 'Video playback failed'))
-    console.error('Video error:', nextError)
+  // MediaError code → human-readable message
+  const MEDIA_ERROR_MESSAGES = {
+    1: 'Playback was aborted. Try again.',
+    2: 'Network error — the stream server may be down or slow.',
+    3: 'Decoding error — this stream format is not supported or the file is corrupt. Try a different source.',
+    4: 'Source not supported — this stream format cannot be played in your browser, or the channel is offline.',
+  }
 
-    // Detect common browser demuxer errors and give a helpful message
-    const msg = nextError.message || ''
-    if (/DEMUXER_ERROR|COULD_NOT_OPEN|PIPELINE/i.test(msg) || /format|decode|demux/i.test(msg)) {
-      setError('This stream format is not supported by your browser, or the channel may be offline. Try a different source or channel.')
-    } else if (/network|fetch|timeout|abort/i.test(msg)) {
-      setError('Network error — the stream server may be down or slow. It will retry automatically.')
+  const handleError = useCallback((err) => {
+    // ReactPlayer/FilePlayer passes MediaError objects or Events, NOT Error instances.
+    // String(MediaError) = "[object Object]" — that's the "object entry" bug.
+    let message = ''
+
+    if (err instanceof Error) {
+      message = err.message
+    } else if (err && typeof err === 'object') {
+      // MediaError from <video>.error
+      if (err.target?.error) {
+        const code = err.target.error.code
+        message = err.target.error.message || MEDIA_ERROR_MESSAGES[code] || `Video error (code ${code})`
+      } else if (typeof err.code === 'number') {
+        // Direct MediaError object
+        message = err.message || MEDIA_ERROR_MESSAGES[err.code] || `Video error (code ${err.code})`
+      } else if (err.message) {
+        message = err.message
+      } else if (typeof err.toString === 'function' && err.toString() !== '[object Object]') {
+        message = err.toString()
+      } else {
+        // Last resort — try to extract anything useful
+        try {
+          message = JSON.stringify(err).slice(0, 200)
+        } catch {
+          message = 'Video playback failed — unknown error'
+        }
+      }
+    } else if (typeof err === 'string') {
+      message = err
     } else {
-      setError(nextError.message)
+      message = 'Video playback failed'
     }
+
+    console.error('Video error:', message, err)
+    setError(message)
 
     if (retryCountRef.current < RETRY_ATTEMPTS) {
       retryCountRef.current += 1
@@ -398,7 +428,7 @@ export default function VideoPlayer({
         }
       }, RETRY_DELAY)
     } else {
-      onError?.(nextError)
+      onError?.(new Error(message))
     }
   }, [isHLS, onError, played])
 
@@ -430,7 +460,12 @@ export default function VideoPlayer({
       notifyReady()
     }
     const onNativeError = () => {
-      handleError(video.error?.message || `Video error: ${video.error?.code || 'unknown'}`)
+      const mediaErr = video.error
+      if (mediaErr) {
+        handleError({ code: mediaErr.code, message: mediaErr.message })
+      } else {
+        handleError('Video element encountered an unknown error')
+      }
     }
 
     const canPlayNativeHls = video.canPlayType('application/vnd.apple.mpegurl') || (/iPad|iPhone|iPod|Safari/i.test(navigator.userAgent) && !/Chrome|CriOS|FxiOS|Edg/i.test(navigator.userAgent))

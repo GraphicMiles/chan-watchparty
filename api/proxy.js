@@ -123,7 +123,15 @@ export default async function handler(req, res) {
         return fail(res, chunkResponse.status, `Upstream chunk returned ${chunkResponse.status}`)
       }
 
-      // Safely read up to CHUNK_SIZE bytes so Vercel Serverless memory never overflows even if upstream ignored Range
+      // Detect if upstream returned HTML instead of video (dead channel / error page)
+      const upstreamContentType = chunkResponse.headers.get('content-type') || ''
+      if (/^text\/html/i.test(upstreamContentType)) {
+        return fail(res, 502, 'Stream server returned a web page instead of video — channel may be offline')
+      }
+
+      // If upstream returned 200 (not 206), it doesn't support Range — return 200 to client too
+      // otherwise the browser's decoder gets confused by a mismatched Content-Range
+      const upstreamSupportsRange = chunkResponse.status === 206
       const chunks = []
       let bytesRead = 0
       if (chunkResponse.body && typeof chunkResponse.body.getReader === 'function') {
@@ -160,11 +168,14 @@ export default async function handler(req, res) {
       res.setHeader('Accept-Ranges', 'bytes')
       res.setHeader('Cache-Control', cacheControlForType(contentType))
 
-      if (totalLength > 0 || req.headers.range || chunkResponse.status === 206) {
+      if (upstreamSupportsRange && (totalLength > 0 || req.headers.range)) {
+        // Upstream actually supports Range — pass through 206 with correct Content-Range
         res.setHeader('Content-Range', chunkRange)
         res.setHeader('Content-Length', String(buffer.length))
         res.status(206)
       } else {
+        // Upstream returned full file (no Range support, like o2tv)
+        // Return 200 with just the data — no Content-Range header
         res.setHeader('Content-Length', String(buffer.length))
         res.status(200)
       }
@@ -279,7 +290,14 @@ export default async function handler(req, res) {
         return fail(res, chunkResponse.status, `Upstream chunk returned ${chunkResponse.status}`)
       }
 
-      const chunkRange = chunkResponse.headers.get('content-range') || `bytes ${start}-${end}/${totalLength > 0 ? totalLength : '*'}`
+      // Detect HTML instead of video
+      const upCt = chunkResponse.headers.get('content-type') || ''
+      if (/^text\/html/i.test(upCt)) {
+        return fail(res, 502, 'Stream server returned a web page instead of video — channel may be offline')
+      }
+
+      const upstreamSupportsRange = chunkResponse.status === 206
+      const chunkRange = chunkResponse.headers.get('content-range') || (upstreamSupportsRange ? `bytes ${start}-${end}/${totalLength > 0 ? totalLength : '*'}` : null)
       const chunkLen = chunkResponse.headers.get('content-length') || String(end - start + 1)
 
       res.setHeader('Access-Control-Allow-Origin', '*')
@@ -287,10 +305,16 @@ export default async function handler(req, res) {
       res.setHeader('Access-Control-Allow-Headers', '*')
       res.setHeader('Content-Type', contentType || 'video/mp4')
       res.setHeader('Accept-Ranges', 'bytes')
-      res.setHeader('Content-Range', chunkRange)
       res.setHeader('Content-Length', chunkLen)
       res.setHeader('Cache-Control', cacheControlForType(contentType))
-      res.status(206)
+
+      if (upstreamSupportsRange && chunkRange) {
+        res.setHeader('Content-Range', chunkRange)
+        res.status(206)
+      } else {
+        // Upstream doesn't support Range — return 200 (fixes o2tv object-entry error)
+        res.status(200)
+      }
 
       if (req.method === 'HEAD') {
         res.end()
