@@ -40,13 +40,94 @@ export default async function handler(req, res) {
 
     const targetUrl = validateProxyUrl(rawUrl)
 
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', '*')
+
+    // If it is a video file (.mp4, .mkv, .mov, .avi) or explicit Range header requested by <video> tag
+    const isVideoOrBinary = /\.(mp4|mkv|mov|avi|webm|flv)$/i.test(targetUrl.pathname) || Boolean(req.headers.range)
+    if (isVideoOrBinary) {
+      let start = 0
+      let end = null
+      const rangeMatch = req.headers.range?.match(/bytes=(\d+)-(\d*)/)
+      if (rangeMatch) {
+        start = parseInt(rangeMatch[1], 10) || 0
+        if (rangeMatch[2]) {
+          end = parseInt(rangeMatch[2], 10)
+        }
+      }
+
+      // First check total length via HEAD or 0-0 probe
+      let totalLength = 0
+      let contentType = 'video/mp4'
+      const probeResponse = await fetch(targetUrl.href, {
+        method: 'GET',
+        redirect: 'follow',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Referer': targetUrl.origin,
+          'Range': 'bytes=0-0',
+        },
+      }).catch(() => null)
+
+      if (probeResponse && (probeResponse.ok || probeResponse.status === 206)) {
+        contentType = probeResponse.headers.get('content-type') || contentType
+        const contentRange = probeResponse.headers.get('content-range')
+        if (contentRange) {
+          const parts = contentRange.split('/')
+          totalLength = Number(parts[1]) || 0
+        } else {
+          totalLength = Number(probeResponse.headers.get('content-length')) || 0
+        }
+        if (probeResponse.body) await probeResponse.body.cancel().catch(() => {})
+      }
+
+      const CHUNK_SIZE = 3500000 // 3.5MB safe boundary
+
+      if (totalLength > 0 && (end === null || (end - start + 1) > CHUNK_SIZE)) {
+        end = Math.min(start + CHUNK_SIZE - 1, totalLength - 1)
+      } else if (end === null) {
+        end = start + CHUNK_SIZE - 1
+      }
+
+      const chunkResponse = await fetch(targetUrl.href, {
+        redirect: 'follow',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Referer': targetUrl.origin,
+          'Range': `bytes=${start}-${end}`,
+        },
+      })
+
+      if (!chunkResponse.ok && chunkResponse.status !== 206) {
+        return fail(res, chunkResponse.status, `Upstream chunk returned ${chunkResponse.status}`)
+      }
+
+      const chunkRange = chunkResponse.headers.get('content-range') || `bytes ${start}-${end}/${totalLength > 0 ? totalLength : '*'}`
+      const chunkLen = chunkResponse.headers.get('content-length') || String(end - start + 1)
+
+      res.setHeader('Content-Type', contentType || 'video/mp4')
+      res.setHeader('Accept-Ranges', 'bytes')
+      res.setHeader('Content-Range', chunkRange)
+      res.setHeader('Content-Length', chunkLen)
+      res.status(206)
+
+      if (req.method === 'HEAD') {
+        res.end()
+        return
+      }
+
+      const arrayBuffer = await chunkResponse.arrayBuffer()
+      res.send(Buffer.from(arrayBuffer))
+      return
+    }
+
     const fetchHeaders = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
       'Accept': '*/*',
       'Referer': targetUrl.origin,
-    }
-    if (req.headers.range) {
-      fetchHeaders['Range'] = req.headers.range
     }
 
     const response = await fetch(targetUrl.href, {
@@ -61,10 +142,6 @@ export default async function handler(req, res) {
     const contentType = response.headers.get('content-type') || ''
     const isM3u8 = /(?:application\/vnd\.apple\.mpegurl|audio\/mpegurl|application\/x-mpegurl|text\/vnd\.apple\.mpegurl|\.m3u8)/i.test(contentType) ||
                    /\.m3u8(?:\?|#|$)/i.test(targetUrl.pathname)
-
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', '*')
 
     if (isM3u8) {
       const text = await response.text()
