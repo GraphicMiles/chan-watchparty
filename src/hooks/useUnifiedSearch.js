@@ -111,7 +111,7 @@ export function useUnifiedSearch() {
           query: trimmedQuery,
           options: {
             ...normalizedOptions,
-            limit: 20,
+            limit: 25,
             offset: requestOffset,
           },
         }),

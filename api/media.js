@@ -605,8 +605,16 @@ async function searchNSFW(query, options = {}, user = null) {
     throw Object.assign(new Error('Age verification required. You must be 18+ to search this content.'), { status: 403 })
   }
 
-  const provider = options.provider || process.env.NSFW_PROVIDER || 'xvideos'
-  return searchNsfwProvider(provider, query, Math.min(20, Math.max(1, Number(options.limit) || 20)))
+  const provider = options.provider || 'all'  // default to all providers (3-chain interleaving)
+  const maxLimit = Math.min(100, Math.max(1, Number(options.limit) || 25))
+  const offset = Math.max(0, Number(options.offset) || 0)
+  const allResults = await searchNsfwProvider(provider, query, maxLimit + offset)
+
+  // Apply offset-based pagination
+  const paginated = allResults.slice(offset, offset + maxLimit)
+  const nextHasMore = offset + maxLimit < allResults.length
+
+  return { results: paginated, hasMore: nextHasMore }
 }
 
 // ==================== SCRAPER HELPERS ====================
@@ -1184,8 +1192,8 @@ export default async function handler(req, res) {
           results = await searchSports(query)
           break
         case 'nsfw': {
-          const searchResults = await searchNSFW(query, options, decoded)
-          results = searchResults.map((result) => {
+          const nsfwResult = await searchNSFW(query, options, decoded)
+          results = (nsfwResult.results || nsfwResult).map((result) => {
             const thumb = result.thumbnail || result.image || null
             return {
               ...result,
@@ -1198,6 +1206,7 @@ export default async function handler(req, res) {
               requiresUserAction: true,
             }
           })
+          hasMore = nsfwResult.hasMore === true
           break
         }
         default:

@@ -246,12 +246,14 @@ export function getNsfwProviderIds() {
   return Object.keys(NSFW_PROVIDERS)
 }
 
-export async function searchNsfwProvider(provider, query, limit = 20) {
+export async function searchNsfwProvider(provider, query, limit = 100) {
   if (!provider || provider === 'all' || !NSFW_PROVIDERS[provider]) {
+    // Fetch up to 40 per provider so interleaving can fill 100+ results
+    const perProvider = Math.max(40, Math.ceil(limit / 3))
     const [xv, ph, sb] = await Promise.all([
-      searchXVideos(query, Math.max(12, limit)).catch(() => []),
-      searchPornhub(query, Math.max(12, limit)).catch(() => []),
-      searchSpankBang(query, Math.max(12, limit)).catch(() => []),
+      searchXVideos(query, perProvider).catch(() => []),
+      searchPornhub(query, perProvider).catch(() => []),
+      searchSpankBang(query, perProvider).catch(() => []),
     ])
     const all = []
     const lists = [xv, ph, sb].filter((l) => l.length > 0)
@@ -265,7 +267,7 @@ export async function searchNsfwProvider(provider, query, limit = 20) {
         }
       }
     }
-    return all.slice(0, Math.max(36, limit))
+    return all
   }
   const adapter = NSFW_PROVIDERS[provider]
   return adapter.search(query, limit)
