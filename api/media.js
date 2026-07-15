@@ -612,7 +612,8 @@ async function searchDirectLinks(query, options = {}) {
 
   const $s = cheerio.load(searchHtml)
   const initialPages = []; const seenUrls = new Set()
-  for (const sel of ['article a[href]', '.post-item a[href]', '.movies-list a[href]', 'h2 a[href]', 'h3 a[href]']) {
+  // Nkiri uses .search-entry-inner for search results
+  for (const sel of ['.search-entry-inner a[href]', 'article a[href]', '.post-item a[href]', 'h2 a[href]', 'h3 a[href]']) {
     $s(sel).each((_, el) => {
       const href = $s(el).attr('href') || ''; const title = $s(el).attr('title') || $s(el).text().trim() || ''
       if (!href || !href.startsWith(NKIRI_BASE) || /\/(page|category|tag|search)\//i.test(href) || seenUrls.has(href)) return
