@@ -596,184 +596,122 @@ async function resolveDownloadwellaWithBrowser(pageUrl) {
 async function searchDirectLinks(query, options = {}) {
   const baseQ = String(query || '').trim()
   if (!baseQ) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
-
   const offset = Math.max(0, Number(options.offset) || 0)
-  const limit = Math.min(100, Math.max(1, Number(options.limit) || 25))
+  const limit = 25
   const NKIRI_BASE = 'https://thenkiri.com'
 
-  // ═══════════════════════════════════════════
-  // STEP 1: Search Nkiri
-  // ═══════════════════════════════════════════
-  const searchUrl = `${NKIRI_BASE}/?s=${encodeURIComponent(baseQ)}`
+  // STEP 1: Search
+  const searchUrl = NKIRI_BASE + '/?s=' + encodeURIComponent(baseQ)
   let searchHtml = ''
   try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 8000)
-    const res = await fetch(searchUrl, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml',
-        'Accept-Language': 'en-US,en;q=0.9',
-        Referer: NKIRI_BASE + '/',
-      },
-      redirect: 'follow',
-    })
-    clearTimeout(timer)
-    if (res.ok) searchHtml = await res.text()
-  } catch (err) { console.error('Nkiri search fetch failed:', err.message) }
-
+    const c = new AbortController(), t = setTimeout(() => c.abort(), 8000)
+    const res = await fetch(searchUrl, { signal: c.signal, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', Accept: 'text/html', Referer: NKIRI_BASE + '/' }, redirect: 'follow' })
+    clearTimeout(t); if (res.ok) searchHtml = await res.text()
+  } catch (err) { console.error('Nkiri search failed:', err.message) }
   if (!searchHtml) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
 
-  // Extract show/season page links
-  const $search = cheerio.load(searchHtml)
-  const showPages = []
-  const seenShowUrls = new Set()
-
-  for (const selector of ['article a[href]', '.post-item a[href]', '.movies-list a[href]', '.list-movies a[href]', 'h2 a[href]', 'h3 a[href]']) {
-    $search(selector).each((_, el) => {
-      const href = $search(el).attr('href') || ''
-      const title = $search(el).attr('title') || $search(el).text().trim() || ''
-      if (!href || !href.startsWith(NKIRI_BASE)) return
-      if (/\/(page|category|tag|search)\//i.test(href)) return
-      if (seenShowUrls.has(href)) return
-      seenShowUrls.add(href)
-      showPages.push({ url: href, title })
+  const $s = cheerio.load(searchHtml)
+  const initialPages = []; const seenUrls = new Set()
+  for (const sel of ['article a[href]', '.post-item a[href]', '.movies-list a[href]', 'h2 a[href]', 'h3 a[href]']) {
+    $s(sel).each((_, el) => {
+      const href = $s(el).attr('href') || ''; const title = $s(el).attr('title') || $s(el).text().trim() || ''
+      if (!href || !href.startsWith(NKIRI_BASE) || /\/(page|category|tag|search)\//i.test(href) || seenUrls.has(href)) return
+      seenUrls.add(href); initialPages.push({ url: href, title })
     })
-    if (showPages.length > 0) break
+    if (initialPages.length > 0) break
   }
-
-  // Regex fallback
-  if (showPages.length === 0) {
-    const showLinkRe = new RegExp(`href="(https://${NKIRI_BASE.replace('https://', '')}/[^"]+)"`, 'gi')
-    let m
-    while ((m = showLinkRe.exec(searchHtml)) !== null) {
-      const href = m[1]
-      if (/\/(page|category|tag|search)\//i.test(href)) continue
-      if (seenShowUrls.has(href)) continue
-      seenShowUrls.add(href)
-      const ctxStart = Math.max(0, m.index - 300)
-      const ctxEnd = Math.min(searchHtml.length, m.index + 500)
-      const ctx = searchHtml.slice(ctxStart, ctxEnd)
-      const titleMatch = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
-      showPages.push({ url: href, title: titleMatch?.[1] || href.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Video' })
+  if (initialPages.length === 0) {
+    const re = new RegExp('href="(https://' + NKIRI_BASE.replace('https://', '') + '/[^"]+)"', 'gi'); let m
+    while ((m = re.exec(searchHtml)) !== null) {
+      const href = m[1]; if (/\/(page|category|tag|search)\//i.test(href) || seenUrls.has(href)) continue
+      seenUrls.add(href)
+      const ctx = searchHtml.slice(Math.max(0, m.index - 300), Math.min(searchHtml.length, m.index + 500))
+      const tm = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
+      initialPages.push({ url: href, title: tm?.[1] || href.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Video' })
     }
   }
+  const filtered = initialPages.filter(sp => softTitleMatch(sp.title, baseQ))
+  if (filtered.length === 0) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
 
-  const filteredShows = showPages.filter((sp) => softTitleMatch(sp.title, baseQ))
-  if (filteredShows.length === 0) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
+  // STEP 2: Recursively scrape ALL related pages (depth=2, max 30 pages)
+  const allDlLinks = []; const seenDl = new Set(); const scraped = new Set(); const MAX_PAGES = 30, MAX_DEPTH = 2
 
-  // ═══════════════════════════════════════════
-  // STEP 2: Scrape show pages for downloadwella links
-  // ═══════════════════════════════════════════
-  const dlPageUrls = []
-  const seenDlUrls = new Set()
-  const showsToScrape = filteredShows.slice(0, 8)
-
-  async function scrapeShowPage(show) {
+  async function scrapePage(page, depth) {
+    if (scraped.has(page.url) || scraped.size >= MAX_PAGES) return
+    scraped.add(page.url)
     try {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 6000)
-      const res = await fetch(show.url, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml',
-          Referer: NKIRI_BASE + '/',
-        },
-        redirect: 'follow',
+      const c = new AbortController(), t = setTimeout(() => c.abort(), 6000)
+      const res = await fetch(page.url, { signal: c.signal, headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'text/html', Referer: NKIRI_BASE + '/' }, redirect: 'follow' })
+      clearTimeout(t); if (!res.ok) return
+      const html = await res.text(); const $p = cheerio.load(html)
+      const poster = $p('meta[property="og:image"]').attr('content') || $p('img[src]').first().attr('src') || null
+      const resolvedPoster = poster ? resolveUrl(poster, page.url) : null
+
+      // Find downloadwella links
+      $p('a[href*="downloadwella.com"]').each((_, el) => {
+        const href = $p(el).attr('href'); const text = $p(el).text().trim() || $p(el).attr('title') || ''
+        if (href && !seenDl.has(href)) { seenDl.add(href); allDlLinks.push({ url: href, title: text || page.title, poster: resolvedPoster }) }
       })
-      clearTimeout(timer)
-      if (!res.ok) return
-      const html = await res.text()
-      const $page = cheerio.load(html)
-
-      const poster = $page('meta[property="og:image"]').attr('content') || $page('img[src]').first().attr('src') || null
-      const resolvedPoster = poster ? resolveUrl(poster, show.url) : null
-
-      // Find downloadwella links — cheerio first
-      $page('a[href*="downloadwella.com"]').each((_, el) => {
-        const href = $page(el).attr('href')
-        const text = $page(el).text().trim() || $page(el).attr('title') || ''
-        if (href && !seenDlUrls.has(href)) { seenDlUrls.add(href); dlPageUrls.push({ url: href, title: text || show.title, poster: resolvedPoster }) }
-      })
-
-      // Regex fallback
-      if (dlPageUrls.filter(d => seenShowUrls.has(d.url)).length === 0) {
-        const dlRe = /href="(https?:\/\/(?:www\.)?downloadwella\.com\/[^"]+)"/gi
-        let m
+      if (allDlLinks.filter(d => d.url.startsWith('https://downloadwella')).length === 0 || allDlLinks.length < 5) {
+        const dlRe = /href="(https?:\/\/(?:www\.)?downloadwella\.com\/[^"]+)"/gi; let m
         while ((m = dlRe.exec(html)) !== null) {
-          if (seenDlUrls.has(m[1])) continue
-          seenDlUrls.add(m[1])
-          const ctxStart = Math.max(0, m.index - 200)
-          const ctxEnd = Math.min(html.length, m.index + 500)
-          const ctx = html.slice(ctxStart, ctxEnd)
-          const titleMatch = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
-          dlPageUrls.push({ url: m[1], title: titleMatch?.[1] || m[1].split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Download', poster: resolvedPoster })
+          if (seenDl.has(m[1])) continue; seenDl.add(m[1])
+          const ctx = html.slice(Math.max(0, m.index - 200), Math.min(html.length, m.index + 500))
+          const tm = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
+          allDlLinks.push({ url: m[1], title: tm?.[1] || m[1].split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Download', poster: resolvedPoster })
         }
       }
-    } catch (err) { console.error('Nkiri show page scrape failed:', show.url, err.message) }
-  }
 
-  let cursor = 0
-  async function worker() { while (true) { const idx = cursor++; if (idx >= showsToScrape.length) return; await scrapeShowPage(showsToScrape[idx]) } }
-  await Promise.all(Array.from({ length: Math.min(4, showsToScrape.length) }, worker))
-
-  if (dlPageUrls.length === 0) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
-
-  // ═══════════════════════════════════════════
-  // STEP 3: Resolve downloadwella → direct CDN URLs (Puppeteer)
-  // ═══════════════════════════════════════════
-  const resolvedResults = []
-  const seenResolved = new Set()
-  const dlPagesToResolve = dlPageUrls.slice(0, 20)
-
-  async function resolveDlPage(dlPage) {
-    try {
-      const directResults = await resolveDownloadwellaWithBrowser(dlPage.url)
-      for (const dr of directResults) {
-        const urlKey = (dr.url || '').toLowerCase()
-        if (seenResolved.has(urlKey)) continue
-        seenResolved.add(urlKey)
-        const cleanTitle = formatMediaTitle(dr.title || dlPage.title || 'Video')
-        const proxiedUrl = toProxiedPlaybackUrl(dr.url, { referer: 'https://downloadwella.com/' })
-        resolvedResults.push({
-          title: cleanTitle, url: proxiedUrl, link: proxiedUrl,
-          thumbnail: dlPage.poster || null, image: dlPage.poster || null,
-          source: 'nkiri', type: 'direct', isDirect: true, playableInRoom: true,
-          quality: extractQuality(dr.title || dlPage.title || ''), resolvedFrom: dlPage.url,
+      // Follow related links (seasons/parts) up to MAX_DEPTH
+      if (depth < MAX_DEPTH) {
+        $p('a[href]').each((_, el) => {
+          const href = $p(el).attr('href') || ''; const text = $p(el).text().trim() || ''
+          if (!href.startsWith(NKIRI_BASE) || /\/(page|category|tag|search)\//i.test(href) || scraped.has(href) || seenUrls.has(href)) return
+          if (/season|part|episode|s\d+|complete/i.test(text) || /season|part|episode|s\d+/i.test(href)) {
+            seenUrls.add(href); scrapePage({ url: href, title: text || href.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Video' }, depth + 1)
+          }
         })
       }
-    } catch (err) { console.error('Downloadwella resolution failed:', dlPage.url, err.message) }
+    } catch (err) { console.error('Nkiri page scrape failed:', page.url, err.message) }
   }
 
-  let dlCursor = 0
-  async function dlWorker() { while (true) { const idx = dlCursor++; if (idx >= dlPagesToResolve.length) return; await resolveDlPage(dlPagesToResolve[idx]) } }
-  await Promise.all(Array.from({ length: Math.min(4, dlPagesToResolve.length) }, dlWorker))
+  let cur = 0; async function worker() { while (true) { const i = cur++; if (i >= filtered.length) return; await scrapePage(filtered[i], 0) } }
+  await Promise.all(Array.from({ length: Math.min(4, filtered.length) }, worker))
+  if (allDlLinks.length === 0) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
 
-  // Fallback: if Puppeteer found nothing, return downloadwella page URLs for click-through
-  if (resolvedResults.length === 0) {
-    for (const dlPage of dlPagesToResolve.slice(0, 10)) {
-      resolvedResults.push({
-        title: formatMediaTitle(dlPage.title || 'Video'),
-        url: dlPage.url, link: dlPage.url,
-        thumbnail: dlPage.poster || null, image: dlPage.poster || null,
-        source: 'nkiri', type: 'direct', isDirect: false, playableInRoom: false,
-        requiresResolve: true, quality: extractQuality(dlPage.title || ''),
-      })
+  // STEP 3: Resolve via Puppeteer (up to 100)
+  const resolved = []; const seenRes = new Set(); const toResolve = allDlLinks.slice(0, 100)
+  async function resolveDl(dl) {
+    try {
+      const direct = await resolveDownloadwellaWithBrowser(dl.url)
+      for (const dr of direct) {
+        const key = (dr.url || '').toLowerCase(); if (seenRes.has(key)) continue; seenRes.add(key)
+        resolved.push({
+          title: formatMediaTitle(dr.title || dl.title || 'Video'),
+          url: toProxiedPlaybackUrl(dr.url, { referer: 'https://downloadwella.com/' }),
+          link: toProxiedPlaybackUrl(dr.url, { referer: 'https://downloadwella.com/' }),
+          thumbnail: dl.poster || null, image: dl.poster || null,
+          source: 'nkiri', type: 'direct', isDirect: true, playableInRoom: true,
+          quality: extractQuality(dr.title || dl.title || ''), resolvedFrom: dl.url,
+        })
+      }
+    } catch (err) { console.error('DL resolution failed:', dl.url, err.message) }
+  }
+  let dc = 0; async function dlw() { while (true) { const i = dc++; if (i >= toResolve.length) return; await resolveDl(toResolve[i]) } }
+  await Promise.all(Array.from({ length: Math.min(4, toResolve.length) }, dlw))
+
+  // Fallback
+  if (resolved.length === 0) {
+    for (const dl of toResolve.slice(0, 25)) {
+      resolved.push({ title: formatMediaTitle(dl.title || 'Video'), url: dl.url, link: dl.url, thumbnail: dl.poster || null, image: dl.poster || null, source: 'nkiri', type: 'direct', isDirect: false, playableInRoom: false, requiresResolve: true, quality: extractQuality(dl.title || '') })
     }
   }
 
-  const omdbEnriched = await enrichWithOMDbPosters(resolvedResults, baseQ)
-  const deduplicated = deduplicateAndEnrich(omdbEnriched, baseQ)
-
-  return {
-    results: deduplicated.slice(offset, offset + limit),
-    hasMore: offset + limit < deduplicated.length,
-    searchedSites: ['nkiri'],
-    multiLayerCascaded: false,
-  }
+  const omdb = await enrichWithOMDbPosters(resolved, baseQ)
+  const deduped = deduplicateAndEnrich(omdb, baseQ)
+  return { results: deduped.slice(offset, offset + limit), hasMore: offset + limit < deduped.length, searchedSites: ['nkiri'], multiLayerCascaded: false }
 }
+
 async function searchArchiveOrg(query, limit = 20) {
   try {
     const searchUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent('"' + query + '"')}+mediatype:movies&output=json&rows=${limit}&fl[]=identifier,title,mediatype,downloads,year,description,num_reviews`
