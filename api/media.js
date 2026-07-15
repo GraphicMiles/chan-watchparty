@@ -624,6 +624,7 @@ async function searchDirectLinks(query, options = {}) {
     })
     if (initialPages.length > 0) break
   }
+  console.log('Nkiri cheerio found', initialPages.length, 'pages')
   if (initialPages.length === 0) {
     const re = new RegExp('href="(https://' + NKIRI_BASE.replace('https://', '') + '/[^"]+)"', 'gi'); let m
     while ((m = re.exec(searchHtml)) !== null) {
@@ -633,10 +634,17 @@ async function searchDirectLinks(query, options = {}) {
       const tm = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
       initialPages.push({ url: href, title: tm?.[1] || href.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Video' })
     }
+    console.log('Nkiri regex fallback found', initialPages.length, 'pages')
   }
-  const filtered = initialPages.filter(sp => softTitleMatch(sp.title, baseQ))
+  const filtered = initialPages.filter(sp => {
+    const matches = softTitleMatch(sp.title, baseQ)
+    if (!matches) console.log('Nkiri filter OUT:', sp.title.slice(0, 60), '| query:', baseQ)
+    return matches
+  })
+  console.log('Nkiri after softTitleMatch:', filtered.length, 'of', initialPages.length)
   if (filtered.length === 0) {
     console.log('Nkiri search: found', initialPages.length, 'pages but 0 passed softTitleMatch for query:', baseQ)
+    initialPages.slice(0, 3).forEach(p => console.log('  Sample:', p.title.slice(0, 80)))
     return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
   }
 

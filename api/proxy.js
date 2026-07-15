@@ -201,10 +201,22 @@ export default async function handler(req, res) {
     const isM3u8ByPath = /\.m3u8(?:\?|#|$)/i.test(targetUrl.pathname)
 
     if (isM3u8ByPath) {
-      const response = await fetch(targetUrl.href, {
-        redirect: 'follow',
-        headers: upstreamHeaders,
-      })
+      // Add timeout for playlist fetch (live streams can be slow)
+      const playlistController = new AbortController()
+      const playlistTimer = setTimeout(() => playlistController.abort(), 15000)
+      let response
+      try {
+        response = await fetch(targetUrl.href, {
+          redirect: 'follow',
+          headers: upstreamHeaders,
+          signal: playlistController.signal,
+        })
+      } catch (err) {
+        clearTimeout(playlistTimer)
+        if (err.name === 'AbortError') return fail(res, 504, 'Playlist fetch timed out')
+        throw err
+      }
+      clearTimeout(playlistTimer)
       if (!response.ok) return fail(res, response.status, `Upstream returned ${response.status}`)
 
       // Use the final URL after redirects so relative playlist entries resolve correctly
@@ -246,10 +258,22 @@ export default async function handler(req, res) {
     if (isKeyHost) {
       console.log(`Proxy upstream fetch: ${targetUrl.hostname} ${targetUrl.pathname.slice(0, 80)} remux=${req.query?.remux || 'auto'}`)
     }
-    const upstream = await fetch(targetUrl.href, {
-      redirect: 'follow',
-      headers: upstreamHeaders,
-    })
+    // Add timeout for upstream fetch (segments can be slow on live streams)
+    const upstreamController = new AbortController()
+    const upstreamTimer = setTimeout(() => upstreamController.abort(), 30000)
+    let upstream
+    try {
+      upstream = await fetch(targetUrl.href, {
+        redirect: 'follow',
+        headers: upstreamHeaders,
+        signal: upstreamController.signal,
+      })
+    } catch (err) {
+      clearTimeout(upstreamTimer)
+      if (err.name === 'AbortError') return fail(res, 504, 'Upstream fetch timed out')
+      throw err
+    }
+    clearTimeout(upstreamTimer)
     if (isKeyHost) {
       console.log(`Proxy upstream response: ${targetUrl.hostname} status=${upstream.status} type=${upstream.headers.get('content-type') || 'none'}`)
     }
