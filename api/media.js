@@ -2112,6 +2112,9 @@ export default async function handler(req, res) {
           }
           results = (nsfwResult.results || nsfwResult).map((result) => {
             const thumb = result.thumbnail || result.image || null
+            const itemUrl = result.url || result.link || ''
+            // Search hits are provider PAGE urls — mark for resolution, not as already-direct.
+            // Client will call action=scrape which runs resolveNsfwVideoUrl + proxy.
             return {
               ...result,
               thumbnail: thumb,
@@ -2120,7 +2123,12 @@ export default async function handler(req, res) {
               type: 'nsfw',
               isNSFW: true,
               isDirect: false,
+              // Keep requiresUserAction so UI knows this needs a resolve step,
+              // but the client now auto-resolves instead of only opening a new tab.
               requiresUserAction: true,
+              playableInRoom: false,
+              url: itemUrl,
+              link: itemUrl,
             }
           })
           hasMore = nsfwResult.hasMore === true

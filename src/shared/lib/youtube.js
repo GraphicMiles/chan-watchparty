@@ -40,29 +40,40 @@ const DIRECT_HOST_PATTERNS = [
 
 export function isDirectVideoUrl(url) {
   if (!url || typeof url !== 'string') return false
-  
-  // Quick regex check first
-  if (DIRECT_VIDEO_RE.test(url)) return true
-  
+
+  // Same-origin proxy URLs are always playable in-room (already resolved server-side)
+  if (/^\/api\/proxy\?/i.test(url) || /\/api\/proxy\?url=/i.test(url)) return true
+
+  // Percent-decoded check so encoded ".mp4" inside proxy query still matches
+  let decoded = url
+  try { decoded = decodeURIComponent(url) } catch { /* keep original */ }
+  if (DIRECT_VIDEO_RE.test(url) || DIRECT_VIDEO_RE.test(decoded)) return true
+
   try {
-    const u = new URL(url, 'https://example.com')
+    const u = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'https://example.com')
+    if (u.pathname.startsWith('/api/proxy')) return true
     if (!['http:', 'https:'].includes(u.protocol)) return false
-    
+
     // Check if hostname matches known direct video hosts
     const hostname = u.hostname.toLowerCase()
     if (DIRECT_HOST_PATTERNS.some(pattern => pattern.test(hostname))) {
       // If it's from a known video CDN, check for video extension or path patterns
-      if (DIRECT_VIDEO_RE.test(u.pathname)) return true
-      
+      if (DIRECT_VIDEO_RE.test(u.pathname) || DIRECT_VIDEO_RE.test(decoded)) return true
+
       // Also accept URLs with hash-based filenames (common on CDNs)
       if (/\/[a-f0-9]{16,}\//i.test(u.pathname) && u.pathname.length > 30) {
         return true
       }
     }
-    
+
+    // Query-param filename patterns (e.g. ?name=movie.mkv used by Koyeb CDN)
+    if (u.searchParams.getAll('name').some((v) => DIRECT_VIDEO_RE.test(v) || /\.(mp4|m3u8|mkv|webm|avi|mov|ts)$/i.test(v))) {
+      return true
+    }
+
     return DIRECT_VIDEO_RE.test(u.pathname) || DIRECT_VIDEO_RE.test(url)
   } catch {
-    return DIRECT_VIDEO_RE.test(url)
+    return DIRECT_VIDEO_RE.test(url) || DIRECT_VIDEO_RE.test(decoded)
   }
 }
 

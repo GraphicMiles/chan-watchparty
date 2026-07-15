@@ -2,7 +2,9 @@ import { FieldValue, Timestamp } from './firebaseAdmin.js'
 
 const STALE_MINUTES = 15
 // How long a room with 0 participants stays alive (waiting for host/viewers to return)
-const ZERO_PARTICIPANT_GRACE_MINUTES = 10
+// Keep short enough that the landing page never shows "N rooms live" with nobody watching
+// for more than a few minutes, but long enough for a host to rejoin after a refresh.
+const ZERO_PARTICIPANT_GRACE_MINUTES = 3
 
 export async function deleteRoomAndSubcollections(db, roomRef) {
   const subcollections = [
@@ -13,6 +15,9 @@ export async function deleteRoomAndSubcollections(db, roomRef) {
     'floatingReactions',
     'typing',
     'aiState',
+    'soundEffects',
+    'stagePins',
+    'quiz',
   ]
 
   for (const subName of subcollections) {
@@ -30,6 +35,24 @@ export async function deleteRoomAndSubcollections(db, roomRef) {
 
   // Delete the main room document
   await roomRef.delete().catch(() => {})
+}
+
+/**
+ * Recompute participantCount from the participants subcollection and fix drift.
+ * Returns the true count.
+ */
+async function reconcileParticipantCount(db, roomRef, data) {
+  try {
+    const participantsSnap = await roomRef.collection('participants').limit(200).get()
+    const trueCount = participantsSnap.size
+    const stored = typeof data.participantCount === 'number' ? data.participantCount : 0
+    if (trueCount !== stored) {
+      await roomRef.update({ participantCount: trueCount }).catch(() => {})
+    }
+    return trueCount
+  } catch {
+    return typeof data.participantCount === 'number' ? data.participantCount : 0
+  }
 }
 
 export async function runCleanupStaleRooms(db) {
@@ -66,6 +89,13 @@ export async function runCleanupStaleRooms(db) {
     if (allStaleRefs.has(doc.id)) continue // already flagged
     const data = doc.data()
 
+    // Reconcile participantCount drift (ghost rooms often have stale counts)
+    let trueCount = typeof data.participantCount === 'number' ? data.participantCount : 0
+    // Always verify 0-count rooms and suspiciously high counts against the subcollection
+    if (trueCount === 0 || trueCount > 0) {
+      trueCount = await reconcileParticipantCount(db, doc.ref, data)
+    }
+
     // No heartbeat at all — check if old enough to be stale
     if (!data.lastHeartbeat) {
       const createdMs = data.createdAt?.toMillis?.() || 0
@@ -78,8 +108,8 @@ export async function runCleanupStaleRooms(db) {
     // Room has 0 participants but is still "live" — could be a host who
     // left temporarily and will return. Only clean if BOTH conditions are met:
     // - 0 participants for longer than the grace period
-    // - lastHeartbeat is stale (no active host keeping it alive)
-    if (data.participantCount === 0) {
+    // - last activity (createdAt or lastHeartbeat) is older than grace
+    if (trueCount === 0) {
       const createdMs = data.createdAt?.toMillis?.() || 0
       const heartbeatMs = data.lastHeartbeat?.toMillis?.() || 0
       const lastActivityMs = Math.max(createdMs, heartbeatMs) || createdMs

@@ -34,6 +34,8 @@ export function useRoom(roomId, inviteCode = null) {
   const intentionalLeave = useRef(false)
   const wasParticipant = useRef(false)
   const joinInFlight = useRef(false)
+  const playerPositionRef = useRef({ currentTime: 0, isPlaying: false })
+  const isHostRef = useRef(false)
 
   const rememberRoom = useCallback((id, title = '') => {
     try {
@@ -42,6 +44,64 @@ export function useRoom(roomId, inviteCode = null) {
       /* ignore quota */
     }
   }, [])
+
+  // Allow RoomPage / VideoPlayer to report last known position so leave can freeze it
+  const reportPlayerPosition = useCallback((currentTime, isPlaying) => {
+    if (typeof currentTime === 'number' && Number.isFinite(currentTime) && currentTime >= 0) {
+      playerPositionRef.current = {
+        currentTime,
+        isPlaying: Boolean(isPlaying),
+      }
+    }
+  }, [])
+
+  const freezePlayerStateOnLeave = useCallback(async (idToken) => {
+    if (!user || !roomId) return
+    // Only host/co-host can write playerState (Firestore rules). Freeze position so
+    // rejoin resumes exactly where the viewer stopped.
+    if (!isHostRef.current) return
+
+    const { currentTime } = playerPositionRef.current
+    const frozenTime = Math.max(0, Number(currentTime) || 0)
+    try {
+      // Prefer server leave path (handles participantCount). Also write player state
+      // client-side when possible so position is frozen even if keepalive leave races.
+      await setDoc(
+        doc(db, 'rooms', roomId, 'playerState', 'current'),
+        {
+          isPlaying: false,
+          currentTime: frozenTime,
+          clientTimeMs: Date.now(),
+          updatedAt: serverTimestamp(),
+          updatedBy: user.uid,
+          frozenOnLeave: true,
+        },
+        { merge: true }
+      )
+    } catch {
+      // If rules block (rare race), the leave API will still freeze via server.
+      if (idToken) {
+        try {
+          await fetch('/api/room', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({
+              action: 'freeze',
+              roomId,
+              uid: user.uid,
+              currentTime: frozenTime,
+            }),
+            keepalive: true,
+          })
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }, [user, roomId])
 
   const join = useCallback(async () => {
     if (!user || !roomId || joinInFlight.current) return
@@ -77,10 +137,17 @@ export function useRoom(roomId, inviteCode = null) {
     intentionalLeave.current = true
     try {
       const token = await user.getIdToken()
+      // Freeze playback position BEFORE leaving so rejoin can resume
+      await freezePlayerStateOnLeave(token)
       const res = await fetch('/api/room', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'leave', roomId, uid: user.uid }),
+        body: JSON.stringify({
+          action: 'leave',
+          roomId,
+          uid: user.uid,
+          currentTime: playerPositionRef.current.currentTime,
+        }),
       })
       const data = await parseJsonResponse(res)
       if (!res.ok) throw new Error(data.error || 'Could not leave room')
@@ -88,7 +155,7 @@ export function useRoom(roomId, inviteCode = null) {
     } catch (err) {
       console.error(err)
     }
-  }, [user, roomId])
+  }, [user, roomId, freezePlayerStateOnLeave])
 
   const endRoom = useCallback(async () => {
     if (!user || !roomId) return
@@ -181,6 +248,7 @@ export function useRoom(roomId, inviteCode = null) {
         const data = snap.data()
         setRoom({ id: roomId, ...data })
         setActivityType(data.activityType || 'youtube')
+        isHostRef.current = data.hostId === user?.uid
         if (data.status === 'ended') {
           setError('This room has ended')
         }
@@ -192,7 +260,7 @@ export function useRoom(roomId, inviteCode = null) {
       }
     )
     return unsub
-  }, [roomId, rememberRoom])
+  }, [roomId, rememberRoom, user?.uid])
 
   // Participants listener + exact participantCount sync + kick detection
   useEffect(() => {
@@ -275,16 +343,17 @@ export function useRoom(roomId, inviteCode = null) {
     return () => clearInterval(interval)
   }, [user, roomId, room?.hostId])
 
-  // Auto-leave (NOT end) when host closes tab / navigates away
-  // The room stays alive with the video paused — host can rejoin and continue.
+  // Auto-leave (NOT end) when host/viewer closes tab / navigates away.
+  // Freeze player position first so rejoin continues from the same timestamp.
   // Room cleanup will end truly stale rooms (no heartbeat, 0 participants).
   useEffect(() => {
-    if (!user || !roomId || room?.hostId !== user.uid) return
+    if (!user || !roomId) return
 
     let leaveToken = null
     user.getIdToken().then(t => { leaveToken = t }).catch(() => {})
 
     const handleUnload = () => {
+      const frozenTime = Math.max(0, Number(playerPositionRef.current.currentTime) || 0)
       // Fire-and-forget LEAVE (not end) on tab close / navigation
       // keepalive ensures the request is sent even during unload
       fetch('/api/room', {
@@ -293,22 +362,36 @@ export function useRoom(roomId, inviteCode = null) {
           'Content-Type': 'application/json',
           ...(leaveToken ? { Authorization: `Bearer ${leaveToken}` } : {}),
         },
-        body: JSON.stringify({ action: 'leave', roomId, uid: user.uid }),
+        body: JSON.stringify({
+          action: 'leave',
+          roomId,
+          uid: user.uid,
+          ...(frozenTime > 0.5 ? { currentTime: frozenTime } : {}),
+        }),
         keepalive: true,
       }).catch(() => {})
     }
 
     window.addEventListener('beforeunload', handleUnload)
-    return () => window.removeEventListener('beforeunload', handleUnload)
-  }, [user, roomId, room?.hostId])
+    window.addEventListener('pagehide', handleUnload)
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload)
+      window.removeEventListener('pagehide', handleUnload)
+    }
+  }, [user, roomId])
 
-  // Auto join; leave only on real unmount (not StrictMode remount race)
+  // Auto join; leave only on real unmount.
+  // Guard against React StrictMode double-mount: ignore leaves that fire
+  // within the first ~800ms of mount (synthetic remount), so we don't
+  // immediately leave + freeze position to 0 and break resume.
   useEffect(() => {
     if (!user || !roomId) return
     intentionalLeave.current = false
     wasParticipant.current = false
     let cancelled = false
     let leaveToken = null
+    let joinedSuccessfully = false
+    const mountedAt = Date.now()
 
     // Cache a token now for the keepalive leave fired on cleanup (can't await in cleanup)
     user.getIdToken().then(t => { leaveToken = t }).catch(() => {})
@@ -320,8 +403,13 @@ export function useRoom(roomId, inviteCode = null) {
         if (snap.exists()) {
           wasParticipant.current = true
           setJoined(true)
+          joinedSuccessfully = true
         } else {
           await join()
+          if (!cancelled) {
+            wasParticipant.current = true
+            joinedSuccessfully = true
+          }
         }
       } catch (err) {
         if (!cancelled) setError(err.message || 'Could not join room')
@@ -331,15 +419,27 @@ export function useRoom(roomId, inviteCode = null) {
 
     return () => {
       cancelled = true
-      // Fire-and-forget leave; avoid blocking unmount
+      // Skip leave if this was a StrictMode synthetic unmount (very short-lived mount)
+      // or if we never successfully joined.
+      const livedMs = Date.now() - mountedAt
+      if (livedMs < 800 || !joinedSuccessfully) {
+        return
+      }
       intentionalLeave.current = true
+      const frozenTime = Math.max(0, Number(playerPositionRef.current.currentTime) || 0)
       fetch('/api/room', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(leaveToken ? { Authorization: `Bearer ${leaveToken}` } : {}),
         },
-        body: JSON.stringify({ action: 'leave', roomId, uid: user.uid }),
+        body: JSON.stringify({
+          action: 'leave',
+          roomId,
+          uid: user.uid,
+          // Only send freeze time if meaningful — avoid clobbering saved position with 0
+          ...(frozenTime > 0.5 ? { currentTime: frozenTime } : {}),
+        }),
         keepalive: true,
       }).catch(() => {})
     }
@@ -364,6 +464,7 @@ export function useRoom(roomId, inviteCode = null) {
     kickParticipant,
     promoteParticipant,
     muteParticipant,
+    reportPlayerPosition,
   }
 }
 

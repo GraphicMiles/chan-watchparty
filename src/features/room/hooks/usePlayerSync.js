@@ -6,20 +6,37 @@ import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 const SYNC_THRESHOLD = 0.5 // 0.5s sync threshold as required
 const VIEWER_RESYNC_MS = 3000
 const HOST_HEARTBEAT_MS = 1500
-const HOST_RECONCILIATION_SEEK_TIMEOUT = 10000 // max wait for player to seek after reconciliation
+const HOST_RECONCILIATION_SEEK_TIMEOUT = 15000 // max wait for player to seek after reconciliation
+const PLAYER_READY_POLL_MS = 200
+const PLAYER_READY_MAX_WAIT_MS = 12000
 
 export function usePlayerSync(roomId, room, playerRef) {
   const { user } = useAuth()
   const isHost = room?.hostId === user?.uid
   const isCoHost = Array.isArray(room?.coHosts) && room.coHosts.includes(user?.uid)
   const canControl = Boolean(isHost || isCoHost)
-  
+
   const lastVideoIdRef = useRef(null)
   const lastPlayingRef = useRef(null)
   const initialHostSyncDoneRef = useRef(false)
   const lastWriteTimeRef = useRef(0)
   const reconciliationTargetTimeRef = useRef(null) // set during host reconciliation
   const reconciliationAppliedAtRef = useRef(null) // timestamp when reconciliation was applied
+  const savedStateRef = useRef(null) // last known good playerState from Firestore
+  const roomIdRef = useRef(roomId)
+
+  // Reset reconciliation flags when room changes
+  useEffect(() => {
+    if (roomIdRef.current !== roomId) {
+      roomIdRef.current = roomId
+      initialHostSyncDoneRef.current = false
+      reconciliationTargetTimeRef.current = null
+      reconciliationAppliedAtRef.current = null
+      savedStateRef.current = null
+      lastVideoIdRef.current = null
+      lastPlayingRef.current = null
+    }
+  }, [roomId])
 
   const writePlayerState = useCallback(async (patch, force = false) => {
     if (!roomId || !canControl || !room || !user) return
@@ -43,13 +60,15 @@ export function usePlayerSync(roomId, room, playerRef) {
 
   // Apply a Firestore player state to the active player adapter
   const applyPlayerState = useCallback((state) => {
-    if (!state) return
+    if (!state) return false
     const player = playerRef.current
-    if (!player || typeof player.getPlayerState !== 'function') return
+    if (!player || typeof player.getPlayerState !== 'function') return false
 
     const baseTimeMs = state.clientTimeMs || (state.updatedAt?.toMillis ? state.updatedAt.toMillis() : Date.now())
+    // Only extrapolate elapsed time while actively playing AND someone is still in control.
+    // If the saved state is paused (host left), resume exactly at the frozen currentTime.
     const elapsedSec = state.isPlaying ? Math.max(0, (Date.now() - baseTimeMs) / 1000) : 0
-    const expectedTime = (state.currentTime || 0) + elapsedSec
+    const expectedTime = (Number(state.currentTime) || 0) + elapsedSec
     const current = player.getCurrentTime?.() || 0
     const playerState = player.getPlayerState()
     const diff = Math.abs(current - expectedTime)
@@ -71,33 +90,102 @@ export function usePlayerSync(roomId, room, playerRef) {
     if (!isLiveStream && diff > SYNC_THRESHOLD) {
       player.seekTo?.(expectedTime, true)
     }
+    return true
   }, [playerRef, room?.isLive, room?.videoType, room?.source])
 
   // HOST/CO-HOST INITIAL RECONCILIATION:
-  // When the host leaves and returns (or refreshes), check existing room playerState FIRST
-  // so the host does NOT restart the watch from 00:00 for all participants!
+  // When the host leaves and returns (or refreshes), restore the saved playerState
+  // so playback continues from where they left off instead of restarting at 00:00.
   useEffect(() => {
     if (!canControl || !roomId || initialHostSyncDoneRef.current) return undefined
 
     let isMounted = true
+    let pollTimer = null
+
+    const waitForPlayer = () => new Promise((resolve) => {
+      const started = Date.now()
+      const tick = () => {
+        if (!isMounted) {
+          resolve(false)
+          return
+        }
+        const player = playerRef.current
+        if (player && typeof player.getPlayerState === 'function' && typeof player.getCurrentTime === 'function') {
+          resolve(true)
+          return
+        }
+        if (Date.now() - started >= PLAYER_READY_MAX_WAIT_MS) {
+          resolve(false)
+          return
+        }
+        pollTimer = setTimeout(tick, PLAYER_READY_POLL_MS)
+      }
+      tick()
+    })
+
     const checkExistingState = async () => {
       try {
         const ref = doc(db, 'rooms', roomId, 'playerState', 'current')
         const snap = await getDoc(ref)
-        if (!isMounted || !snap.exists()) {
+        if (!isMounted) return
+
+        if (!snap.exists()) {
           initialHostSyncDoneRef.current = true
           return
         }
+
         const data = snap.data()
-        // If room state exists and is currently active (> 2s into video and updated within last 6 hours),
-        // apply that state to the host's player instead of writing 00:00!
-        const updatedAtMs = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : (data.clientTimeMs || 0)
-        const isRecent = Date.now() - updatedAtMs < 6 * 3600 * 1000
-        if (data && data.currentTime > 2 && isRecent) {
-          applyPlayerState(data)
-          // Track the reconciliation target so heartbeat doesn't overwrite with 00:00
-          reconciliationTargetTimeRef.current = data.currentTime
-          reconciliationAppliedAtRef.current = Date.now()
+        savedStateRef.current = data
+
+        const updatedAtMs = data.updatedAt?.toMillis
+          ? data.updatedAt.toMillis()
+          : (data.clientTimeMs || 0)
+        const isRecent = Date.now() - updatedAtMs < 12 * 3600 * 1000
+        const savedTime = Number(data.currentTime) || 0
+
+        // Restore any meaningful saved position (even 1s+) so leave→rejoin never restarts
+        if (data && savedTime > 0.5 && isRecent) {
+          // Wait until the player adapter is actually ready before seeking
+          const ready = await waitForPlayer()
+          if (!isMounted) return
+
+          if (ready) {
+            // Force paused restore first so the player lands on the saved frame,
+            // then re-apply original play state if it was playing.
+            const restoreState = {
+              ...data,
+              // Always land on the frozen position first (no elapsed extrapolation on rejoin
+              // when the last leave intentionally paused). If still marked playing and
+              // updated very recently (<30s), allow mild extrapolation.
+              isPlaying: false,
+              currentTime: savedTime,
+              clientTimeMs: Date.now(),
+            }
+            applyPlayerState(restoreState)
+
+            // If the room was still actively playing (other co-host controlling, or
+            // host briefly refreshed), resume play after seek settles.
+            const wasActivelyPlaying = data.isPlaying === true && (Date.now() - updatedAtMs) < 30000
+            if (wasActivelyPlaying) {
+              setTimeout(() => {
+                if (!isMounted) return
+                applyPlayerState({
+                  ...data,
+                  currentTime: savedTime,
+                  isPlaying: true,
+                  clientTimeMs: Date.now(),
+                })
+              }, 400)
+            }
+
+            reconciliationTargetTimeRef.current = savedTime
+            reconciliationAppliedAtRef.current = Date.now()
+          } else {
+            // Player never became ready — still guard the heartbeat so we don't
+            // overwrite the saved position with 00:00.
+            reconciliationTargetTimeRef.current = savedTime
+            reconciliationAppliedAtRef.current = Date.now()
+          }
         }
       } catch (err) {
         console.error('Host initial reconciliation check failed:', err)
@@ -109,8 +197,11 @@ export function usePlayerSync(roomId, room, playerRef) {
     }
 
     checkExistingState()
-    return () => { isMounted = false }
-  }, [canControl, roomId, applyPlayerState])
+    return () => {
+      isMounted = false
+      if (pollTimer) clearTimeout(pollTimer)
+    }
+  }, [canControl, roomId, applyPlayerState, playerRef])
 
   // Controller heartbeat (every 1.5s when playing, or 5s when paused)
   useEffect(() => {
@@ -125,8 +216,13 @@ export function usePlayerSync(roomId, room, playerRef) {
       const current = player.getCurrentTime?.() || 0
 
       // Guard: do not overwrite an active room with 00:00 right after joining
-      if (current === 0 && !isPlaying && room?.createdAt?.toMillis && Date.now() - room.createdAt.toMillis() > 30000) {
-        return
+      if (current < 0.5 && !isPlaying) {
+        const saved = savedStateRef.current
+        const savedTime = Number(saved?.currentTime) || 0
+        if (savedTime > 0.5) return
+        if (room?.createdAt?.toMillis && Date.now() - room.createdAt.toMillis() > 15000) {
+          return
+        }
       }
 
       // Guard: after host reconciliation, don't write until the player has actually seeked
@@ -134,13 +230,22 @@ export function usePlayerSync(roomId, room, playerRef) {
       // while the player is still loading/seeking.
       if (reconciliationTargetTimeRef.current !== null && reconciliationAppliedAtRef.current) {
         const elapsed = Date.now() - reconciliationAppliedAtRef.current
-        const diff = Math.abs(current - reconciliationTargetTimeRef.current)
+        const target = reconciliationTargetTimeRef.current
+        const diff = Math.abs(current - target)
         // Player has seeked close enough to the target — reconciliation complete
-        if (diff < 3) {
+        if (diff < 3 || current >= target - 1) {
           reconciliationTargetTimeRef.current = null
           reconciliationAppliedAtRef.current = null
         } else if (elapsed < HOST_RECONCILIATION_SEEK_TIMEOUT) {
           // Still waiting for the player to seek — don't write 00:00 to Firestore!
+          // Also re-issue seek periodically in case the first one was ignored.
+          if (elapsed > 1500 && elapsed % 2000 < HOST_HEARTBEAT_MS + 50) {
+            try {
+              player.seekTo?.(target, true)
+            } catch {
+              /* ignore */
+            }
+          }
           return
         } else {
           // Timeout — clear the reconciliation guard and let heartbeat write normally
@@ -166,12 +271,18 @@ export function usePlayerSync(roomId, room, playerRef) {
     let disposed = false
     const stateRef = doc(db, 'rooms', roomId, 'playerState', 'current')
     const unsub = onSnapshot(stateRef, (snap) => {
-      if (!disposed && snap.exists()) applyPlayerState(snap.data())
+      if (!disposed && snap.exists()) {
+        savedStateRef.current = snap.data()
+        applyPlayerState(snap.data())
+      }
     })
     const interval = setInterval(async () => {
       try {
         const snap = await getDoc(stateRef)
-        if (!disposed && snap.exists()) applyPlayerState(snap.data())
+        if (!disposed && snap.exists()) {
+          savedStateRef.current = snap.data()
+          applyPlayerState(snap.data())
+        }
       } catch {
         /* retry on next interval */
       }
@@ -191,7 +302,10 @@ export function usePlayerSync(roomId, room, playerRef) {
       if (document.visibilityState !== 'visible') return
       try {
         const snap = await getDoc(doc(db, 'rooms', roomId, 'playerState', 'current'))
-        if (snap.exists()) applyPlayerState(snap.data())
+        if (snap.exists()) {
+          savedStateRef.current = snap.data()
+          applyPlayerState(snap.data())
+        }
       } catch {
         /* ignore */
       }

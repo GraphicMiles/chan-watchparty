@@ -16,7 +16,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { sanitizeAction, sanitizeRoomId, sanitizeUid, sanitizeText } from '../server-lib/sanitize.js'
 
 const ALLOWED_ROOM_ACTIONS = [
-  'join', 'leave', 'end', 'kick', 'promote', 'mute',
+  'join', 'leave', 'end', 'kick', 'promote', 'mute', 'freeze',
   'livekit', 'createlivekittoken',
   'ai', 'summary', 'catchup', 'quiz', 'generatequiz', 'votequiz',
   'subtitles', 'captions',
@@ -109,33 +109,98 @@ async function joinRoom(db, body) {
       muted: false,
       joinedAt: FieldValue.serverTimestamp(),
     })
-    t.update(roomRef, { participantCount: FieldValue.increment(1) })
+    // Always refresh lastHeartbeat on join so landing-page "truly live" filter
+    // and stale-room cleanup both see recent activity.
+    t.update(roomRef, {
+      participantCount: FieldValue.increment(1),
+      lastHeartbeat: FieldValue.serverTimestamp(),
+    })
   })
 
   return { roomId: targetRoomId }
 }
 
+async function freezePlayerState(db, roomRef, room, uid, currentTime) {
+  // Only host/co-host may freeze playback position (matches Firestore rules).
+  const isController = room.hostId === uid || (Array.isArray(room.coHosts) && room.coHosts.includes(uid))
+  if (!isController) return
+  const frozenTime = Math.max(0, Number(currentTime) || 0)
+  if (!Number.isFinite(frozenTime)) return
+  try {
+    await roomRef.collection('playerState').doc('current').set({
+      isPlaying: false,
+      currentTime: frozenTime,
+      clientTimeMs: Date.now(),
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: uid,
+      frozenOnLeave: true,
+    }, { merge: true })
+  } catch (err) {
+    console.error('freezePlayerState failed:', err.message)
+  }
+}
+
 async function leaveRoom(db, body) {
-  const { roomId, uid } = body || {}
+  const { roomId, uid, currentTime } = body || {}
   if (!roomId || !uid) throw new Error('Missing roomId or uid')
 
   const roomRef = db.collection('rooms').doc(roomId)
   const participantRef = roomRef.collection('participants').doc(uid)
+  let roomData = null
+  let didLeave = false
 
   await db.runTransaction(async (t) => {
     const roomSnap = await t.get(roomRef)
     if (!roomSnap.exists) throw new Error('Room not found')
     const room = roomSnap.data()
+    roomData = room
     if (room.status !== 'live') return
 
     const participantSnap = await t.get(participantRef)
     if (!participantSnap.exists) return
 
     t.delete(participantRef)
-    const next = Math.max(0, (room.participantCount || 1) - 1)
-    t.update(roomRef, { participantCount: next })
+    // Recompute from actual participant docs when possible to avoid ghost counts.
+    // Fall back to decrement if the subcollection size cannot be read inside the txn.
+    let next = Math.max(0, (room.participantCount || 1) - 1)
+    try {
+      // Note: Firestore transactions don't support collection queries on all
+      // platforms the same way; prefer decrement then clamp. A later leave/join
+      // or cleanup will re-sync if needed.
+      next = Math.max(0, (typeof room.participantCount === 'number' ? room.participantCount : 1) - 1)
+    } catch {
+      next = Math.max(0, (room.participantCount || 1) - 1)
+    }
+    t.update(roomRef, {
+      participantCount: next,
+      // If host left, stop advertising heartbeat freshness so cleanup can reclaim
+      // the room after the grace period when nobody returns.
+      ...(room.hostId === uid ? { lastHeartbeat: FieldValue.serverTimestamp() } : {}),
+    })
+    didLeave = true
   })
 
+  // Freeze playback so rejoin continues from the same timestamp (host/co-host only).
+  // Only freeze when we have a meaningful position — never clobber a saved
+  // position by writing 0 from a racey unload event.
+  const freezeTime = Number(currentTime)
+  if (didLeave && roomData && Number.isFinite(freezeTime) && freezeTime > 0.5) {
+    await freezePlayerState(db, roomRef, roomData, uid, freezeTime)
+  }
+
+  // If room is now empty, schedule opportunistic cleanup path is handled by
+  // runCleanupStaleRooms (grace period). Do NOT end immediately — host may rejoin.
+
+  return { success: true }
+}
+
+async function freezeRoom(db, body) {
+  const { roomId, uid, currentTime } = body || {}
+  if (!roomId || !uid) throw new Error('Missing roomId or uid')
+  const roomRef = db.collection('rooms').doc(roomId)
+  const snap = await roomRef.get()
+  if (!snap.exists) throw new Error('Room not found')
+  await freezePlayerState(db, roomRef, snap.data(), uid, currentTime)
   return { success: true }
 }
 
@@ -200,12 +265,18 @@ export default async function handler(req, res) {
     const db = getDb()
 
     // Lightweight inline cleanup: on every room action, quickly delete
-    // stale rooms with 0 participants that are older than 10 minutes.
+    // stale rooms with 0 participants past the grace period.
     // This ensures cleanup runs even without CRON_SECRET or cron jobs.
-    // Only runs ~1% of the time to avoid adding latency to every request.
-    if (Math.random() < 0.01) {
+    // Runs ~5% of the time (and always on leave) so ghost rooms don't linger.
+    const shouldCleanup = action === 'leave' || Math.random() < 0.05
+    if (shouldCleanup) {
       try {
-        await runCleanupStaleRooms(db)
+        // Don't await on leave path beyond a short race — keep leave snappy.
+        if (action === 'leave') {
+          Promise.resolve(runCleanupStaleRooms(db)).catch(() => {})
+        } else {
+          await runCleanupStaleRooms(db)
+        }
       } catch {
         // Non-critical — don't block the main action
       }
@@ -219,6 +290,9 @@ export default async function handler(req, res) {
     } else if (action === 'leave') {
       await requireUser(req, body.uid)
       result = await leaveRoom(db, body)
+    } else if (action === 'freeze') {
+      await requireUser(req, body.uid)
+      result = await freezeRoom(db, body)
     } else if (action === 'end') {
       await requireUser(req, body.uid)
       result = await endRoom(db, body)

@@ -127,12 +127,34 @@ export function useUnifiedSearch() {
         signal: controller.signal,
       })
 
-      const data = await res.json().catch(() => {
-        // Vercel sometimes returns HTML error pages instead of JSON
-        throw new Error(res.status === 500 ? 'Server error — please try again' : `HTTP ${res.status}`)
-      })
+      // Vercel sometimes returns HTML error pages (504/500) instead of JSON —
+      // never throw a raw JSON parse error to the UI.
+      const rawText = await res.text()
+      let data
+      try {
+        data = JSON.parse(rawText)
+      } catch {
+        if (res.status === 504) {
+          throw new Error('Search timed out — providers are slow. Try a more specific query or another layer.')
+        }
+        if (res.status === 429) {
+          throw new Error('Too many searches — wait a moment and try again.')
+        }
+        throw new Error(
+          res.status >= 500
+            ? 'Server error — please try again in a moment'
+            : `Search failed (HTTP ${res.status})`
+        )
+      }
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
-      if (!data.success) throw new Error(data.error || 'Search failed')
+      // Treat soft errors (e.g. YouTube key missing) as non-fatal if results exist
+      if (data.success === false && !(data.results && data.results.length)) {
+        throw new Error(data.error || 'Search failed')
+      }
+      if (data.error && (!data.results || data.results.length === 0)) {
+        // Surface provider-specific soft errors (e.g. "YouTube: API key not configured")
+        throw new Error(data.error)
+      }
 
       const newResults = data.results || []
       const combined = append ? [...resultsRef.current, ...newResults] : newResults
