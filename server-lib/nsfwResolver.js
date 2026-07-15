@@ -196,6 +196,92 @@ function parseLooseJsonArray(raw) {
 }
 
 /**
+ * Extract a balanced JSON array or object starting at a given position in a string.
+ * Returns the matched substring or null if no valid bracket-balanced JSON found.
+ * This is much more reliable than regex for nested structures like mediaDefinitions.
+ */
+function extractBalancedJson(str, startPos) {
+  if (!str || startPos >= str.length) return null
+  const openChar = str[startPos]
+  if (openChar !== '[' && openChar !== '{') return null
+  const closeChar = openChar === '[' ? ']' : '}'
+  let depth = 0
+  let inString = false
+  let escape = false
+  let i = startPos
+
+  for (; i < str.length; i++) {
+    const ch = str[i]
+    if (escape) {
+      escape = false
+      continue
+    }
+    if (ch === '\\' && inString) {
+      escape = true
+      continue
+    }
+    if (ch === '"') {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+    if (ch === openChar || (openChar === '[' && ch === '{') || (openChar === '{' && ch === '[')) {
+      depth++
+    } else if (ch === closeChar || (openChar === ']' && ch === '}') || (openChar === '}' && ch === ']')) {
+      // Actually we need to track both types
+      if (ch === ']') depth--
+      if (ch === '}') depth--
+      if (depth <= 0) {
+        return str.slice(startPos, i + 1)
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * Better balanced extraction that tracks both [] and {} depth properly.
+ */
+function extractBalancedJsonV2(str, startPos) {
+  if (!str || startPos >= str.length) return null
+  const openChar = str[startPos]
+  if (openChar !== '[' && openChar !== '{') return null
+  
+  let bracketDepth = 0  // tracks [] 
+  let braceDepth = 0    // tracks {}
+  let inString = false
+  let escape = false
+  let started = false
+
+  for (let i = startPos; i < str.length; i++) {
+    const ch = str[i]
+    if (escape) {
+      escape = false
+      continue
+    }
+    if (ch === '\\' && inString) {
+      escape = true
+      continue
+    }
+    if (ch === '"') {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+
+    if (ch === '[') { bracketDepth++; started = true }
+    else if (ch === ']') { bracketDepth-- }
+    else if (ch === '{') { braceDepth++; started = true }
+    else if (ch === '}') { braceDepth-- }
+
+    if (started && bracketDepth <= 0 && braceDepth <= 0) {
+      return str.slice(startPos, i + 1)
+    }
+  }
+  return null
+}
+
+/**
  * Resolve an XVideos page URL to a direct video URL.
  */
 async function resolveXVideos(pageUrl) {
@@ -245,21 +331,32 @@ async function resolveXVideos(pageUrl) {
 async function resolvePornhub(pageUrl) {
   const html = await fetchHtml(pageUrl, 'https://www.pornhub.com/')
 
-  // Strategy 1: mediaDefinitions array (inline or remote)
-  // Match more permissively — the array can be huge and nested
+  // Strategy 1: mediaDefinitions array — use balanced JSON extraction
+  // instead of fragile regex that breaks on nested arrays
   let definitions = null
-  const mediaDefPatterns = [
-    /"mediaDefinitions"\s*:\s*(\[[\s\S]*?\])\s*,\s*"/,
-    /mediaDefinitions\s*:\s*(\[[\s\S]*?\])\s*[,}]/,
-    /mediaDefinitions\s*=\s*(\[[\s\S]*?\])\s*;/,
-  ]
-  for (const re of mediaDefPatterns) {
-    const m = html.match(re)
-    if (m?.[1]) {
-      definitions = parseLooseJsonArray(m[1])
-      if (Array.isArray(definitions) && definitions.length) break
-      definitions = null
+
+  // Find the position of "mediaDefinitions" in the HTML and extract the balanced array
+  const mediaDefMarkers = ['"mediaDefinitions"', 'mediaDefinitions']
+  for (const marker of mediaDefMarkers) {
+    let searchFrom = 0
+    while (searchFrom < html.length) {
+      const idx = html.indexOf(marker, searchFrom)
+      if (idx === -1) break
+      // Find the opening bracket after the marker
+      const afterMarker = html.indexOf('[', idx + marker.length)
+      if (afterMarker === -1 || afterMarker - (idx + marker.length) > 20) {
+        searchFrom = idx + marker.length
+        continue
+      }
+      const rawJson = extractBalancedJsonV2(html, afterMarker)
+      if (rawJson) {
+        definitions = parseLooseJsonArray(rawJson)
+        if (Array.isArray(definitions) && definitions.length) break
+        definitions = null
+      }
+      searchFrom = idx + marker.length
     }
+    if (definitions) break
   }
 
   if (Array.isArray(definitions) && definitions.length) {
@@ -277,70 +374,80 @@ async function resolvePornhub(pageUrl) {
   }
 
   // Strategy 2: flashvars object containing mediaDefinitions
-  const flashvarsObj = html.match(/var\s+flashvars_\d+\s*=\s*(\{[\s\S]*?\});/)
-  if (flashvarsObj?.[1]) {
-    try {
-      const fv = parseLooseJsonArray(flashvarsObj[1]) || JSON.parse(
-        flashvarsObj[1]
-          .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":')
-          .replace(/'/g, '"')
-      )
-      if (fv?.mediaDefinitions) {
-        const expanded = await expandRemoteDefinitions(fv.mediaDefinitions, pageUrl)
-        const best = pickBestDefinition(expanded)
-        if (best?.videoUrl) {
-          return {
-            videoUrl: best.videoUrl,
-            type: best.type || 'mp4',
-            source: 'pornhub',
-            quality: best.quality,
-            referer: 'https://www.pornhub.com/',
-          }
-        }
-      }
-    } catch {
-      /* fall through */
-    }
-  }
-
-  // Strategy 3: qualityItems_XXXX = [...]
-  const qualityMatch = html.match(/qualityItems_\d+\s*=\s*(\[[\s\S]*?\])\s*;/)
-  if (qualityMatch?.[1]) {
-    try {
-      const items = parseLooseJsonArray(qualityMatch[1]) || []
-      const sorted = [...items].sort((a, b) => (parseInt(b.text) || 0) - (parseInt(a.text) || 0))
-      for (const best of sorted) {
-        if (!best?.url) continue
-        // qualityItems may also point at remote get_media URLs
-        if (/get_media/i.test(best.url) || best.remote) {
-          try {
-            const remote = await fetchJson(best.url, pageUrl)
-            const list = Array.isArray(remote) ? remote : []
-            const picked = pickBestDefinition(list)
-            if (picked?.videoUrl) {
+  const flashvarsMatch = html.match(/var\s+flashvars_(\d+)\s*=\s*/)
+  if (flashvarsMatch) {
+    const startIdx = flashvarsMatch.index + flashvarsMatch[0].length
+    const braceIdx = html.indexOf('{', startIdx)
+    if (braceIdx !== -1 && braceIdx - startIdx < 5) {
+      const rawJson = extractBalancedJsonV2(html, braceIdx)
+      if (rawJson) {
+        try {
+          const fv = parseLooseJsonArray(rawJson)
+          if (fv?.mediaDefinitions) {
+            const expanded = await expandRemoteDefinitions(fv.mediaDefinitions, pageUrl)
+            const best = pickBestDefinition(expanded)
+            if (best?.videoUrl) {
               return {
-                videoUrl: picked.videoUrl,
-                type: picked.type || 'mp4',
+                videoUrl: best.videoUrl,
+                type: best.type || 'mp4',
                 source: 'pornhub',
-                quality: picked.quality || best.text,
+                quality: best.quality,
                 referer: 'https://www.pornhub.com/',
               }
             }
-          } catch {
-            continue
           }
-        } else if (/^https?:\/\//i.test(best.url)) {
-          return {
-            videoUrl: best.url,
-            type: /\.m3u8/i.test(best.url) ? 'hls' : 'mp4',
-            source: 'pornhub',
-            quality: best.text,
-            referer: 'https://www.pornhub.com/',
-          }
+        } catch {
+          /* fall through */
         }
       }
-    } catch {
-      /* fall through */
+    }
+  }
+
+  // Strategy 3: qualityItems_XXXX = [...] — use balanced extraction
+  const qualityMatch = html.match(/qualityItems_\d+\s*=\s*/)
+  if (qualityMatch) {
+    const startIdx = qualityMatch.index + qualityMatch[0].length
+    const bracketIdx = html.indexOf('[', startIdx)
+    if (bracketIdx !== -1 && bracketIdx - startIdx < 5) {
+      const rawJson = extractBalancedJsonV2(html, bracketIdx)
+      if (rawJson) {
+        try {
+          const items = parseLooseJsonArray(rawJson) || []
+          const sorted = [...items].sort((a, b) => (parseInt(b.text) || 0) - (parseInt(a.text) || 0))
+          for (const best of sorted) {
+            if (!best?.url) continue
+            // qualityItems may also point at remote get_media URLs
+            if (/get_media/i.test(best.url) || best.remote) {
+              try {
+                const remote = await fetchJson(best.url, pageUrl)
+                const list = Array.isArray(remote) ? remote : []
+                const picked = pickBestDefinition(list)
+                if (picked?.videoUrl) {
+                  return {
+                    videoUrl: picked.videoUrl,
+                    type: picked.type || 'mp4',
+                    source: 'pornhub',
+                    quality: picked.quality || best.text,
+                    referer: 'https://www.pornhub.com/',
+                  }
+                }
+              } catch {
+                continue
+              }
+            } else if (/^https?:\/\//i.test(best.url)) {
+              return {
+                videoUrl: best.url,
+                type: /\.m3u8/i.test(best.url) ? 'hls' : 'mp4',
+                source: 'pornhub',
+                quality: best.text,
+                referer: 'https://www.pornhub.com/',
+              }
+            }
+          }
+        } catch {
+          /* fall through */
+        }
+      }
     }
   }
 
@@ -366,6 +473,31 @@ async function resolvePornhub(pageUrl) {
     return { videoUrl: sourceSrc, type: 'mp4', source: 'pornhub', referer: 'https://www.pornhub.com/' }
   }
 
+  // Strategy 6: Look for embedded player vars in script tags
+  const scriptBlocks = []
+  $('script').each((_, el) => {
+    const text = $(el).html()
+    if (text && (text.includes('mediaDefinitions') || text.includes('videoUrl') || text.includes('flashvars'))) {
+      scriptBlocks.push(text)
+    }
+  })
+
+  for (const script of scriptBlocks) {
+    // Try to find any direct video URLs in the script
+    const directUrlMatch = script.match(/["'](https?:\/\/[^"']*\.(?:mp4|m3u8)[^"']*)["']/i)
+    if (directUrlMatch?.[1]) {
+      const url = directUrlMatch[1]
+      if (!/get_media/i.test(url)) {
+        return {
+          videoUrl: url,
+          type: /\.m3u8/i.test(url) ? 'hls' : 'mp4',
+          source: 'pornhub',
+          referer: 'https://www.pornhub.com/',
+        }
+      }
+    }
+  }
+
   throw new Error('Could not extract video URL from PornHub page')
 }
 
@@ -373,12 +505,15 @@ async function resolvePornhub(pageUrl) {
  * Resolve a SpankBang page URL to a direct video URL.
  */
 async function resolveSpankBang(pageUrl) {
+  // SpankBang may redirect between .party, .com, and other TLDs
   const html = await fetchHtml(pageUrl, 'https://spankbang.party/')
 
+  // Strategy 1: data-stream attribute (JSON object with quality → URL mapping)
   const streamMatch = html.match(/data-stream\s*=\s*"([^"]+)"/)
   if (streamMatch?.[1]) {
     try {
-      const streamData = JSON.parse(streamMatch[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'))
+      const raw = streamMatch[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&#x2F;/g, '/').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      const streamData = JSON.parse(raw)
       const qualities = Object.entries(streamData)
         .filter(([, v]) => v && /^https?:\/\//i.test(v))
         .sort(([a], [b]) => (parseInt(b) || 0) - (parseInt(a) || 0))
@@ -397,14 +532,33 @@ async function resolveSpankBang(pageUrl) {
     }
   }
 
+  // Strategy 2: SpankBang often uses a <script> block with stream_url or player config
   const streamUrlMatch = html.match(/stream_url\s*=\s*['"]([^'"]+)['"]/)
   if (streamUrlMatch?.[1] && /^https?:\/\//i.test(streamUrlMatch[1])) {
     return { videoUrl: streamUrlMatch[1], type: 'mp4', source: 'spankbang', referer: 'https://spankbang.party/' }
   }
 
-  const videoUrlMatch = html.match(/(?:videoUrl|playUrl|file_url)\s*[:=]\s*['"]([^'"]+)['"]/i)
+  // Strategy 3: Look for direct video URLs in script blocks (SpankBang embeds these)
+  const scriptVideoMatch = html.match(/["']((?:https?:)?\/\/[a-z0-9.-]*(?:sb-cd|spankbang|spankcdn|cdn-)[^"']*\.(?:mp4|m3u8)[^"']*)["']/i)
+  if (scriptVideoMatch?.[1]) {
+    let url = scriptVideoMatch[1]
+    if (url.startsWith('//')) url = 'https:' + url
+    try { url = decodeURIComponent(url) } catch { /* */ }
+    if (/^https?:\/\//i.test(url)) {
+      return {
+        videoUrl: url,
+        type: /\.m3u8/i.test(url) ? 'hls' : 'mp4',
+        source: 'spankbang',
+        referer: 'https://spankbang.party/',
+      }
+    }
+  }
+
+  // Strategy 4: videoUrl, playUrl, file_url patterns
+  const videoUrlMatch = html.match(/(?:videoUrl|playUrl|file_url|video_url|src)\s*[:=]\s*['"]([^'"]+)['"]/i)
   if (videoUrlMatch?.[1]) {
     let url = videoUrlMatch[1]
+    if (url.startsWith('//')) url = 'https:' + url
     try { url = decodeURIComponent(url) } catch { /* */ }
     if (/^https?:\/\//i.test(url)) {
       return {
@@ -416,19 +570,22 @@ async function resolveSpankBang(pageUrl) {
     }
   }
 
+  // Strategy 5: <video> or <source> tags
   const $ = cheerio.load(html)
   const sourceSrc = $('video source[type="video/mp4"]').attr('src')
     || $('video source').first().attr('src')
     || $('video').attr('src')
+    || $('video').attr('data-src')
   if (sourceSrc && /^https?:\/\//i.test(sourceSrc)) {
     return { videoUrl: sourceSrc, type: 'mp4', source: 'spankbang', referer: 'https://spankbang.party/' }
   }
 
+  // Strategy 6: JSON-LD structured data
   const ldMatch = html.match(/<script\s+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i)
   if (ldMatch) {
     try {
       const ldData = JSON.parse(ldMatch[1])
-      const contentUrl = ldData?.contentUrl
+      const contentUrl = ldData?.contentUrl || ldData?.embedUrl
       if (contentUrl && /^https?:\/\//i.test(contentUrl)) {
         return {
           videoUrl: contentUrl,
@@ -439,6 +596,28 @@ async function resolveSpankBang(pageUrl) {
       }
     } catch {
       /* */
+    }
+  }
+
+  // Strategy 7: Look for any CDN video URL in the entire page source
+  const cdnVideoMatch = html.match(/https?:\/\/[a-z0-9.-]*cdn[a-z0-9.-]*\.(?:sb-cd\.com|spankbang\.com|spankcdn\.net)[^"'\s<>]*\.(?:mp4|m3u8)[^"'\s<>]*/i)
+  if (cdnVideoMatch?.[0]) {
+    return {
+      videoUrl: cdnVideoMatch[0],
+      type: /\.m3u8/i.test(cdnVideoMatch[0]) ? 'hls' : 'mp4',
+      source: 'spankbang',
+      referer: 'https://spankbang.party/',
+    }
+  }
+
+  // Strategy 8: Generic video URL in script tags
+  const genericMatch = html.match(/["'](https?:\/\/[^"']*(?:video|stream|cdn|media)[^"']*\.(?:mp4|m3u8)[^"']*)["']/i)
+  if (genericMatch?.[1]) {
+    return {
+      videoUrl: genericMatch[1],
+      type: /\.m3u8/i.test(genericMatch[1]) ? 'hls' : 'mp4',
+      source: 'spankbang',
+      referer: 'https://spankbang.party/',
     }
   }
 

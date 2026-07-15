@@ -5,7 +5,7 @@ import { getDb, FieldValue, verifyIdToken } from '../server-lib/firebaseAdmin.js
 import { getSiteConfig, resolveUrl, isSuitableThumbnail, isTitleMatch, cleanTitleForMatching, cleanTitleForOMDb } from '../server-lib/sources.js'
 import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
 import { validateFetchUrl, isPrivateHost } from '../server-lib/ssrf.js'
-import { checkIptvChannel, getIptvChannels, getPlaylistChannels } from '../server-lib/iptv.js'
+import { checkIptvChannel, getIptvChannels, getPlaylistChannels, probeIptvChannel } from '../server-lib/iptv.js'
 import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
 import { resolveNsfwVideoUrl, isNsfwProviderUrl } from '../server-lib/nsfwResolver.js'
@@ -18,7 +18,7 @@ import { searchMaxCinema, resolveMaxCinemaChain } from '../server-lib/maxcinemaR
 import { resolveDoodUrl, isDoodUrl } from '../server-lib/doodResolver.js'
 import { sanitizeSearchQuery, sanitizeUrl, sanitizeAction } from '../server-lib/sanitize.js'
 
-const ALLOWED_MEDIA_ACTIONS = ['search', 'scrape', 'refreshCatalog']
+const ALLOWED_MEDIA_ACTIONS = ['search', 'scrape', 'refreshCatalog', 'probeIptv']
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 // Server-side key takes precedence; fall back to VITE_ key so a single
@@ -1012,6 +1012,8 @@ async function searchIPTV(query, userChannels = [], provider = '', limit = 100) 
       type: 'iptv',
       isDirect: true,
       isLive: true,
+      // Include health metadata if available from the Firestore catalog
+      healthy: channel.healthy !== false,
       program: { now: 'Live Broadcast', next: null },
     }))
 }
@@ -1810,6 +1812,15 @@ export default async function handler(req, res) {
       return ok(res, catalog)
     }
 
+    if (action === 'probeIptv') {
+      // Lightweight health probe for a single IPTV channel URL
+      // Used by the room/player to verify a channel is alive before playback
+      const probeUrl = body.url || url
+      if (!probeUrl) return fail(res, 400, 'URL is required')
+      const probe = await probeIptvChannel(probeUrl)
+      return ok(res, { ...probe, url: probeUrl })
+    }
+
     await requireUser(req)
     const decoded = await verifyIdToken(req.headers.authorization?.split('Bearer ')[1] || '')
     const layer = body.layer || body.source || 'youtube'
@@ -2081,6 +2092,7 @@ export default async function handler(req, res) {
 
       // NSFW provider URL resolution (xvideos/pornhub/spankbang page → direct video URL)
       if (isNsfwProviderUrl(url)) {
+        let resolveError = null
         try {
           const resolved = await resolveNsfwVideoUrl(url)
           if (resolved && resolved.videoUrl) {
@@ -2117,25 +2129,33 @@ export default async function handler(req, res) {
             })
           }
         } catch (err) {
+          resolveError = err.message
           console.error('NSFW provider resolve failed:', err.message)
         }
-        // If resolution failed, return the page as-is with a helpful message
+        // If resolution failed, try to pass the page URL through the proxy
+        // as a last resort — some CDNs may accept the proxied page URL
+        const providerName = target.hostname.includes('xvideos') ? 'xvideos' : target.hostname.includes('pornhub') ? 'pornhub' : 'spankbang'
         return ok(res, {
           results: [{
             title: decodeURIComponent(target.pathname.split('/').pop() || 'Video'),
             url,
             link: url,
             thumbnail: null,
-            source: target.hostname.includes('xvideos') ? 'xvideos' : target.hostname.includes('pornhub') ? 'pornhub' : 'spankbang',
+            source: providerName,
             type: 'nsfw',
             isDirect: false,
+            playableInRoom: false,
             requiresUserAction: true,
-            meta: 'Could not auto-extract video URL. Open the page to watch.',
+            meta: resolveError
+              ? `Could not extract video URL: ${resolveError}. Try another result or open the page directly.`
+              : 'Could not auto-extract video URL. Try another result or open the page to watch.',
           }],
           count: 1,
           directCount: 0,
+          resolved: false,
           url,
-          site: 'nsfw',
+          site: providerName,
+          error: resolveError,
         })
       }
 

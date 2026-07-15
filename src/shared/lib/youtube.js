@@ -147,8 +147,10 @@ export function normalizePlaybackUrl(url, opts = {}) {
         out += `&referer=${encodeURIComponent('https://downloadwella.com/')}`
       } else if (hostname.includes('phncdn') || hostname.includes('pornhub')) {
         out += `&referer=${encodeURIComponent('https://www.pornhub.com/')}`
-      } else if (hostname.includes('xvideos')) {
+      } else if (hostname.includes('xvideos') || hostname.includes('cdn-xl') || hostname.includes('xvideos-cdn')) {
         out += `&referer=${encodeURIComponent('https://www.xvideos.com/')}`
+      } else if (hostname.includes('spankbang') || hostname.includes('sb-cd') || hostname.includes('spankcdn')) {
+        out += `&referer=${encodeURIComponent('https://spankbang.party/')}`
       } else if (hostname.includes('koyeb.app') || hostname.includes('maxcinema')) {
         out += `&referer=${encodeURIComponent('https://www.maxcinema.name.ng/')}`
       } else if (hostname.includes('wildshare') || hostname.includes('silversurfer') || hostname.includes('np-downloader')) {

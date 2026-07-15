@@ -106,13 +106,20 @@ function readAttribute(line, name) {
 }
 
 function isSupportedStreamUrl(value) {
+  if (!value || typeof value !== 'string') return false
   try {
     const url = new URL(value)
     if (!['http:', 'https:'].includes(url.protocol)) return false
     const host = url.hostname.toLowerCase()
+    // Skip well-known non-IPTV hosts
     if (host.includes('youtube.com') || host.includes('youtu.be') || host.includes('twitch.tv')) return false
+    // Skip MPD (DASH) — browsers can't play it natively
     if (/\.mpd(?:\?|#|$)/i.test(url.pathname)) return false
-    return !value.includes('...')
+    // Skip ellipsis / placeholder URLs
+    if (value.includes('...')) return false
+    // Skip localhost / loopback
+    if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') return false
+    return true
   } catch {
     return false
   }
@@ -281,25 +288,65 @@ export async function checkIptvChannel(url) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS)
   try {
-    let response = await fetch(url, {
-      method: 'HEAD',
-      redirect: 'follow',
-      signal: controller.signal,
-      headers: { 'User-Agent': 'Chan IPTV health check/1.0' },
-    })
-
-    if (response.status === 405 || response.status === 403 || response.status === 501) {
+    // Try GET with Range first — many IPTV servers reject HEAD (405) but
+    // also reject small Range requests. A full GET with immediate body cancel
+    // is the most reliable probe: if we get headers back with a video content
+    // type, the channel is alive.
+    let response
+    try {
       response = await fetch(url, {
         method: 'GET',
         redirect: 'follow',
         signal: controller.signal,
-        headers: { Range: 'bytes=0-0', 'User-Agent': 'Chan IPTV health check/1.0' },
+        headers: {
+          'User-Agent': 'Chan IPTV health check/1.0',
+          Range: 'bytes=0-0',
+          Accept: '*/*',
+        },
       })
-      await response.body?.cancel?.()
+    } catch (fetchErr) {
+      // If Range GET fails, retry without Range
+      try {
+        response = await fetch(url, {
+          method: 'GET',
+          redirect: 'follow',
+          signal: controller.signal,
+          headers: { 'User-Agent': 'Chan IPTV health check/1.0' },
+        })
+      } catch (retryErr) {
+        return {
+          healthy: false,
+          status: 0,
+          contentType: '',
+          error: retryErr.name === 'AbortError' ? 'timeout' : retryErr.message,
+        }
+      }
     }
 
+    // If GET returned 405/403, try HEAD as fallback
+    if (response.status === 405 || response.status === 403 || response.status === 501) {
+      await response.body?.cancel?.()
+      try {
+        response = await fetch(url, {
+          method: 'HEAD',
+          redirect: 'follow',
+          signal: controller.signal,
+          headers: { 'User-Agent': 'Chan IPTV health check/1.0' },
+        })
+      } catch {
+        return { healthy: false, status: 0, contentType: '', error: 'timeout' }
+      }
+    }
+
+    // Drain the body so the connection closes cleanly
+    await response.body?.cancel?.()
+
     const contentType = response.headers.get('content-type') || ''
-    const healthy = response.ok && !contentType.toLowerCase().includes('text/html')
+    // Accept video/mpeg, video/mp2t, application/octet-stream, and m3u8 content types
+    // Also accept 200/206 responses that are NOT HTML error pages
+    const isHtml = contentType.toLowerCase().includes('text/html')
+    const isVideoType = /video\/|mpegurl|octet-stream|mpeg|mp2t/i.test(contentType)
+    const healthy = (response.ok || response.status === 206) && !isHtml && (isVideoType || contentType === '')
     return { healthy, status: response.status, contentType, error: healthy ? null : `HTTP ${response.status}` }
   } catch (error) {
     return {
@@ -341,16 +388,29 @@ export async function getIptvChannels(extraChannels = [], provider = '') {
   const catalog = await readHealthyCatalog(provider)
   if (catalog.length) {
     const unique = new Map([...catalog, ...configured].map((channel) => [channel.url, channel]))
-    return [...unique.values()].filter((channel) => !provider || channel.provider === provider || channel.provider === 'Chan Curated Live TV' || channel.provider === 'Chan Curated XXX 18+' || channel.provider === 'custom')
+    return [...unique.values()]
+      .filter((channel) => !provider || channel.provider === provider || channel.provider === 'Chan Curated Live TV' || channel.provider === 'Chan Curated XXX 18+' || channel.provider === 'custom')
+      // Filter out channels marked as unhealthy in the catalog
+      .filter((channel) => channel.healthy !== false)
   }
 
   try {
     const playlistChannels = await getPlaylistChannels()
     const unique = new Map([...playlistChannels, ...configured].map((channel) => [channel.url, channel]))
-    return [...unique.values()].filter((channel) => !provider || channel.provider === provider || channel.provider === 'Chan Curated Live TV' || channel.provider === 'Chan Curated XXX 18+' || channel.provider === 'custom')
+    return [...unique.values()]
+      .filter((channel) => !provider || channel.provider === provider || channel.provider === 'Chan Curated Live TV' || channel.provider === 'Chan Curated XXX 18+' || channel.provider === 'custom')
   } catch (error) {
     console.error('IPTV playlist error:', error.message)
     if (configured.length) return configured.filter((channel) => !provider || channel.provider === provider || channel.provider === 'Chan Curated Live TV' || channel.provider === 'Chan Curated XXX 18+' || channel.provider === 'custom')
     throw Object.assign(new Error('IPTV playlist is currently unavailable'), { status: 503 })
   }
+}
+
+/**
+ * Quick health probe for a single IPTV channel URL.
+ * Used by the room/player to verify a channel is alive before attempting playback.
+ * Returns { healthy, contentType, error }.
+ */
+export async function probeIptvChannel(url) {
+  return checkIptvChannel(url)
 }

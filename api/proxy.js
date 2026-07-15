@@ -155,7 +155,7 @@ export default async function handler(req, res) {
       referer = 'https://www.xvideos.com/'
     } else if (hostname.includes('pornhub') || hostname.includes('phncdn') || hostname.includes('pornhubpremium')) {
       referer = 'https://www.pornhub.com/'
-    } else if (hostname.includes('spankbang') || hostname.includes('sb-cd') || hostname.includes('spankcdn')) {
+    } else if (hostname.includes('spankbang') || hostname.includes('sb-cd') || hostname.includes('spankcdn') || hostname.includes('spankbang.party') || hostname.includes('spankbang.com')) {
       referer = 'https://spankbang.party/'
     } else if (hostname.includes('dood') || hostname.includes('doodcdn') || hostname.includes('ds2play') || hostname.includes('d0000d')) {
       referer = 'https://dood.li/'
@@ -183,11 +183,13 @@ export default async function handler(req, res) {
       // Some CDNs also check Origin
       ...(hostname.includes('phncdn') || hostname.includes('pornhub')
         ? { Origin: 'https://www.pornhub.com' }
-        : hostname.includes('downloadwella') || hostname.includes('fsmc')
-          ? { Origin: 'https://downloadwella.com' }
-          : hostname.includes('koyeb.app') || hostname.includes('maxcinema')
-            ? { Origin: 'https://www.maxcinema.name.ng' }
-            : {}),
+        : hostname.includes('spankbang') || hostname.includes('sb-cd') || hostname.includes('spankcdn')
+          ? { Origin: 'https://spankbang.party' }
+          : hostname.includes('downloadwella') || hostname.includes('fsmc')
+            ? { Origin: 'https://downloadwella.com' }
+            : hostname.includes('koyeb.app') || hostname.includes('maxcinema')
+              ? { Origin: 'https://www.maxcinema.name.ng' }
+              : {}),
     }
 
     // Forward the browser's Range header (used by <video> for seeking / buffering)
