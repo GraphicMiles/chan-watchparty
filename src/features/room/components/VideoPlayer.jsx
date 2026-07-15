@@ -603,10 +603,26 @@ export default function VideoPlayer({
         setCurrentLevel(data.level)
       })
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (!data.fatal) return
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad()
-        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError()
-        else handleError(new Error(`HLS fatal error: ${data.details}`))
+        console.log('HLS error:', data.type, data.details, 'fatal:', data.fatal)
+        if (!data.fatal) {
+          // Non-fatal: retry network errors, recover media errors
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            console.log('HLS network error, retrying load...')
+            hls.startLoad()
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            console.log('HLS media error, recovering...')
+            hls.recoverMediaError()
+          }
+          return
+        }
+        // Fatal errors: show meaningful message to user
+        const errorMsg = data.type === Hls.ErrorTypes.NETWORK_ERROR
+          ? 'Stream network error — the IPTV server may be blocking this request, the channel is offline, or the stream timed out. Try another channel.'
+          : data.type === Hls.ErrorTypes.MEDIA_ERROR
+          ? 'Stream format error — this stream codec is not supported by your browser. Try another channel.'
+          : `Stream error: ${data.details}. The channel may be offline or the link expired.`
+        console.error('HLS fatal error:', errorMsg, data)
+        handleError(new Error(errorMsg))
       })
     } else {
       handleError(new Error('HLS is not supported in this browser'))
