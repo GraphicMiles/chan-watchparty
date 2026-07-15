@@ -503,13 +503,12 @@ export default function VideoPlayer({
     const fallbackReadyTimer = setTimeout(() => setIsReady(true), 5000)
 
     // Pre-flight check for direct video URLs: verify the URL returns video data.
-    // This catches cases where the proxy timed out (Vercel 504 HTML page) or
-    // the CDN returned an error page instead of video.
-    // NOTE: Skip preflight for remux=1 MKV streams — HEAD may not return video/*
-    // until the remuxer starts, and Range/GET is what actually matters for playback.
-    // Also prefer a tiny Range GET over HEAD because many CDNs (downloadwella, phncdn)
-    // reject or mishandle HEAD.
-    if (!isHLS && currentUrl && videoType === 'direct' && currentUrl.includes('/api/proxy') && !/[?&]remux=1(?:&|$)/.test(currentUrl)) {
+    // This catches cases where the proxy timed out (Vercel 504 HTML page), the
+    // CDN returned an error page instead of video, or the source is HEVC/H.265
+    // which the proxy rejects with a clear 502 message.
+    // We use a tiny Range GET instead of HEAD because many CDNs (downloadwella,
+    // phncdn) reject or mishandle HEAD.
+    if (!isHLS && currentUrl && videoType === 'direct' && currentUrl.includes('/api/proxy')) {
       const checkUrl = async () => {
         try {
           let checkRes
@@ -527,15 +526,26 @@ export default function VideoPlayer({
             (contentType.includes('text/html') || contentType.includes('application/json'))
             && checkRes.status >= 400
           ) {
-            const errorMsg = checkRes.status === 504
-              ? 'Stream proxy timed out — the video server is too slow for Vercel Hobby tier (10s limit). Try a smaller file or upgrade to Vercel Pro.'
-              : checkRes.status === 502
-                ? 'Stream server returned an error page instead of video. The channel may be offline or the link expired — re-resolve from search and try again.'
-                : `Stream returned ${contentType} instead of video data (HTTP ${checkRes.status}). Try a different source.`
+            let serverMessage = ''
+            try {
+              const text = await checkRes.text()
+              const parsed = JSON.parse(text)
+              serverMessage = parsed.error || ''
+            } catch {
+              /* not JSON or empty */
+            }
+            const errorMsg = serverMessage
+              ? serverMessage
+              : checkRes.status === 504
+                ? 'Stream proxy timed out — the video server is too slow for Vercel Hobby tier (10s limit). Try a smaller file or upgrade to Vercel Pro.'
+                : checkRes.status === 502
+                  ? 'Stream server returned an error page instead of video. The channel may be offline or the link expired — re-resolve from search and try again.'
+                  : `Stream returned ${contentType} instead of video data (HTTP ${checkRes.status}). Try a different source.`
             setError(errorMsg)
+          } else {
+            // Drain body if any so the connection can close
+            try { await checkRes.arrayBuffer() } catch { /* */ }
           }
-          // Drain body if any so the connection can close
-          try { await checkRes.arrayBuffer() } catch { /* */ }
         } catch {
           // Network error — let the player try and show its own error
         }

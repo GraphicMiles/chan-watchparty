@@ -2,7 +2,7 @@ import { preflight, fail } from '../server-lib/http.js'
 import { validateFetchUrl, isPrivateHost } from '../server-lib/ssrf.js'
 import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
 import { probeAndFixO2TvUrl } from '../server-lib/o2tvResolver.js'
-import { MkvRemuxStream, isMkvContentType } from '../server-lib/mkvRemux.js'
+import { MkvRemuxStream, isMkvContentType, probeMkvVideoCodec } from '../server-lib/mkvRemux.js'
 
 /** Read optional domain allow-list from env (JSON array of hostnames). */
 function getProxyDomainAllowlist() {
@@ -77,6 +77,45 @@ async function pipeStreamToResponse(reader, res, abortSignal) {
     // Stream interrupted (client disconnect, upstream error, or abort)
   }
   return bytesSent
+}
+
+/**
+ * Stream an upstream response directly to the client.
+ * Used as a fallback when MKV remux is skipped or after re-fetch.
+ */
+async function streamDirectResponse(upstreamRes, req, res) {
+  const contentType = upstreamRes.headers.get('content-type') || ''
+  const contentRange = upstreamRes.headers.get('content-range')
+  const contentLength = upstreamRes.headers.get('content-length')
+
+  res.setHeader('Content-Type', contentType || 'application/octet-stream')
+  res.setHeader('Accept-Ranges', 'bytes')
+  res.setHeader('Cache-Control', cacheControlForType(contentType))
+
+  if (contentRange) res.setHeader('Content-Range', contentRange)
+  if (contentLength) res.setHeader('Content-Length', contentLength)
+
+  res.status(upstreamRes.status === 206 ? 206 : 200)
+
+  if (req.method === 'HEAD') {
+    res.end()
+    return
+  }
+
+  const abortController = new AbortController()
+  const onClose = () => { abortController.abort() }
+  req.on('close', onClose)
+
+  try {
+    const reader = upstreamRes.body.getReader()
+    await pipeStreamToResponse(reader, res, abortController.signal)
+    await reader.cancel().catch(() => {})
+  } catch {
+    // Stream error
+  } finally {
+    req.off('close', onClose)
+    try { res.end() } catch { /* */ }
+  }
 }
 
 export default async function handler(req, res) {
@@ -197,10 +236,17 @@ export default async function handler(req, res) {
     }
 
     // ─── Fetch from upstream (video, image, segment, anything else) ───
+    const isKeyHost = hostname.includes('koyeb') || hostname.includes('wildshare') || hostname.includes('silversurfer') || hostname.includes('kissorgrab') || hostname.includes('downloadwella') || hostname.includes('fsmc')
+    if (isKeyHost) {
+      console.log(`Proxy upstream fetch: ${targetUrl.hostname} ${targetUrl.pathname.slice(0, 80)} remux=${req.query?.remux || 'auto'}`)
+    }
     const upstream = await fetch(targetUrl.href, {
       redirect: 'follow',
       headers: upstreamHeaders,
     })
+    if (isKeyHost) {
+      console.log(`Proxy upstream response: ${targetUrl.hostname} status=${upstream.status} type=${upstream.headers.get('content-type') || 'none'}`)
+    }
 
     if (!upstream.ok && upstream.status !== 206) {
       // ─── O2TV 404 retry: try to probe for the correct CDN suffix ───
@@ -318,7 +364,6 @@ export default async function handler(req, res) {
       // For MKV files, we must fetch from the start (no Range header)
       // because the remuxer needs sequential MKV data from the beginning.
       let mkvUpstream = upstream
-      let reFetched = false
       if (req.headers.range && (upstream.status === 206 || upstream.headers.get('content-range'))) {
         // Re-fetch from the beginning without Range
         await upstream.body?.cancel().catch(() => {})
@@ -328,52 +373,62 @@ export default async function handler(req, res) {
         if (!mkvUpstream.ok && mkvUpstream.status !== 206) {
           return fail(res, mkvUpstream.status, `Upstream returned HTTP ${mkvUpstream.status}`)
         }
-        reFetched = true
       }
 
-      // Peek at the first bytes to verify it's actually MKV (EBML magic: 0x1A45DFA3)
-      // If not, fall through to passthrough instead of crashing the remuxer
       try {
         const reader = mkvUpstream.body.getReader()
+
+        // Verify MKV magic (EBML header starts with 0x1A) and probe the video codec
+        // before committing to a 200 response. This lets us return a clear error for
+        // HEVC/H.265 sources instead of silently sending a broken MP4 stream.
         const { value: firstChunk, done } = await reader.read()
         if (done || !firstChunk) {
+          await reader.cancel().catch(() => {})
           return fail(res, 502, 'Empty response from upstream')
         }
-        
         const firstBytes = Buffer.from(firstChunk)
-        // EBML header always starts with 0x1A (first byte of ID 0x1A45DFA3)
         if (firstBytes[0] !== 0x1A) {
-          // Not MKV — fall through to direct streaming passthrough
+          await reader.cancel().catch(() => {})
           console.log('Proxy: remux=1 requested but data is not MKV, falling through to passthrough')
-          
-          // If we re-fetched, we need to resume with this data
-          res.setHeader('Content-Type', mkvUpstream.headers.get('content-type') || contentType || 'application/octet-stream')
-          res.setHeader('Accept-Ranges', 'bytes')
-          res.setHeader('Cache-Control', cacheControlForType(contentType))
-          res.status(200)
-
-          if (req.method === 'HEAD') {
-            await reader.cancel().catch(() => {})
-            res.end()
-            return
+          // Re-fetch so the normal passthrough path below has a fresh body.
+          const refetch = await fetch(targetUrl.href, { redirect: 'follow', headers: upstreamHeaders })
+          if (!refetch.ok && refetch.status !== 206) {
+            return fail(res, refetch.status, `Upstream returned HTTP ${refetch.status}`)
           }
-
-          const abortController = new AbortController()
-          const onClose = () => { abortController.abort() }
-          req.on('close', onClose)
-
-          // Write the first chunk we already read
-          res.write(firstBytes)
-
-          try {
-            await pipeStreamToResponse(reader, res, abortController.signal)
-          } catch { /* */ }
-          finally { req.off('close', onClose); await reader.cancel().catch(() => {}) }
-          res.end()
-          return
+          return streamDirectResponse(refetch, req, res)
         }
 
-        // It IS MKV — proceed with remuxing
+        // Wrap the reader so the probe can consume from the start (including the
+        // first chunk we already read), then continue into the remuxer.
+        let probeDone = false
+        let queued = firstBytes
+        const probingReader = {
+          read: async () => {
+            if (queued) {
+              const chunk = queued
+              queued = null
+              return { value: chunk, done: false }
+            }
+            return reader.read()
+          },
+          cancel: (reason) => reader.cancel(reason),
+        }
+
+        let videoCodec = null
+        try {
+          videoCodec = await probeMkvVideoCodec(probingReader, { maxBytes: 524288, timeoutMs: 5000 })
+        } catch (probeErr) {
+          console.error('MKV codec probe error:', probeErr.message)
+        }
+
+        const isHevc = videoCodec && /HEVC|H\.265|V_MPEGH/i.test(videoCodec)
+        if (isHevc) {
+          await reader.cancel().catch(() => {})
+          console.error('Proxy HEVC rejected:', targetUrl.hostname, videoCodec)
+          return fail(res, 502, 'This source uses HEVC/H.265 video, which most browsers cannot play. Try a different source or device.')
+        }
+
+        // Commit to a 200 MP4 response now that we know the codec is supported.
         res.setHeader('Content-Type', 'video/mp4')
         res.setHeader('Cache-Control', cacheControlForType('video/mp4'))
         res.status(200)
@@ -404,14 +459,14 @@ export default async function handler(req, res) {
           try { res.end() } catch { /* */ }
         })
 
-        // Feed the first chunk we already peeked at
-        if (!remuxer.destroyed) {
-          remuxer.write(firstBytes)
-        }
-
-        // Continue reading and feeding the remuxer
-        const processRemaining = async () => {
+        // Feed any leftover bytes the probe did not consume, then continue reading.
+        const feedLoop = async () => {
           try {
+            // First feed the queued chunk if the probe left it
+            if (queued) {
+              if (!remuxer.destroyed) remuxer.write(queued)
+              queued = null
+            }
             while (!abortController.signal.aborted) {
               const { done, value } = await reader.read()
               if (done) break
@@ -422,27 +477,18 @@ export default async function handler(req, res) {
           } catch {
             // Stream interrupted
           } finally {
-            if (!remuxer.destroyed) {
-              remuxer.end()
-            }
+            if (!remuxer.destroyed) remuxer.end()
             await reader.cancel().catch(() => {})
           }
         }
 
-        await processRemaining()
+        await feedLoop()
         req.off('close', onClose)
         return
 
       } catch (peekErr) {
         console.error('Proxy MKV peek error:', peekErr.message)
-        // Body may already be consumed — fall through carefully.
-        // If we re-fetched, mkvUpstream has the body but the reader was lost.
-        // In this case, return a generic error rather than trying to stream.
-        if (reFetched) {
-          return fail(res, 502, 'MKV remux failed and fallback stream unavailable')
-        }
-        // If we didn't re-fetch, the original upstream body may still be usable.
-        // Fall through to the normal passthrough section.
+        return fail(res, 502, 'MKV remux failed — could not read stream header')
       }
     }
 
@@ -451,43 +497,7 @@ export default async function handler(req, res) {
     // The browser's <video> element controls the flow via Range requests.
     // If the function times out (10s Hobby / 60s Pro), the browser simply
     // reconnects with a new Range request — this is standard HTTP behaviour.
-
-    const contentRange = upstream.headers.get('content-range')
-    const contentLength = upstream.headers.get('content-length')
-
-    res.setHeader('Content-Type', contentType || 'application/octet-stream')
-    res.setHeader('Accept-Ranges', 'bytes')
-    res.setHeader('Cache-Control', cacheControlForType(contentType))
-
-    if (contentRange) res.setHeader('Content-Range', contentRange)
-    if (contentLength) res.setHeader('Content-Length', contentLength)
-
-    // Forward the correct status: 206 for partial, 200 for full
-    res.status(upstream.status === 206 ? 206 : 200)
-
-    if (req.method === 'HEAD') {
-      res.end()
-      return
-    }
-
-    // Abort signal for client disconnect
-    const abortController = new AbortController()
-    const onClose = () => {
-      abortController.abort()
-    }
-    req.on('close', onClose)
-
-    try {
-      const reader = upstream.body.getReader()
-      await pipeStreamToResponse(reader, res, abortController.signal)
-      await reader.cancel().catch(() => {})
-    } catch {
-      // Stream error (client disconnect / upstream error) — just end
-    } finally {
-      req.off('close', onClose)
-    }
-
-    res.end()
+    return streamDirectResponse(upstream, req, res)
   } catch (err) {
     console.error('Proxy error:', err)
     return fail(res, 502, 'Upstream request failed')

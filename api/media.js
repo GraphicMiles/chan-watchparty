@@ -813,10 +813,15 @@ async function searchDirectLinks(query, options = {}) {
           try {
             const o2tvResults = await resolveO2TvShow(cleanQ, 4, 8)
             for (const result of o2tvResults) {
+              // Proxy O2TV CDN URLs so HTTPS rooms can play them and the
+              // correct Referer is sent.
+              const proxiedUrl = result.url.startsWith('/api/proxy')
+                ? result.url
+                : `/api/proxy?url=${encodeURIComponent(result.url)}&referer=${encodeURIComponent('http://d6.o2tv.org/')}`
               siteCandidates.push({
                 title: result.title,
-                url: result.url,
-                link: result.link || result.url,
+                url: proxiedUrl,
+                link: proxiedUrl,
                 source: 'o2tv',
                 isDirect: true,
                 playableInRoom: !result.probeFailed,
@@ -1881,15 +1886,21 @@ export default async function handler(req, res) {
         try {
           const npResults = await resolveNaijapreyChain(url)
           if (npResults && npResults.length > 0) {
-            // Proxy every playable URL so wildshare/silversurfer CDNs get a proper Referer
+            // Proxy actual direct media URLs. Do NOT proxy intermediate pages
+            // (np-downloader / wildshare landing pages) as if they were playable.
             const proxied = npResults.map((item) => {
               if (!item) return item
               const mediaUrl = item.url || item.link
               if (!mediaUrl) return item
-              if (item.isDirect || MEDIA_EXT_RE.test(mediaUrl) || /wildshare|silversurfer|np-downloader/i.test(mediaUrl)) {
-                const playUrl = toProxiedPlaybackUrl(mediaUrl, {
-                  referer: 'https://www.naijaprey.tv/',
-                })
+              const isDirectMedia = item.isDirect === true || MEDIA_EXT_RE.test(mediaUrl)
+              if (isDirectMedia) {
+                // Wildshare/silversurfer direct links prefer the wildshare landing
+                // page as Referer; the naijaprey page is accepted but less reliable.
+                const isWildshare = /wildshare\.net|silversurfer\.wildshare|dlws\d+\.wildshare|fasterbytes\.wildshare/i.test(mediaUrl)
+                const referer = isWildshare
+                  ? (item.referer || item.resolvedFrom || 'https://www.naijaprey.tv/')
+                  : 'https://www.naijaprey.tv/'
+                const playUrl = toProxiedPlaybackUrl(mediaUrl, { referer })
                 return {
                   ...item,
                   url: playUrl,
@@ -1904,6 +1915,8 @@ export default async function handler(req, res) {
                 ...item,
                 source: item.source || 'naijaprey',
                 type: 'direct',
+                isDirect: false,
+                playableInRoom: false,
                 requiresResolve: true,
               }
             })
@@ -1929,7 +1942,28 @@ export default async function handler(req, res) {
         try {
           const nnResults = await resolveNetNaijaChain(url)
           if (nnResults && nnResults.length > 0) {
-            const omdbResults = await enrichWithOMDbPosters(nnResults, query || '')
+              // NetNaija's kissorgrab CDN URLs are direct MKV files but need proxying
+              // for CORS, correct Referer, and MKV remuxing.
+              const proxied = nnResults.map((item) => {
+                if (!item || !item.url) return item
+                const mediaUrl = item.url || item.link
+                if (!mediaUrl) return item
+                if (item.isDirect && /kissorgrab|meetdownload|mynetnaija/i.test(mediaUrl)) {
+                  const playUrl = toProxiedPlaybackUrl(mediaUrl, { referer: 'https://meetdownload.com/' })
+                  return {
+                    ...item,
+                    url: playUrl,
+                    link: playUrl,
+                    type: 'direct',
+                    source: item.source || 'netnaija',
+                    videoType: 'direct',
+                    // Preserve playableInRoom=false for subtitle files
+                    playableInRoom: item.playableInRoom !== false,
+                  }
+                }
+                return { ...item, source: item.source || 'netnaija', type: 'direct' }
+              })
+            const omdbResults = await enrichWithOMDbPosters(proxied, query || '')
             const results = deduplicateAndEnrich(omdbResults, query || '')
             return ok(res, {
               results,
@@ -1966,39 +2000,69 @@ export default async function handler(req, res) {
         }
       }
 
+      // O2TV URL resolution: probe correct CDN suffix and proxy for HTTPS/CORS
+      if (target.hostname.toLowerCase().includes('o2tv.org') || target.hostname.toLowerCase().includes('tvshows4mobile') || target.hostname.toLowerCase().includes('o2tvseries')) {
+        try {
+          const o2tvResults = await resolveO2TvPage(url)
+          if (o2tvResults && o2tvResults.length > 0) {
+            const proxied = o2tvResults.map((item) => {
+              if (!item || !item.url) return item
+              if (item.isDirect && !item.url.startsWith('/api/proxy')) {
+                const playUrl = `/api/proxy?url=${encodeURIComponent(item.url)}&referer=${encodeURIComponent('http://d6.o2tv.org/')}`
+                return { ...item, url: playUrl, link: playUrl }
+              }
+              return item
+            })
+            const results = deduplicateAndEnrich(proxied, query || '')
+            return ok(res, {
+              results,
+              count: results.length,
+              directCount: results.filter((item) => item.isDirect).length,
+              resolved: true,
+              url,
+              site: 'o2tv',
+            })
+          }
+        } catch (err) {
+          console.error('O2TV scrape resolution failed:', err.message)
+        }
+      }
+
       // MaxCinema URL resolution (info page → server → 302 → CDN)
       if (target.hostname.toLowerCase().includes('maxcinema') || target.hostname.toLowerCase().includes('koyeb.app')) {
         try {
           const mcResults = await resolveMaxCinemaChain(url)
           if (mcResults && mcResults.length > 0) {
-            // Always proxy MaxCinema/Koyeb results (often MKV without extension)
-            const proxied = mcResults.map((item) => {
-              if (!item) return item
-              const mediaUrl = item.url || item.link
-              if (!mediaUrl) return item
-              if (item.isDirect || /koyeb\.app|dood|maxcinema/i.test(mediaUrl)) {
-                // Force remux for koyeb (MKV-without-extension is common)
-                let playUrl
-                if (/koyeb\.app/i.test(mediaUrl) && !/^\/api\/proxy/i.test(mediaUrl)) {
-                  playUrl = `/api/proxy?url=${encodeURIComponent(mediaUrl)}&remux=1&referer=${encodeURIComponent('https://www.maxcinema.name.ng/')}`
-                } else {
-                  playUrl = toProxiedPlaybackUrl(mediaUrl, {
-                    referer: 'https://www.maxcinema.name.ng/',
-                  })
+              // Always proxy MaxCinema/Koyeb results (often MKV without extension)
+              const proxied = mcResults.map((item) => {
+                if (!item) return item
+                const mediaUrl = item.url || item.link
+                if (!mediaUrl) return item
+                // Only treat as playable if the resolver explicitly marked it playable
+                // or it's a Koyeb URL we know how to proxy. DoodStream/raw CDN links
+                // that failed resolution must keep playableInRoom=false.
+                const isKoyeb = /koyeb\.app/i.test(mediaUrl) && !/^\/api\/proxy/i.test(mediaUrl)
+                const isPlayable = item.playableInRoom !== false || isKoyeb
+                if (item.isDirect && isPlayable) {
+                  // Force remux for koyeb (MKV-without-extension is common)
+                  const playUrl = isKoyeb
+                    ? `/api/proxy?url=${encodeURIComponent(mediaUrl)}&remux=1&referer=${encodeURIComponent('https://www.maxcinema.name.ng/')}`
+                    : toProxiedPlaybackUrl(mediaUrl, {
+                        referer: 'https://www.maxcinema.name.ng/',
+                      })
+                  return {
+                    ...item,
+                    url: playUrl,
+                    link: playUrl,
+                    isDirect: true,
+                    playableInRoom: true,
+                    type: 'direct',
+                    source: item.source || 'maxcinema',
+                    videoType: 'direct',
+                  }
                 }
-                return {
-                  ...item,
-                  url: playUrl,
-                  link: playUrl,
-                  isDirect: true,
-                  playableInRoom: true,
-                  type: 'direct',
-                  source: item.source || 'maxcinema',
-                  videoType: 'direct',
-                }
-              }
-              return { ...item, source: item.source || 'maxcinema', type: 'direct' }
-            })
+                return { ...item, source: item.source || 'maxcinema', type: 'direct' }
+              })
             const omdbResults = await enrichWithOMDbPosters(proxied, query || '')
             const results = deduplicateAndEnrich(omdbResults, null)
             return ok(res, {

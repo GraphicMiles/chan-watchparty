@@ -1133,3 +1133,131 @@ export function isMkvUrl(url) {
   // .mkv file extension or -mkv suffix in pathname or query string
   return /\.mkv(\?|#|$)/i.test(url) || /-mkv(\?|#|$)/i.test(url) || /\.mkv&/i.test(url) || /-mkv&/i.test(url)
 }
+
+/**
+ * Probe the first video codec ID from an MKV stream without consuming
+ * the whole file. Reads just enough data to parse the Tracks element.
+ * Returns the codec ID string (e.g. 'V_MPEG4/ISO/AVC') or null if not found.
+ * The caller is responsible for releasing/cancelling the reader.
+ */
+export async function probeMkvVideoCodec(bodyReader, { maxBytes = 524288, timeoutMs = 5000 } = {}) {
+  const deadline = Date.now() + timeoutMs
+  let buffer = Buffer.alloc(0)
+  let inSegment = false
+
+  async function ensureBytes(needed) {
+    while (buffer.length < needed) {
+      if (Date.now() > deadline) throw new Error('MKV codec probe timed out')
+      const { done, value } = await bodyReader.read()
+      if (done) return false
+      buffer = Buffer.concat([buffer, Buffer.from(value)])
+      if (buffer.length > maxBytes) throw new Error('MKV codec probe exceeded size limit')
+    }
+    return true
+  }
+
+  function consume(bytes) {
+    const chunk = buffer.subarray(0, bytes)
+    buffer = buffer.subarray(bytes)
+    return chunk
+  }
+
+  async function readElementHeader() {
+    const idResult = readVINT_ID(buffer, 0)
+    if (!idResult) {
+      if (!(await ensureBytes(buffer.length + 1))) return null
+      return readElementHeader()
+    }
+    const sizeResult = readVINT_SIZE(buffer, idResult.width)
+    if (!sizeResult) {
+      if (!(await ensureBytes(buffer.length + 1))) return null
+      return readElementHeader()
+    }
+    const headerSize = idResult.width + sizeResult.width
+    if (!(await ensureBytes(headerSize))) return null
+    consume(headerSize)
+    return { id: idResult.value, size: sizeResult.value }
+  }
+
+  async function readElementData(size) {
+    if (size === -1) throw new Error('MKV probe does not support unknown-size elements')
+    if (!(await ensureBytes(size))) return null
+    return consume(size)
+  }
+
+  async function parseTracks(data) {
+    let offset = 0
+    while (offset < data.length) {
+      const idResult = readVINT_ID(data, offset)
+      if (!idResult) break
+      const sizeResult = readVINT_SIZE(data, offset + idResult.width)
+      if (!sizeResult) break
+      const headerSize = idResult.width + sizeResult.width
+      const dataSize = sizeResult.value
+      if (dataSize === -1 || offset + headerSize + dataSize > data.length) break
+
+      if (idResult.value === TRACK_ENTRY) {
+        const entryData = data.subarray(offset + headerSize, offset + headerSize + dataSize)
+        const codec = parseTrackEntryCodec(entryData)
+        if (codec) return codec
+      }
+      offset += headerSize + dataSize
+    }
+    return null
+  }
+
+  function parseTrackEntryCodec(data) {
+    let offset = 0
+    let trackType = 0
+    let codecId = null
+    while (offset < data.length) {
+      const idResult = readVINT_ID(data, offset)
+      if (!idResult) break
+      const sizeResult = readVINT_SIZE(data, offset + idResult.width)
+      if (!sizeResult) break
+      const headerSize = idResult.width + sizeResult.width
+      const dataSize = sizeResult.value
+      if (dataSize === -1 || offset + headerSize + dataSize > data.length) break
+      const elementData = data.subarray(offset + headerSize, offset + headerSize + dataSize)
+
+      if (idResult.value === TRACK_TYPE) {
+        trackType = readUInt(elementData, 0, elementData.length)
+      } else if (idResult.value === CODEC_ID) {
+        codecId = elementData.toString('ascii')
+      }
+      offset += headerSize + dataSize
+    }
+    return trackType === TRACK_TYPE_VIDEO ? codecId : null
+  }
+
+  while (true) {
+    const el = await readElementHeader()
+    if (!el) return null
+
+    if (el.id === EBML_HEADER) {
+      const data = await readElementData(el.size)
+      if (!data) return null
+      continue
+    }
+
+    if (el.id === SEGMENT) {
+      inSegment = true
+      continue
+    }
+
+    if (inSegment && el.id === TRACKS) {
+      const data = await readElementData(el.size)
+      if (!data) return null
+      return await parseTracks(data)
+    }
+
+    if (inSegment && el.id === CLUSTER) {
+      // Reached clusters without finding video track — give up
+      return null
+    }
+
+    // Skip other elements
+    const data = await readElementData(el.size)
+    if (!data) return null
+  }
+}
