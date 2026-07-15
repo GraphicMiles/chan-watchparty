@@ -12,7 +12,6 @@
   "dependencies": {
     "@google-cloud/firestore": "^7.0.0",
     "@livekit/components-react": "^2.9.0",
-    "@sparticuz/chromium": "^147.0.0",
     "@upstash/redis": "^1.38.0",
     "cheerio": "^1.2.0",
     "firebase": "^10.7.0",
@@ -21,7 +20,6 @@
     "jsonwebtoken": "^9.0.0",
     "livekit-client": "^2.5.0",
     "lucide-react": "^0.478.0",
-    "puppeteer-core": "^24.43.1",
     "qrcode": "^1.5.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -31,10 +29,12 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
+    "@sparticuz/chromium": "^147.0.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
     "puppeteer": "^24.43.1",
+    "puppeteer-core": "^24.43.1",
     "sass": "^1.69.0",
     "vite": "^5.0.0"
   }
