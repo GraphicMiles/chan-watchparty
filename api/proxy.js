@@ -120,7 +120,7 @@ export default async function handler(req, res) {
       referer = 'https://spankbang.party/'
     } else if (hostname.includes('dood') || hostname.includes('doodcdn') || hostname.includes('ds2play') || hostname.includes('d0000d')) {
       referer = 'https://dood.li/'
-    } else if (hostname.includes('downloadwella') || hostname.includes('fsmc') || hostname.includes('download.') && hostname.includes('wella')) {
+    } else if (hostname.includes('downloadwella') || hostname.includes('fsmc') || (hostname.includes('download.') && hostname.includes('wella'))) {
       // DownloadWella hotlink tokens require the download host as Referer.
       // Without it the CDN returns an HTML error page → browser "format error" / 502.
       referer = 'https://downloadwella.com/'
@@ -128,8 +128,10 @@ export default async function handler(req, res) {
       referer = 'https://meetdownload.com/'
     } else if (hostname.includes('wideshares')) {
       referer = 'https://wideshares.org/'
-    } else if (hostname.includes('np-downloader') || hostname.includes('wildshare') || hostname.includes('naijaprey')) {
+    } else if (hostname.includes('np-downloader') || hostname.includes('wildshare') || hostname.includes('silversurfer') || hostname.includes('naijaprey')) {
       referer = 'https://www.naijaprey.tv/'
+    } else if (hostname.includes('koyeb.app') || hostname.includes('maxcinema')) {
+      referer = 'https://www.maxcinema.name.ng/'
     } else if (hostname.includes('o2tv')) {
       referer = 'http://d6.o2tv.org/'
     }

@@ -116,15 +116,24 @@ function deduplicateAndEnrich(items, query = null) {
     
     const isAdult = item.isNSFW === true || item.type === 'nsfw' || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.source || '').toLowerCase()) || ['xvideos', 'pornhub', 'spankbang'].includes(String(item.provider || '').toLowerCase())
 
-    // Strict close match verification for direct and movie search results against the query
+    // Soft title filter for direct/movie results (strict match was dropping whole providers)
     if (query && String(query).trim() && !isAdult) {
       const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'fztvseries', 'archiveorg', 'meetdownload', 'waploaded', 'maxcinema', 'omdb'].includes(item.source)
       if (isDirectOrMovie) {
-        // Allow season-specific results through (e.g. "silo season 2" when querying "silo")
         const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
         const itemBase = (item.title || '').replace(/\s*[-–]\s*season\s*\d+.*$/i, '').replace(/\s*s\d+\s*e\d+.*$/i, '').trim()
-        if (!isTitleMatch(item.title, query) && !isTitleMatch(itemBase, baseQuery) && !isTitleMatch(item.title, baseQuery)) {
-          return false
+        const hardMatch = isTitleMatch(item.title, query)
+          || isTitleMatch(itemBase, baseQuery)
+          || isTitleMatch(item.title, baseQuery)
+        if (!hardMatch) {
+          // Soft: all meaningful tokens (≥3 chars) appear in the title
+          const qTokens = cleanTitleForMatching(baseQuery || query)
+            .split(/\s+/)
+            .filter((t) => t.length >= 3)
+          const tClean = cleanTitleForMatching(item.title || '')
+          if (qTokens.length > 0 && !qTokens.every((t) => tClean.includes(t))) {
+            return false
+          }
         }
       }
     }
@@ -386,51 +395,82 @@ async function enrichWithOMDbPosters(items, query = null) {
   return updated
 }
 
-// Vercel Hobby tier has a 10s function timeout. We race the search against
-// an 8s deadline so we always return partial results instead of 504.
-const DIRECT_SEARCH_TIMEOUT_MS = 8000
+// Vercel Hobby tier has a ~10s function timeout. Search must return listing
+// results from MANY providers — do NOT deep-resolve during search (that is
+// done on click via action=scrape). Keep the deadline high enough for slow
+// African hosts, but never expand every season for every provider.
+const DIRECT_SEARCH_TIMEOUT_MS = 9000
+
+function softTitleMatch(title, query) {
+  if (!title || !query) return true
+  if (isTitleMatch(title, query)) return true
+  const baseQuery = String(query).replace(/\s+season\s*\d+$/i, '').trim()
+  if (baseQuery && isTitleMatch(title, baseQuery)) return true
+  const itemBase = String(title)
+    .replace(/\s*[-–]\s*season\s*\d+.*$/i, '')
+    .replace(/\s*s\d+\s*e\d+.*$/i, '')
+    .trim()
+  if (baseQuery && isTitleMatch(itemBase, baseQuery)) return true
+  // Soft fallback: all meaningful query tokens appear somewhere in the title
+  const qTokens = cleanTitleForMatching(baseQuery || query)
+    .split(/\s+/)
+    .filter((t) => t.length >= 3)
+  if (qTokens.length === 0) return true
+  const tClean = cleanTitleForMatching(title)
+  return qTokens.every((t) => tClean.includes(t))
+}
 
 async function searchDirectLinks(query, options = {}) {
   const results = []
   const requestedSite = options.site && options.site !== 'custom' && options.site !== 'all' ? options.site : null
+  // Prioritize providers that return listing pages quickly. Heavy resolvers
+  // (meetdownload/waploaded) run last so they don't starve the rest.
   const scrapers = requestedSite
     ? [requestedSite]
-    : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv', 'naijaprey', 'fztvseries', 'archiveorg', 'meetdownload', 'waploaded', 'maxcinema']
-  
+    : [
+        'maxcinema',
+        'netnaija',
+        'nkiri',
+        'naijaprey',
+        'fztvseries',
+        'fzmovies',
+        '9jarocks',
+        'archiveorg',
+        'o2tv',
+        'meetdownload',
+        'waploaded',
+      ]
+
   const searchedSites = [...scrapers]
-  
-  // Expand query with season variants for broader TV show discovery
-  const queries = expandQueryWithSeasons(query)
-  
-  // Race all scrapers against a deadline. Each scraper has its own catch,
-  // so Promise.all will resolve once every scraper settles (success or fail).
-  // We then race the whole thing against a global timeout so slow scrapers
-  // don't cause a Vercel 504 — partial results are better than no results.
+
+  // Search only the base query + one season variant (not S1–S4 for every site).
+  // Full season expansion was starving slower providers under the 8s deadline.
+  const baseQ = String(query || '').trim()
+  const queries = (() => {
+    if (!baseQ) return [query]
+    if (/\b(season\s*\d+|s\d+\s*e\d+|s\d+\b|episode\s*\d+)\b/i.test(baseQ)) return [baseQ]
+    return [baseQ, `${baseQ} season 1`]
+  })()
+
+  // NEVER deep-resolve during search — resolve is click-time only.
+  // Client may still pass resolve:true; ignore it here for multi-provider health.
+  const resolveOnSearch = false
+
   const scrapeDeadline = new Promise((resolve) =>
     setTimeout(() => resolve('timeout'), DIRECT_SEARCH_TIMEOUT_MS)
   )
-  
+
   const scrapeWork = Promise.all(scrapers.map(async (siteKey) => {
     try {
-      // ─── NaijaPrey: dedicated search with season expansion ───
+      // ─── NaijaPrey: dedicated search (listing only) ───
       if (siteKey === 'naijaprey') {
         try {
-          // Search all season variants in parallel
           const allNpResults = await Promise.all(
-            queries.map((q) => searchNaijaprey(q, 10).catch(() => []))
+            queries.map((q) => searchNaijaprey(q, 12).catch(() => []))
           )
           const npResults = allNpResults.flat()
           if (npResults.length > 0) {
-            // Filter against the base query (allow season-specific results)
-            const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
-            const filtered = npResults.filter((item) => {
-              if (!item?.title) return false
-              if (isTitleMatch(item.title, query)) return true
-              if (isTitleMatch(item.title, baseQuery)) return true
-              // Allow if the item title contains the base query as a phrase
-              const itemBase = item.title.replace(/\s*[-–]\s*season\s*\d+.*$/i, '').replace(/\s*s\d+\s*e\d+.*$/i, '').trim()
-              return isTitleMatch(itemBase, baseQuery)
-            })
+            const filtered = npResults.filter((item) => softTitleMatch(item?.title, query))
             const enriched = filtered.length > 0 ? filtered : npResults
             for (const result of enriched) {
               const thumb = result.thumbnail || result.image || null
@@ -440,8 +480,10 @@ async function searchDirectLinks(query, options = {}) {
                 image: thumb,
                 source: 'naijaprey',
                 type: 'direct',
-                isDirect: result.isDirect === true,
-                playableInRoom: result.isDirect === true,
+                // Listing pages are NOT direct — client must scrape+resolve on click
+                isDirect: false,
+                playableInRoom: false,
+                requiresResolve: true,
                 quality: extractQuality(result.title),
               })
             }
@@ -452,24 +494,15 @@ async function searchDirectLinks(query, options = {}) {
         return
       }
 
-      // ─── NetNaija: dedicated search with full chain resolution ───
+      // ─── NetNaija: dedicated search (listing only) ───
       if (siteKey === 'netnaija') {
         try {
-          // Search all season variants in parallel
           const allNnResults = await Promise.all(
-            queries.map((q) => searchNetNaija(q, 10).catch(() => []))
+            queries.map((q) => searchNetNaija(q, 12).catch(() => []))
           )
           const nnResults = allNnResults.flat()
           if (nnResults.length > 0) {
-            // Filter against the base query (allow season-specific results)
-            const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
-            const filtered = nnResults.filter((item) => {
-              if (!item?.title) return false
-              if (isTitleMatch(item.title, query)) return true
-              if (isTitleMatch(item.title, baseQuery)) return true
-              const itemBase = item.title.replace(/\s*[-–]\s*season\s*\d+.*$/i, '').replace(/\s*s\d+\s*e\d+.*$/i, '').trim()
-              return isTitleMatch(itemBase, baseQuery)
-            })
+            const filtered = nnResults.filter((item) => softTitleMatch(item?.title, query))
             const enriched = filtered.length > 0 ? filtered : nnResults
             for (const result of enriched) {
               const thumb = result.thumbnail || result.image || null
@@ -481,6 +514,7 @@ async function searchDirectLinks(query, options = {}) {
                 type: 'direct',
                 isDirect: result.isDirect === true,
                 playableInRoom: result.playableInRoom === true,
+                requiresResolve: result.isDirect !== true,
                 quality: extractQuality(result.title),
               })
             }
@@ -491,22 +525,15 @@ async function searchDirectLinks(query, options = {}) {
         return
       }
 
-      // ─── MaxCinema: search + full chain resolution ───
+      // ─── MaxCinema: search listing only (resolve on click) ───
       if (siteKey === 'maxcinema') {
         try {
           const allMcResults = await Promise.all(
-            queries.map((q) => searchMaxCinema(q, 10).catch(() => []))
+            queries.map((q) => searchMaxCinema(q, 12).catch(() => []))
           )
           const mcResults = allMcResults.flat()
           if (mcResults.length > 0) {
-            const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
-            const filtered = mcResults.filter((item) => {
-              if (!item?.title) return false
-              if (isTitleMatch(item.title, query)) return true
-              if (isTitleMatch(item.title, baseQuery)) return true
-              const itemBase = item.title.replace(/\s*[-–]\s*season\s*\d+.*$/i, '').replace(/\s*s\d+\s*e\d+.*$/i, '').trim()
-              return isTitleMatch(itemBase, baseQuery)
-            })
+            const filtered = mcResults.filter((item) => softTitleMatch(item?.title, query))
             const enriched = filtered.length > 0 ? filtered : mcResults
             for (const result of enriched) {
               const thumb = result.thumbnail || result.image || null
@@ -516,8 +543,9 @@ async function searchDirectLinks(query, options = {}) {
                 image: thumb,
                 source: 'maxcinema',
                 type: 'direct',
-                isDirect: result.isDirect === true,
-                playableInRoom: result.playableInRoom === true,
+                isDirect: false,
+                playableInRoom: false,
+                requiresResolve: true,
                 quality: extractQuality(result.title),
               })
             }
@@ -822,56 +850,28 @@ async function searchDirectLinks(query, options = {}) {
 
       if (siteCandidates.length === 0) return
 
-      const toResolve = options.resolve ? siteCandidates.slice(0, 10) : siteCandidates
-      const remainder = options.resolve ? siteCandidates.slice(10, 60) : []
+      // Listing-only during search (resolveOnSearch is always false).
+      // Soft-filter titles so more providers survive the match pass.
+      const listing = siteCandidates
+        .filter((item) => softTitleMatch(item?.title, query))
+      const useList = listing.length > 0 ? listing : siteCandidates
 
-      const enriched = await Promise.all(toResolve.map(async (result) => {
-        if (options.resolve && !result.isDirect) {
-          const resolved = await resolvePageChain(result.url, siteKey)
-          if (resolved.length) {
-            return resolved.map((item) => {
-              const thumb = item.thumbnail || item.image || result.thumbnail || result.image || null
-              return {
-                ...item,
-                title: item.title || result.title,
-                thumbnail: thumb,
-                image: thumb,
-                source: item.source || siteKey,
-                type: 'direct',
-                quality: extractQuality(item.title || result.title),
-              }
-            })
-          }
-        }
-
+      for (const result of useList.slice(0, 40)) {
         const thumb = result.thumbnail || result.image || null
-        return [{
+        const isDirect = result.isDirect === true || MEDIA_EXT_RE.test(result.url || result.link || '')
+        results.push({
           ...result,
           thumbnail: thumb,
           image: thumb,
           source: siteKey,
           type: 'direct',
-          isDirect: result.isDirect === true,
-          playableInRoom: result.isDirect === true,
+          isDirect,
+          playableInRoom: isDirect,
+          requiresResolve: !isDirect,
           quality: extractQuality(result.title),
-        }]
-      }))
-      
-      const remainderEnriched = remainder.map((result) => {
-        const thumb = result.thumbnail || result.image || null
-        return {
-          ...result,
-          thumbnail: thumb,
-          image: thumb,
-          source: siteKey,
-          type: 'direct',
-          isDirect: result.isDirect === true,
-          playableInRoom: result.isDirect === true,
-          quality: extractQuality(result.title),
-        }
-      })
-
-      results.push(...enriched.flat(), ...remainderEnriched)
+        })
+      }
+      void resolveOnSearch
     } catch (err) {
       console.error(`${siteKey} search failed:`, err.message)
     }
@@ -1810,29 +1810,103 @@ export default async function handler(req, res) {
     if (action === 'scrape') {
       if (!url) return fail(res, 400, 'URL is required')
       
-      // Direct video URL - return immediately
-      if (MEDIA_EXT_RE.test(url)) {
+      // Direct video URL / already-proxied URL - return immediately (still proxy MKV/http)
+      if (MEDIA_EXT_RE.test(url) || /^\/api\/proxy\?/i.test(url)) {
+        let playUrl = url
+        if (!/^\/api\/proxy\?/i.test(url)) {
+          playUrl = toProxiedPlaybackUrl(url)
+        }
         const title = decodeURIComponent(url.split('/').pop() || 'Video')
         return ok(res, {
           results: [{
             title: title.replace(MEDIA_EXT_RE, ''),
-            url,
+            url: playUrl,
+            link: playUrl,
             isDirect: true,
+            playableInRoom: true,
             source: 'direct',
             type: 'direct',
           }],
           count: 1,
+          directCount: 1,
+          resolved: true,
         })
       }
-      
+
       const target = new URL(url)
+
+      // MaxCinema Koyeb CDN watch URLs look like:
+      // https://*.koyeb.app/watch/TOKEN?name=[MaxCinema...]_title_S01E01
+      // They often have NO .mkv/.mp4 extension but stream Matroska/MP4.
+      // Always proxy them (with remux) so the browser can play.
+      if (target.hostname.toLowerCase().includes('koyeb.app')) {
+        try {
+          const nameParam = target.searchParams.get('name') || target.pathname.split('/').pop() || 'Video'
+          let title = decodeURIComponent(nameParam)
+            .replace(/^\[.*?\]\s*_?/i, '')
+            .replace(/_/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim() || 'MaxCinema Video'
+          // Force remux for Koyeb — most files are MKV even without extension
+          const proxied = `/api/proxy?url=${encodeURIComponent(url)}&remux=1&referer=${encodeURIComponent('https://www.maxcinema.name.ng/')}`
+          return ok(res, {
+            results: [{
+              title,
+              url: proxied,
+              link: proxied,
+              source: 'maxcinema',
+              type: 'direct',
+              isDirect: true,
+              playableInRoom: true,
+              videoType: 'direct',
+              resolvedFrom: url,
+              meta: 'Koyeb CDN — proxied + remuxed for browser playback',
+            }],
+            count: 1,
+            directCount: 1,
+            resolved: true,
+            url,
+            site: 'maxcinema',
+          })
+        } catch (err) {
+          console.error('Koyeb CDN wrap failed:', err.message)
+        }
+      }
+
       // NaijaPrey URL resolution (content page, np-downloader, or wildshare)
       if (target.hostname.toLowerCase().includes('naijaprey') || target.hostname.toLowerCase().includes('np-downloader') || target.hostname.toLowerCase().includes('wildshare')) {
         try {
           const npResults = await resolveNaijapreyChain(url)
           if (npResults && npResults.length > 0) {
-            const omdbResults = await enrichWithOMDbPosters(npResults, query || '')
-            const results = deduplicateAndEnrich(omdbResults, query || '')
+            // Proxy every playable URL so wildshare/silversurfer CDNs get a proper Referer
+            const proxied = npResults.map((item) => {
+              if (!item) return item
+              const mediaUrl = item.url || item.link
+              if (!mediaUrl) return item
+              if (item.isDirect || MEDIA_EXT_RE.test(mediaUrl) || /wildshare|silversurfer|np-downloader/i.test(mediaUrl)) {
+                const playUrl = toProxiedPlaybackUrl(mediaUrl, {
+                  referer: 'https://www.naijaprey.tv/',
+                })
+                return {
+                  ...item,
+                  url: playUrl,
+                  link: playUrl,
+                  isDirect: true,
+                  playableInRoom: true,
+                  type: 'direct',
+                  source: item.source || 'naijaprey',
+                }
+              }
+              return {
+                ...item,
+                source: item.source || 'naijaprey',
+                type: 'direct',
+                requiresResolve: true,
+              }
+            })
+            const omdbResults = await enrichWithOMDbPosters(proxied, query || '')
+            // Don't over-filter resolved chain results by title match
+            const results = deduplicateAndEnrich(omdbResults, null)
             return ok(res, {
               results,
               count: results.length,
@@ -1894,8 +1968,36 @@ export default async function handler(req, res) {
         try {
           const mcResults = await resolveMaxCinemaChain(url)
           if (mcResults && mcResults.length > 0) {
-            const omdbResults = await enrichWithOMDbPosters(mcResults, query || '')
-            const results = deduplicateAndEnrich(omdbResults, query || '')
+            // Always proxy MaxCinema/Koyeb results (often MKV without extension)
+            const proxied = mcResults.map((item) => {
+              if (!item) return item
+              const mediaUrl = item.url || item.link
+              if (!mediaUrl) return item
+              if (item.isDirect || /koyeb\.app|dood|maxcinema/i.test(mediaUrl)) {
+                // Force remux for koyeb (MKV-without-extension is common)
+                let playUrl
+                if (/koyeb\.app/i.test(mediaUrl) && !/^\/api\/proxy/i.test(mediaUrl)) {
+                  playUrl = `/api/proxy?url=${encodeURIComponent(mediaUrl)}&remux=1&referer=${encodeURIComponent('https://www.maxcinema.name.ng/')}`
+                } else {
+                  playUrl = toProxiedPlaybackUrl(mediaUrl, {
+                    referer: 'https://www.maxcinema.name.ng/',
+                  })
+                }
+                return {
+                  ...item,
+                  url: playUrl,
+                  link: playUrl,
+                  isDirect: true,
+                  playableInRoom: true,
+                  type: 'direct',
+                  source: item.source || 'maxcinema',
+                  videoType: 'direct',
+                }
+              }
+              return { ...item, source: item.source || 'maxcinema', type: 'direct' }
+            })
+            const omdbResults = await enrichWithOMDbPosters(proxied, query || '')
+            const results = deduplicateAndEnrich(omdbResults, null)
             return ok(res, {
               results,
               count: results.length,

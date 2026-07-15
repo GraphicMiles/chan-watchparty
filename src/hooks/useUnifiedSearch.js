@@ -5,6 +5,25 @@ import { isSuitableThumbnail, isTitleMatch, cleanTitleForMatching } from '../sha
 const API_URL = import.meta.env.VITE_API_URL || ''
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
+function softClientTitleMatch(title, query) {
+  if (!title || !query) return true
+  if (isTitleMatch(title, query)) return true
+  const baseQuery = String(query).replace(/\s+season\s*\d+$/i, '').trim()
+  if (baseQuery && isTitleMatch(title, baseQuery)) return true
+  const itemBase = String(title)
+    .replace(/\s*[-–]\s*season\s*\d+.*$/i, '')
+    .replace(/\s*s\d+\s*e\d+.*$/i, '')
+    .trim()
+  if (baseQuery && isTitleMatch(itemBase, baseQuery)) return true
+  // Soft: all meaningful tokens appear in title
+  const qTokens = cleanTitleForMatching(baseQuery || query)
+    .split(/\s+/)
+    .filter((t) => t.length >= 3)
+  if (!qTokens.length) return true
+  const tClean = cleanTitleForMatching(title)
+  return qTokens.every((t) => tClean.includes(t))
+}
+
 function deduplicateAndSyncThumbnails(items, query = null) {
   if (!Array.isArray(items)) return []
   const seenUrls = new Set()
@@ -13,19 +32,12 @@ function deduplicateAndSyncThumbnails(items, query = null) {
   return items.filter((item) => {
     if (!item) return false
 
+    // Soft title filter only — strict isTitleMatch was wiping entire providers
+    // (netnaija / maxcinema / fztvseries) when titles had quality tags.
     if (query && String(query).trim()) {
       const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'fztvseries', 'archiveorg', 'meetdownload', 'waploaded', 'maxcinema', 'omdb'].includes(item.source)
-      if (isDirectOrMovie) {
-        if (isTitleMatch(item.title, query)) {
-          // matches directly — keep
-        } else {
-          // Allow season-specific results matching the base query
-          const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
-          const itemBase = (item.title || '').replace(/\s*[-–]\s*season\s*\d+.*$/i, '').replace(/\s*s\d+\s*e\d+.*$/i, '').trim()
-          if (!isTitleMatch(itemBase, baseQuery) && !isTitleMatch(item.title, baseQuery)) {
-            return false
-          }
-        }
+      if (isDirectOrMovie && !softClientTitleMatch(item.title, query)) {
+        return false
       }
     }
 
@@ -40,8 +52,9 @@ function deduplicateAndSyncThumbnails(items, query = null) {
     if (!urlKey || seenUrls.has(urlKey)) return false
     seenUrls.add(urlKey)
 
-    const titleKey = cleanTitleForMatching(item.title || '')
-    if (titleKey && titleKey.length > 3 && seenTitles.has(titleKey)) {
+    // Dedup by title+source so two providers can share a title
+    const titleKey = `${cleanTitleForMatching(item.title || '')}::${item.source || ''}`
+    if (titleKey && titleKey.length > 5 && seenTitles.has(titleKey)) {
       return false
     }
     if (titleKey) seenTitles.add(titleKey)

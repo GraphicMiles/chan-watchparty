@@ -117,19 +117,32 @@ export function normalizePlaybackUrl(url) {
       || hostname.includes('wideshares')
       || hostname.includes('np-downloader')
       || hostname.includes('wildshare')
+      || hostname.includes('silversurfer')
       || hostname.includes('o2tv')
+      || hostname.includes('koyeb.app')
+      || hostname.includes('maxcinema')
+    )
+
+    // Koyeb MaxCinema watch URLs often have NO extension but stream MKV
+    const isKoyebWatch = hostname.includes('koyeb.app') && (
+      parsed.pathname.includes('/watch/')
+      || parsed.searchParams.has('name')
     )
 
     const isHttp = parsed.protocol === 'http:'
-    if (isMkv || needsProxyHost || isHttp) {
+    if (isMkv || isKoyebWatch || needsProxyHost || isHttp) {
       let out = `/api/proxy?url=${encodeURIComponent(normalized)}`
-      if (isMkv) out += '&remux=1'
+      if (isMkv || isKoyebWatch) out += '&remux=1'
       if (hostname.includes('downloadwella') || hostname.includes('fsmc')) {
         out += `&referer=${encodeURIComponent('https://downloadwella.com/')}`
       } else if (hostname.includes('phncdn') || hostname.includes('pornhub')) {
         out += `&referer=${encodeURIComponent('https://www.pornhub.com/')}`
       } else if (hostname.includes('xvideos')) {
         out += `&referer=${encodeURIComponent('https://www.xvideos.com/')}`
+      } else if (hostname.includes('koyeb.app') || hostname.includes('maxcinema')) {
+        out += `&referer=${encodeURIComponent('https://www.maxcinema.name.ng/')}`
+      } else if (hostname.includes('wildshare') || hostname.includes('silversurfer') || hostname.includes('np-downloader')) {
+        out += `&referer=${encodeURIComponent('https://www.naijaprey.tv/')}`
       }
       return out
     }
