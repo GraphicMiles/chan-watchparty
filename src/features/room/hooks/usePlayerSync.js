@@ -6,6 +6,7 @@ import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 const SYNC_THRESHOLD = 0.5 // 0.5s sync threshold as required
 const VIEWER_RESYNC_MS = 3000
 const HOST_HEARTBEAT_MS = 1500
+const HOST_RECONCILIATION_SEEK_TIMEOUT = 10000 // max wait for player to seek after reconciliation
 
 export function usePlayerSync(roomId, room, playerRef) {
   const { user } = useAuth()
@@ -17,6 +18,8 @@ export function usePlayerSync(roomId, room, playerRef) {
   const lastPlayingRef = useRef(null)
   const initialHostSyncDoneRef = useRef(false)
   const lastWriteTimeRef = useRef(0)
+  const reconciliationTargetTimeRef = useRef(null) // set during host reconciliation
+  const reconciliationAppliedAtRef = useRef(null) // timestamp when reconciliation was applied
 
   const writePlayerState = useCallback(async (patch, force = false) => {
     if (!roomId || !canControl || !room || !user) return
@@ -92,6 +95,9 @@ export function usePlayerSync(roomId, room, playerRef) {
         const isRecent = Date.now() - updatedAtMs < 6 * 3600 * 1000
         if (data && data.currentTime > 2 && isRecent) {
           applyPlayerState(data)
+          // Track the reconciliation target so heartbeat doesn't overwrite with 00:00
+          reconciliationTargetTimeRef.current = data.currentTime
+          reconciliationAppliedAtRef.current = Date.now()
         }
       } catch (err) {
         console.error('Host initial reconciliation check failed:', err)
@@ -121,6 +127,26 @@ export function usePlayerSync(roomId, room, playerRef) {
       // Guard: do not overwrite an active room with 00:00 right after joining
       if (current === 0 && !isPlaying && room?.createdAt?.toMillis && Date.now() - room.createdAt.toMillis() > 30000) {
         return
+      }
+
+      // Guard: after host reconciliation, don't write until the player has actually seeked
+      // to the reconciled position. This prevents overwriting the saved position with 0
+      // while the player is still loading/seeking.
+      if (reconciliationTargetTimeRef.current !== null && reconciliationAppliedAtRef.current) {
+        const elapsed = Date.now() - reconciliationAppliedAtRef.current
+        const diff = Math.abs(current - reconciliationTargetTimeRef.current)
+        // Player has seeked close enough to the target — reconciliation complete
+        if (diff < 3) {
+          reconciliationTargetTimeRef.current = null
+          reconciliationAppliedAtRef.current = null
+        } else if (elapsed < HOST_RECONCILIATION_SEEK_TIMEOUT) {
+          // Still waiting for the player to seek — don't write 00:00 to Firestore!
+          return
+        } else {
+          // Timeout — clear the reconciliation guard and let heartbeat write normally
+          reconciliationTargetTimeRef.current = null
+          reconciliationAppliedAtRef.current = null
+        }
       }
 
       writePlayerState({

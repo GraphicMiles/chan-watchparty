@@ -198,6 +198,19 @@ export default async function handler(req, res) {
     if (!action) return fail(res, 400, 'Missing action')
 
     const db = getDb()
+
+    // Lightweight inline cleanup: on every room action, quickly delete
+    // stale rooms with 0 participants that are older than 10 minutes.
+    // This ensures cleanup runs even without CRON_SECRET or cron jobs.
+    // Only runs ~1% of the time to avoid adding latency to every request.
+    if (Math.random() < 0.01) {
+      try {
+        await runCleanupStaleRooms(db)
+      } catch {
+        // Non-critical — don't block the main action
+      }
+    }
+
     let result
 
     if (action === 'join') {

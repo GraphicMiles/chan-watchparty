@@ -275,23 +275,25 @@ export function useRoom(roomId, inviteCode = null) {
     return () => clearInterval(interval)
   }, [user, roomId, room?.hostId])
 
-  // Auto-end room when host closes the tab / navigates away
+  // Auto-leave (NOT end) when host closes tab / navigates away
+  // The room stays alive with the video paused — host can rejoin and continue.
+  // Room cleanup will end truly stale rooms (no heartbeat, 0 participants).
   useEffect(() => {
     if (!user || !roomId || room?.hostId !== user.uid) return
 
-    let endToken = null
-    user.getIdToken().then(t => { endToken = t }).catch(() => {})
+    let leaveToken = null
+    user.getIdToken().then(t => { leaveToken = t }).catch(() => {})
 
     const handleUnload = () => {
-      // Fire-and-forget endRoom on tab close / navigation
+      // Fire-and-forget LEAVE (not end) on tab close / navigation
       // keepalive ensures the request is sent even during unload
       fetch('/api/room', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(endToken ? { Authorization: `Bearer ${endToken}` } : {}),
+          ...(leaveToken ? { Authorization: `Bearer ${leaveToken}` } : {}),
         },
-        body: JSON.stringify({ action: 'end', roomId, uid: user.uid }),
+        body: JSON.stringify({ action: 'leave', roomId, uid: user.uid }),
         keepalive: true,
       }).catch(() => {})
     }

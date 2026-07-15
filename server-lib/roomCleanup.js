@@ -1,6 +1,8 @@
 import { FieldValue, Timestamp } from './firebaseAdmin.js'
 
 const STALE_MINUTES = 15
+// How long a room with 0 participants stays alive (waiting for host/viewers to return)
+const ZERO_PARTICIPANT_GRACE_MINUTES = 10
 
 export async function deleteRoomAndSubcollections(db, roomRef) {
   const subcollections = [
@@ -73,11 +75,16 @@ export async function runCleanupStaleRooms(db) {
       }
     }
 
-    // Room has 0 participants but is still "live" — stale ghost
+    // Room has 0 participants but is still "live" — could be a host who
+    // left temporarily and will return. Only clean if BOTH conditions are met:
+    // - 0 participants for longer than the grace period
+    // - lastHeartbeat is stale (no active host keeping it alive)
     if (data.participantCount === 0) {
       const createdMs = data.createdAt?.toMillis?.() || 0
-      // Give a 2-minute grace period after creation for the host to join
-      if (createdMs > 0 && (nowMs - createdMs) > 2 * 60 * 1000) {
+      const heartbeatMs = data.lastHeartbeat?.toMillis?.() || 0
+      const lastActivityMs = Math.max(createdMs, heartbeatMs) || createdMs
+      // Give grace period for the host/viewers to return
+      if (lastActivityMs > 0 && (nowMs - lastActivityMs) > ZERO_PARTICIPANT_GRACE_MINUTES * 60 * 1000) {
         allStaleRefs.set(doc.id, doc.ref)
         continue
       }
