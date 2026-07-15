@@ -8,12 +8,14 @@ import { validateFetchUrl, isPrivateHost } from '../server-lib/ssrf.js'
 import { checkIptvChannel, getIptvChannels, getPlaylistChannels } from '../server-lib/iptv.js'
 import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
+import { resolveNsfwVideoUrl, isNsfwProviderUrl } from '../server-lib/nsfwResolver.js'
 import { searchNaijaprey, resolveNaijapreyChain } from '../server-lib/naijapreyResolver.js'
 import { resolveO2TvShow, resolveO2TvEpisode, probeAndFixO2TvUrl, warmO2TvCache } from '../server-lib/o2tvResolver.js'
 import { resolveMeetDownload, resolveWaploaded, resolveGenericBrowser, getRenderedHtml, isBrowserAvailable } from '../server-lib/browser.js'
 import { searchNetNaija, resolveNetNaijaChain } from '../server-lib/netnaijaResolver.js'
 import { resolveArchiveOrgPage, resolveArchiveOrgDirectUrl } from '../server-lib/archiveResolver.js'
 import { searchMaxCinema, resolveMaxCinemaChain } from '../server-lib/maxcinemaResolver.js'
+import { resolveDoodUrl, isDoodUrl } from '../server-lib/doodResolver.js'
 import { sanitizeSearchQuery, sanitizeUrl, sanitizeAction } from '../server-lib/sanitize.js'
 
 const ALLOWED_MEDIA_ACTIONS = ['search', 'scrape', 'refreshCatalog']
@@ -336,6 +338,10 @@ async function enrichWithOMDbPosters(items, query = null) {
   return updated
 }
 
+// Vercel Hobby tier has a 10s function timeout. We race the search against
+// an 8s deadline so we always return partial results instead of 504.
+const DIRECT_SEARCH_TIMEOUT_MS = 8000
+
 async function searchDirectLinks(query, options = {}) {
   const results = []
   const requestedSite = options.site && options.site !== 'custom' && options.site !== 'all' ? options.site : null
@@ -348,7 +354,15 @@ async function searchDirectLinks(query, options = {}) {
   // Expand query with season variants for broader TV show discovery
   const queries = expandQueryWithSeasons(query)
   
-  await Promise.all(scrapers.map(async (siteKey) => {
+  // Race all scrapers against a deadline. Each scraper has its own catch,
+  // so Promise.all will resolve once every scraper settles (success or fail).
+  // We then race the whole thing against a global timeout so slow scrapers
+  // don't cause a Vercel 504 — partial results are better than no results.
+  const scrapeDeadline = new Promise((resolve) =>
+    setTimeout(() => resolve('timeout'), DIRECT_SEARCH_TIMEOUT_MS)
+  )
+  
+  const scrapeWork = Promise.all(scrapers.map(async (siteKey) => {
     try {
       // ─── NaijaPrey: dedicated search with season expansion ───
       if (siteKey === 'naijaprey') {
@@ -814,6 +828,12 @@ async function searchDirectLinks(query, options = {}) {
       console.error(`${siteKey} search failed:`, err.message)
     }
   }))
+
+  // Race: if scraping takes too long, return whatever results we have so far
+  const raceResult = await Promise.race([scrapeWork, scrapeDeadline])
+  if (raceResult === 'timeout') {
+    console.log(`Direct links search hit ${DIRECT_SEARCH_TIMEOUT_MS}ms deadline with ${results.length} results so far`)
+  }
   
   const omdbEnriched = await enrichWithOMDbPosters(results, query)
   const deduplicated = deduplicateAndEnrich(omdbEnriched, query)
@@ -855,7 +875,7 @@ async function searchArchiveOrg(query, limit = 20) {
   try {
     const searchUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent('"' + query + '"')}+mediatype:movies&output=json&rows=${limit}&fl[]=identifier,title,mediatype,downloads,year,description,num_reviews`
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 8000)
+    const timer = setTimeout(() => controller.abort(), 5000)
     const res = await fetch(searchUrl, {
       signal: controller.signal,
       headers: { 'User-Agent': 'Mozilla/5.0' },
@@ -1074,7 +1094,8 @@ function validateFetchTarget(rawUrl) {
 
 async function fetchHtml(targetUrl) {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 9000)
+  // 5s timeout to stay within Vercel Hobby 10s function limit
+  const timeout = setTimeout(() => controller.abort(), 5000)
   let currentUrl = validateFetchTarget(targetUrl)
 
   try {
@@ -1833,6 +1854,118 @@ export default async function handler(req, res) {
         }
       }
 
+      // NSFW provider URL resolution (xvideos/pornhub/spankbang page → direct video URL)
+      if (isNsfwProviderUrl(url)) {
+        try {
+          const resolved = await resolveNsfwVideoUrl(url)
+          if (resolved && resolved.videoUrl) {
+            // ALWAYS route NSFW video URLs through the proxy because:
+            // 1. NSFW CDNs require specific Referer headers (browser sends wrong Referer)
+            // 2. CORS blocks direct browser-to-CDN requests
+            // 3. HTTP URLs need HTTPS proxying (mixed content)
+            let videoUrl = resolved.videoUrl
+            try {
+              const parsed = new URL(videoUrl)
+              const isMkv = /\.mkv(\?|#|$)/i.test(parsed.pathname) || /-mkv(\?|#|$)/i.test(parsed.pathname) || parsed.searchParams.getAll('name').some(v => /\.mkv$/i.test(v))
+              if (isMkv) {
+                videoUrl = `/api/proxy?url=${encodeURIComponent(resolved.videoUrl)}&remux=1`
+              } else {
+                videoUrl = `/api/proxy?url=${encodeURIComponent(resolved.videoUrl)}`
+              }
+            } catch { videoUrl = `/api/proxy?url=${encodeURIComponent(resolved.videoUrl)}` }
+            return ok(res, {
+              results: [{
+                title: decodeURIComponent(target.pathname.split('/').pop() || 'Video'),
+                url: videoUrl,
+                link: videoUrl,
+                thumbnail: null,
+                source: resolved.source || 'nsfw',
+                type: 'nsfw',
+                isDirect: true,
+                playableInRoom: true,
+                videoType: 'direct',
+                resolvedFrom: url,
+                quality: resolved.quality || null,
+              }],
+              count: 1,
+              directCount: 1,
+              resolved: true,
+              url,
+              site: resolved.source || 'nsfw',
+            })
+          }
+        } catch (err) {
+          console.error('NSFW provider resolve failed:', err.message)
+        }
+        // If resolution failed, return the page as-is with a helpful message
+        return ok(res, {
+          results: [{
+            title: decodeURIComponent(target.pathname.split('/').pop() || 'Video'),
+            url,
+            link: url,
+            thumbnail: null,
+            source: target.hostname.includes('xvideos') ? 'xvideos' : target.hostname.includes('pornhub') ? 'pornhub' : 'spankbang',
+            type: 'nsfw',
+            isDirect: false,
+            requiresUserAction: true,
+            meta: 'Could not auto-extract video URL. Open the page to watch.',
+          }],
+          count: 1,
+          directCount: 0,
+          url,
+          site: 'nsfw',
+        })
+      }
+
+      // DoodStream (dood.li, dood.to, etc.) video URL resolution
+      if (isDoodUrl(url)) {
+        try {
+          const resolved = await resolveDoodUrl(url)
+          if (resolved && resolved.videoUrl) {
+            // DoodStream URLs are time-limited — route through proxy for HTTPS + reliability
+            const videoUrl = `/api/proxy?url=${encodeURIComponent(resolved.videoUrl)}`
+            return ok(res, {
+              results: [{
+                title: resolved.title || 'Video',
+                url: videoUrl,
+                link: videoUrl,
+                thumbnail: resolved.thumbnail || null,
+                source: 'doodstream',
+                type: 'direct',
+                isDirect: true,
+                playableInRoom: true,
+                resolvedFrom: url,
+                meta: 'DoodStream video (time-limited URL)',
+              }],
+              count: 1,
+              directCount: 1,
+              resolved: true,
+              url,
+              site: 'doodstream',
+            })
+          }
+        } catch (err) {
+          console.error('DoodStream resolve failed:', err.message)
+        }
+        return ok(res, {
+          results: [{
+            title: 'DoodStream Video',
+            url,
+            link: url,
+            thumbnail: null,
+            source: 'doodstream',
+            type: 'direct',
+            isDirect: false,
+            requiresUserAction: true,
+            meta: 'Could not resolve DoodStream video automatically. Try opening the page directly.',
+          }],
+          count: 1,
+          directCount: 0,
+          url,
+          site: 'doodstream',
+        })
+      }
+
       if (target.hostname.toLowerCase().endsWith('downloadwella.com')) {
         const resolved = options.resolve === true ? await resolveDownloadwellaPage(url) : { directUrls: [], requiresUserAction: true }
         const results = resolved.directUrls.length
@@ -1954,7 +2087,29 @@ export default async function handler(req, res) {
           results = await searchSports(query)
           break
         case 'nsfw': {
-          const nsfwResult = await searchNSFW(query, options, decoded)
+          // Wrap NSFW search in a timeout to prevent Vercel Hobby 504
+          // If the search takes >8s, return whatever partial results we have
+          let nsfwResult
+          try {
+            nsfwResult = await Promise.race([
+              searchNSFW(query, options, decoded),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('NSFW search timed out')), 8000)
+              ),
+            ])
+          } catch (timeoutErr) {
+            console.error('NSFW search timeout or error:', timeoutErr.message)
+            // Return empty results instead of crashing with 504
+            return ok(res, {
+              success: true,
+              layer: 'nsfw',
+              query,
+              count: 0,
+              hasMore: false,
+              results: [],
+              error: 'NSFW search timed out — providers may be slow. Try again or search a specific provider.',
+            })
+          }
           results = (nsfwResult.results || nsfwResult).map((result) => {
             const thumb = result.thumbnail || result.image || null
             return {

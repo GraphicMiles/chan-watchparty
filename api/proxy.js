@@ -105,10 +105,25 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Headers', '*')
 
     // ─── Build upstream request headers ───
+    // NSFW CDNs require the provider site as Referer, not the CDN's own origin
+    let referer = targetUrl.origin
+    const hostname = targetUrl.hostname.toLowerCase()
+    if (hostname.includes('xvideos') || hostname.includes('cdn-xl') || hostname.includes('cdn.xh')) {
+      referer = 'https://www.xvideos.com/'
+    } else if (hostname.includes('pornhub') || hostname.includes('phncdn')) {
+      referer = 'https://www.pornhub.com/'
+    } else if (hostname.includes('spankbang') || hostname.includes('sb-cd')) {
+      referer = 'https://spankbang.party/'
+    } else if (hostname.includes('dood') || hostname.includes('doodcdn')) {
+      // DoodStream requires the embed page as Referer, not the CDN origin
+      // The proxy URL's query param may contain the original referer hint
+      referer = targetUrl.origin
+    }
+
     const upstreamHeaders = {
       'User-Agent': UPSTREAM_UA,
       'Accept': '*/*',
-      'Referer': targetUrl.origin,
+      'Referer': referer,
     }
 
     // Forward the browser's Range header (used by <video> for seeking / buffering)

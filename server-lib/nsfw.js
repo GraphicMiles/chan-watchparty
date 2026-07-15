@@ -1,7 +1,9 @@
 import * as cheerio from 'cheerio'
 
 const XVIDEOS_SEARCH_URL = 'https://www.xvideos.com/'
-const SEARCH_TIMEOUT_MS = 8000
+// Vercel Hobby tier: 10s function timeout. Each provider gets 6s.
+// 3 providers in parallel = max 6s total, leaving 4s for function overhead.
+const SEARCH_TIMEOUT_MS = 6000
 
 function buildXVideosSearchUrl(query) {
   const url = new URL(XVIDEOS_SEARCH_URL)
@@ -58,8 +60,9 @@ async function searchXVideos(query, limit = 20) {
         type: 'nsfw',
         isNSFW: true,
         isDirect: false,
-        playableInRoom: false,
-        meta: 'Open to watch',
+        playableInRoom: true,
+        requiresUserAction: true,
+        meta: 'Tap to resolve and play',
       })
     })
 
@@ -128,8 +131,9 @@ async function searchPornhub(query, limit = 20) {
               type: 'nsfw',
               isNSFW: true,
               isDirect: false,
-              playableInRoom: false,
-              meta: 'Open to watch',
+              playableInRoom: true,
+              requiresUserAction: true,
+              meta: 'Tap to resolve and play',
             })
           } catch {
             /* ignore */
@@ -204,8 +208,9 @@ async function searchSpankBang(query, limit = 20) {
               type: 'nsfw',
               isNSFW: true,
               isDirect: false,
-              playableInRoom: false,
-              meta: 'Open to watch',
+              playableInRoom: true,
+              requiresUserAction: true,
+              meta: 'Tap to resolve and play',
             })
           } catch {
             /* ignore */
@@ -251,13 +256,20 @@ export function getNsfwProviderIds() {
 
 export async function searchNsfwProvider(provider, query, limit = 100) {
   if (!provider || provider === 'all' || !NSFW_PROVIDERS[provider]) {
-    // Fetch up to 40 per provider so interleaving can fill 100+ results
-    const perProvider = Math.max(40, Math.ceil(limit / 3))
+    // Fetch up to 25 per provider so interleaving can fill ~75 results
+    // Reduced from 40 to stay within Vercel Hobby 10s timeout
+    const perProvider = Math.min(25, Math.max(10, Math.ceil(limit / 3)))
+
+    // Race all 3 providers against a global 7s deadline (leaves 3s for Vercel overhead)
+    const globalDeadline = setTimeout(() => {}, 7000)
+    const globalController = new AbortController()
+
     const [xv, ph, sb] = await Promise.all([
       searchXVideos(query, perProvider).catch(() => []),
       searchPornhub(query, perProvider).catch(() => []),
       searchSpankBang(query, perProvider).catch(() => []),
     ])
+    clearTimeout(globalDeadline)
     const all = []
     const lists = [xv, ph, sb].filter((l) => l.length > 0)
     let added = true

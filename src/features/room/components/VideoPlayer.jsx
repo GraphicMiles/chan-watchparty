@@ -377,9 +377,9 @@ export default function VideoPlayer({
   // MediaError code → human-readable message
   const MEDIA_ERROR_MESSAGES = {
     1: 'Playback was aborted. Try again.',
-    2: 'Network error — the stream server may be down or slow.',
+    2: 'Network error — the stream server may be down, slow, or the proxy timed out. Try again or use a different source.',
     3: 'Decoding error — this stream format is not supported or the file is corrupt. Try a different source.',
-    4: 'Source not supported — this stream format cannot be played in your browser, or the channel is offline.',
+    4: 'Source not supported — the video URL may not return a playable video, the server may have returned an error page, or the stream timed out. Try a different source.',
   }
 
   const handleError = useCallback((err) => {
@@ -447,6 +447,30 @@ export default function VideoPlayer({
     destroyHls()
 
     const fallbackReadyTimer = setTimeout(() => setIsReady(true), 5000)
+
+    // Pre-flight check for direct video URLs: verify the URL returns video data.
+    // This catches cases where the proxy timed out (Vercel 504 HTML page) or
+    // the CDN returned an error page instead of video.
+    if (!isHLS && resolvedUrl && videoType === 'direct' && resolvedUrl.includes('/api/proxy')) {
+      const checkUrl = async () => {
+        try {
+          const checkRes = await fetch(resolvedUrl, { method: 'HEAD' })
+          const contentType = checkRes.headers.get('content-type') || ''
+          if (contentType.includes('text/html') || contentType.includes('application/json')) {
+            // The proxy returned HTML or JSON error — not video data
+            const errorMsg = checkRes.status === 504
+              ? 'Stream proxy timed out — the video server is too slow for Vercel Hobby tier (10s limit). Try a smaller file or upgrade to Vercel Pro.'
+              : checkRes.status === 502
+                ? 'Stream server returned an error page instead of video. The channel may be offline or the link expired.'
+                : `Stream returned ${contentType} instead of video data (HTTP ${checkRes.status}). Try a different source.`
+            setError(errorMsg)
+          }
+        } catch {
+          // Network error — let the player try and show its own error
+        }
+      }
+      checkUrl()
+    }
 
     if (!isHLS || !resolvedUrl || !videoRef.current) {
       return () => clearTimeout(fallbackReadyTimer)
