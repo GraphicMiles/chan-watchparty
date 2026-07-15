@@ -21,7 +21,10 @@ import { sanitizeSearchQuery, sanitizeUrl, sanitizeAction } from '../server-lib/
 const ALLOWED_MEDIA_ACTIONS = ['search', 'scrape', 'refreshCatalog']
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY // server-side only — never use VITE_ prefix
+// Server-side key takes precedence; fall back to VITE_ key so a single
+// Vercel environment variable (VITE_YOUTUBE_API_KEY) works for both
+// client-side checks and server-side search without extra configuration.
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY
 const OMDB_API_KEY = process.env.OMDB_API_KEY || null  // no hardcoded fallback — must be configured
 const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY
 
@@ -165,7 +168,7 @@ function deduplicateAndEnrich(items, query = null) {
 
 async function searchYouTube(query, limit = 20) {
   if (!YOUTUBE_API_KEY) {
-    throw new Error('YouTube API key not configured. Add YOUTUBE_API_KEY to environment variables.')
+    throw new Error('YouTube API key not configured on the server. Add YOUTUBE_API_KEY (or VITE_YOUTUBE_API_KEY) to your Vercel environment variables.')
   }
 
   // Do NOT set videoEmbeddable:'true' on the search call.

@@ -10,6 +10,7 @@ import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 import { normalizePlaybackUrl } from '../../../shared/lib/youtube.js'
 import { useToast } from '../../../shared/ui/index.js'
+import { VideoUpscaler } from './VideoUpscaler.jsx'
 import styles from './VideoPlayer.module.scss'
 
 const RETRY_ATTEMPTS = 3
@@ -17,8 +18,8 @@ const RETRY_DELAY = 3000
 
 const VIDEO_FILTERS = {
   none: { label: 'Normal / Original', css: 'none', desc: 'Default unaltered stream color' },
-  ai_4k_upscale: { label: 'AI 4K Super-Res Upscale', css: 'contrast(1.36) saturate(1.58) brightness(1.05) drop-shadow(0 0 1.5px rgba(255,255,255,0.32)) hue-rotate(-2deg)', desc: 'Hardware GPU super-resolution sharpening, micro-edge definition & CapCut 4K HDR contrast' },
-  ai_120fps_motion: { label: 'AI 120fps Motion Flow & Pop', css: 'contrast(1.42) saturate(1.72) brightness(1.08) drop-shadow(0 0 2px rgba(255,255,255,0.38)) sepia(0.06) hue-rotate(3deg)', desc: 'Ultra-high dynamic range stadium & action clarity with CapCut/TikTok 120fps motion contrast' },
+  ai_4k_upscale: { label: 'AI 4K Super-Res Upscale', css: 'contrast(1.45) saturate(1.68) brightness(1.06) drop-shadow(0 0 2px rgba(255,255,255,0.35)) hue-rotate(-2deg)', desc: 'Perceptual 4K super-resolution: edge sharpening, micro-contrast & HDR pop for direct streams' },
+  ai_120fps_motion: { label: 'AI 120fps Motion Flow & Pop', css: 'contrast(1.5) saturate(1.82) brightness(1.09) drop-shadow(0 0 2.5px rgba(255,255,255,0.42)) sepia(0.05) hue-rotate(2deg)', desc: 'Perceptual 120fps motion clarity: crushed shadows, glowing highlights & ultra-vivid action' },
   capcut_pro_4k: { label: 'CapCut Pro 4K HDR Pop', css: 'contrast(1.32) saturate(1.55) brightness(1.04) hue-rotate(-3deg) drop-shadow(0 0 1px rgba(255,255,255,0.18))', desc: 'Ultra-crisp 4K definition, punchy contrast & deep saturated colors' },
   tiktok_120fps_sports: { label: 'TikTok 4K Sports Edit', css: 'contrast(1.38) saturate(1.68) brightness(1.06) sepia(0.08) hue-rotate(4deg)', desc: 'Crushed stadium shadows, glowing floodlights & hyper-vivid jersey colors' },
   akira_anime_hdr: { label: 'Akira / Anime 120fps HDR', css: 'contrast(1.25) saturate(1.75) brightness(1.08) hue-rotate(-6deg)', desc: 'Vibrant sky blues, lush sunlit greens & crystal-clear 2D line contrast' },
@@ -81,10 +82,18 @@ export default function VideoPlayer({
   const { toast } = useToast()
   const rawUrl = url || videoUrl || (videoType === 'youtube' ? youtubeUrl(videoId) : '')
   const resolvedUrl = useMemo(() => normalizePlaybackUrl(rawUrl), [rawUrl])
-  const isHLS = useMemo(() => /(?:\.m3u8|m3u8)/i.test(resolvedUrl), [resolvedUrl])
+  // Allow runtime proxy fallback if direct playback fails (e.g. missing CORS headers)
+  const [currentUrl, setCurrentUrl] = useState(resolvedUrl)
+  const proxyFallbackAttemptedRef = useRef(false)
+  useEffect(() => {
+    setCurrentUrl(resolvedUrl)
+    proxyFallbackAttemptedRef.current = /^\/api\/proxy\?/i.test(resolvedUrl)
+  }, [resolvedUrl])
+
+  const isHLS = useMemo(() => /(?:\.m3u8|m3u8)/i.test(currentUrl), [currentUrl])
   const isMixedContent = useMemo(
-    () => typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(resolvedUrl),
-    [resolvedUrl]
+    () => typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(currentUrl),
+    [currentUrl]
   )
 
   const playerWrapperRef = useRef(null)
@@ -119,6 +128,7 @@ export default function VideoPlayer({
   const [aiUpscaleMode, setAiUpscaleMode] = useState('off') // 'off' | '4k' | '120fps'
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(false)
   const [subtitlesLoading, setSubtitlesLoading] = useState(false)
+  const [targetVideoElement, setTargetVideoElement] = useState(null)
   
   const controlsTimeoutRef = useRef(null)
   const lastTapTimeRef = useRef(0)
@@ -137,48 +147,62 @@ export default function VideoPlayer({
     }
   }, [subtitleVtt])
 
-  const parsedSubtitleCues = useMemo(() => {
-    if (!subtitleVtt || typeof subtitleVtt !== 'string') return []
-    const cues = []
-    const lines = subtitleVtt.split(/\r?\n/)
-    let i = 0
-    while (i < lines.length) {
-      const line = lines[i].trim()
-      const timeMatch = line.match(/^(\d{2}:)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}:)?(\d{2}):(\d{2})[.,](\d{3})/)
-      if (timeMatch) {
-        const toSec = (h, m, s, ms) => (Number(h || 0) * 3600) + (Number(m || 0) * 60) + Number(s || 0) + (Number(ms || 0) / 1000)
-        const startTime = toSec(timeMatch[1] ? timeMatch[1].slice(0, 2) : 0, timeMatch[2], timeMatch[3], timeMatch[4])
-        const endTime = toSec(timeMatch[5] ? timeMatch[5].slice(0, 2) : 0, timeMatch[6], timeMatch[7], timeMatch[8])
-        let textLines = []
-        i++
-        while (i < lines.length && lines[i].trim() !== '') {
-          textLines.push(lines[i].trim())
-          i++
-        }
-        if (textLines.length > 0) {
-          cues.push({ startTime, endTime, text: textLines.join('\n') })
-        }
-      } else {
-        i++
+  // Revoke previous blob URLs to avoid memory leaks
+  const prevSubtitleBlobRef = useRef(null)
+  useEffect(() => {
+    if (subtitleBlobUrl && subtitleBlobUrl !== prevSubtitleBlobRef.current) {
+      if (prevSubtitleBlobRef.current) {
+        URL.revokeObjectURL(prevSubtitleBlobRef.current)
+      }
+      prevSubtitleBlobRef.current = subtitleBlobUrl
+    }
+    return () => {
+      if (prevSubtitleBlobRef.current) {
+        URL.revokeObjectURL(prevSubtitleBlobRef.current)
+        prevSubtitleBlobRef.current = null
       }
     }
-    return cues
-  }, [subtitleVtt])
+  }, [subtitleBlobUrl])
 
-  const currentSubtitleCueText = useMemo(() => {
-    if (!subtitlesEnabled || !parsedSubtitleCues.length) return null
-    const exact = parsedSubtitleCues.find((c) => currentSec >= c.startTime && currentSec <= c.endTime)
-    if (exact) return exact.text
-    return null
-  }, [subtitlesEnabled, parsedSubtitleCues, currentSec])
+  // Native TextTrack-based subtitle overlay.
+  // Manual VTT parsers break on cue IDs, settings, and WEBVTT headers,
+  // so we let the browser parse the track and just mirror the active cue.
+  const [currentSubtitleCueText, setCurrentSubtitleCueText] = useState(null)
+
+  const syncActiveCue = useCallback((track) => {
+    const cue = track?.activeCues?.[0]
+    if (cue && cue.text) {
+      setCurrentSubtitleCueText(cue.text)
+    } else {
+      setCurrentSubtitleCueText(null)
+    }
+  }, [])
 
   useEffect(() => {
     if (!videoRef.current || !videoRef.current.textTracks) return
     const tracks = videoRef.current.textTracks
+    let targetTrack = null
     for (let i = 0; i < tracks.length; i++) {
-      tracks[i].mode = subtitlesEnabled ? 'showing' : 'hidden'
+      const track = tracks[i]
+      if (track.kind === 'subtitles' || track.kind === 'captions') {
+        track.mode = subtitlesEnabled ? 'showing' : 'hidden'
+        if (subtitlesEnabled) targetTrack = track
+      } else {
+        track.mode = 'hidden'
+      }
     }
-  }, [subtitlesEnabled, subtitleBlobUrl])
+    if (!targetTrack) {
+      setCurrentSubtitleCueText(null)
+      return
+    }
+    const onCueChange = () => syncActiveCue(targetTrack)
+    targetTrack.addEventListener('cuechange', onCueChange)
+    // Some browsers already have an active cue loaded before the listener attaches
+    syncActiveCue(targetTrack)
+    return () => {
+      targetTrack.removeEventListener('cuechange', onCueChange)
+    }
+  }, [subtitlesEnabled, subtitleBlobUrl, syncActiveCue])
 
   useEffect(() => {
     const onFsChange = () => {
@@ -193,6 +217,8 @@ export default function VideoPlayer({
     }
   }, [])
 
+  const isDirectStream = videoType !== 'youtube' && !/^(https?:\/\/)?(www\.)?(youtube|youtu\.be)/i.test(currentUrl)
+  const upscaleActive = aiUpscaleMode !== 'off'
   const activeFilterCss = useMemo(() => {
     let baseCss = VIDEO_FILTERS[videoFilter]?.css || 'none'
     if (aiUpscaleMode === '4k') {
@@ -207,6 +233,13 @@ export default function VideoPlayer({
     }
     return `${baseCss} brightness(${brightnessMultiplier})`
   }, [videoFilter, brightnessMultiplier, aiUpscaleMode])
+
+  const videoStyle = useMemo(() => ({
+    filter: activeFilterCss,
+    imageRendering: upscaleActive && isDirectStream ? 'high-quality' : 'auto',
+    transform: upscaleActive && isDirectStream ? 'scale(1.02)' : 'none',
+    transition: 'filter 0.25s ease, transform 0.25s ease',
+  }), [activeFilterCss, upscaleActive, isDirectStream])
 
   const handleAiUpscaleCycle = useCallback((e) => {
     e?.stopPropagation()
@@ -329,7 +362,7 @@ export default function VideoPlayer({
       const dur = (isHLS ? videoRef.current?.duration : playerRef.current?.getDuration?.()) || durationSec || 0
       if (isHLS) {
         if (videoRef.current) {
-          const isLiveOrIptvStream = isLive || !isFinite(videoRef.current.duration) || videoRef.current.duration > 86400 || videoType === 'iptv' || /(?:\.m3u8|m3u8)/i.test(resolvedUrl)
+          const isLiveOrIptvStream = isLive || !isFinite(videoRef.current.duration) || videoRef.current.duration > 86400 || videoType === 'iptv' || /(?:\.m3u8|m3u8)/i.test(currentUrl)
           if (isLiveOrIptvStream) {
             return
           }
@@ -347,9 +380,9 @@ export default function VideoPlayer({
         setCurrentSec(value)
       }
     },
-    isLive: () => isLive || isHLS || !isFinite(durationSec) || durationSec > 86400 || videoType === 'iptv' || /(?:\.m3u8|m3u8)/i.test(resolvedUrl),
+    isLive: () => isLive || isHLS || !isFinite(durationSec) || durationSec > 86400 || videoType === 'iptv' || /(?:\.m3u8|m3u8)/i.test(currentUrl),
     loadVideoById: () => {},
-  }), [currentTime, durationSec, isHLS, isLive, playerState, resolvedUrl, videoType])
+  }), [currentTime, durationSec, isHLS, isLive, playerState, currentUrl, videoType])
 
   const notifyReady = useCallback(() => {
     setIsReady(true)
@@ -416,6 +449,27 @@ export default function VideoPlayer({
     }
 
     console.error('Video error:', message, err)
+
+    // If this is a cross-origin direct file that hasn't been proxied yet,
+    // route it through /api/proxy and retry. This fixes the most common
+    // MEDIA_ELEMENT_ERROR: Format error caused by missing CORS headers.
+    if (
+      !proxyFallbackAttemptedRef.current
+      && currentUrl
+      && videoType !== 'youtube'
+      && !/^\/api\/proxy\?/i.test(currentUrl)
+    ) {
+      proxyFallbackAttemptedRef.current = true
+      const proxied = normalizePlaybackUrl(currentUrl, { forceProxy: true })
+      if (proxied !== currentUrl) {
+        toast('Retrying through proxy to bypass CORS / mixed-content restrictions...', { variant: 'info', duration: 3000 })
+        setCurrentUrl(proxied)
+        setError(null)
+        retryCountRef.current = 0
+        return
+      }
+    }
+
     setError(message)
 
     if (retryCountRef.current < RETRY_ATTEMPTS) {
@@ -430,7 +484,7 @@ export default function VideoPlayer({
     } else {
       onError?.(new Error(message))
     }
-  }, [isHLS, onError, played])
+  }, [currentUrl, isHLS, onError, played, toast, videoType])
 
   const destroyHls = useCallback(() => {
     if (hlsRef.current) {
@@ -455,17 +509,17 @@ export default function VideoPlayer({
     // until the remuxer starts, and Range/GET is what actually matters for playback.
     // Also prefer a tiny Range GET over HEAD because many CDNs (downloadwella, phncdn)
     // reject or mishandle HEAD.
-    if (!isHLS && resolvedUrl && videoType === 'direct' && resolvedUrl.includes('/api/proxy') && !/[?&]remux=1(?:&|$)/.test(resolvedUrl)) {
+    if (!isHLS && currentUrl && videoType === 'direct' && currentUrl.includes('/api/proxy') && !/[?&]remux=1(?:&|$)/.test(currentUrl)) {
       const checkUrl = async () => {
         try {
           let checkRes
           try {
-            checkRes = await fetch(resolvedUrl, {
+            checkRes = await fetch(currentUrl, {
               method: 'GET',
               headers: { Range: 'bytes=0-1' },
             })
           } catch {
-            checkRes = await fetch(resolvedUrl, { method: 'HEAD' })
+            checkRes = await fetch(currentUrl, { method: 'HEAD' })
           }
           const contentType = checkRes.headers.get('content-type') || ''
           // Only hard-fail when the response is clearly an HTML/JSON error page
@@ -489,7 +543,7 @@ export default function VideoPlayer({
       checkUrl()
     }
 
-    if (!isHLS || !resolvedUrl || !videoRef.current) {
+    if (!isHLS || !currentUrl || !videoRef.current) {
       return () => clearTimeout(fallbackReadyTimer)
     }
 
@@ -512,21 +566,24 @@ export default function VideoPlayer({
     const canPlayNativeHls = video.canPlayType('application/vnd.apple.mpegurl') || (/iPad|iPhone|iPod|Safari/i.test(navigator.userAgent) && !/Chrome|CriOS|FxiOS|Edg/i.test(navigator.userAgent))
 
     if (canPlayNativeHls && video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = resolvedUrl
+      video.src = currentUrl
       video.addEventListener('loadedmetadata', onLoadedMetadata)
     } else if (Hls.isSupported()) {
+      const isLiveHls = isLive || currentUrl.includes('/api/proxy') && /(?:\.m3u8|m3u8)/i.test(currentUrl)
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: false,
-        backBufferLength: 60,
-        maxBufferLength: 60,
-        maxMaxBufferLength: 600,
+        lowLatencyMode: isLiveHls,
+        backBufferLength: isLiveHls ? 30 : 60,
+        maxBufferLength: isLiveHls ? 30 : 60,
+        maxMaxBufferLength: isLiveHls ? 120 : 600,
+        liveSyncDurationCount: isLiveHls ? 3 : undefined,
+        liveMaxLatencyDurationCount: isLiveHls ? 8 : undefined,
         manifestLoadingTimeOut: 15000,
         levelLoadingTimeOut: 15000,
         fragLoadingTimeOut: 20000,
       })
       hlsRef.current = hls
-      hls.loadSource(resolvedUrl)
+      hls.loadSource(currentUrl)
       hls.attachMedia(video)
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setHlsLevels(hls.levels || [])
@@ -554,7 +611,7 @@ export default function VideoPlayer({
       destroyHls()
       if (!Hls.isSupported()) video.removeAttribute('src')
     }
-  }, [destroyHls, handleError, isHLS, isLive, notifyReady, onDuration, resolvedUrl])
+  }, [destroyHls, handleError, isHLS, isLive, notifyReady, onDuration, currentUrl])
 
   useEffect(() => () => {
     clearTimeout(retryTimeoutRef.current)
@@ -569,6 +626,18 @@ export default function VideoPlayer({
       playerRef.current.seekTo(played, 'fraction')
     }
   }, [isHLS, played])
+
+  // Track the active native <video> element for the WebGL upscaler overlay.
+  useEffect(() => {
+    let el = null
+    if (isHLS) {
+      el = videoRef.current
+    } else if (playerRef.current?.getInternalPlayer) {
+      const internal = playerRef.current.getInternalPlayer()
+      if (internal instanceof HTMLVideoElement) el = internal
+    }
+    setTargetVideoElement(el)
+  }, [isHLS, currentUrl, isReady])
 
   const handleMouseMove = useCallback(() => {
     setShowControls(true)
@@ -835,10 +904,7 @@ export default function VideoPlayer({
           <video
             ref={videoRef}
             className={styles.videoElement}
-            style={{
-              filter: activeFilterCss,
-              imageRendering: aiUpscaleMode !== 'off' ? 'crisp-edges' : 'auto',
-            }}
+            style={videoStyle}
             autoPlay={playing}
             muted={localMuted}
             controls={false}
@@ -876,14 +942,22 @@ export default function VideoPlayer({
                 src={subtitleBlobUrl}
                 srcLang="en"
                 default={subtitlesEnabled}
+                onLoad={() => {
+                  const tracks = videoRef.current?.textTracks || []
+                  for (let i = 0; i < tracks.length; i++) {
+                    if (tracks[i].kind === 'subtitles') {
+                      tracks[i].mode = subtitlesEnabled ? 'showing' : 'hidden'
+                    }
+                  }
+                }}
               />
             )}
           </video>
         ) : (
-          <div style={{ width: '100%', height: '100%', filter: activeFilterCss, imageRendering: aiUpscaleMode !== 'off' ? 'crisp-edges' : 'auto' }} onContextMenu={(e) => e.preventDefault()}>
+          <div style={{ width: '100%', height: '100%', ...videoStyle }} onContextMenu={(e) => e.preventDefault()}>
             <ReactPlayer
             ref={playerRef}
-            url={resolvedUrl}
+            url={currentUrl}
             playing={isPlayingState}
             volume={localVolume}
             muted={localMuted}
@@ -917,6 +991,13 @@ export default function VideoPlayer({
           />
         </div>
       )}
+
+      {/* Perceptual AI super-resolution overlay for direct streams */}
+      <VideoUpscaler
+        videoElement={targetVideoElement}
+        enabled={upscaleActive && isDirectStream}
+        mode={aiUpscaleMode}
+      />
 
       {/* Transparent touch layer to ensure 1st tap toggles controls reliably & blocks long press context menu */}
       <div

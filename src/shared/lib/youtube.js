@@ -85,7 +85,7 @@ export function normalizeDirectUrl(url) {
   }
 }
 
-export function normalizePlaybackUrl(url) {
+export function normalizePlaybackUrl(url, opts = {}) {
   const normalized = normalizeDirectUrl(url || '')
   // Already a same-origin proxy path — leave intact (keeps remux/referer params)
   if (/^\/api\/proxy\?/i.test(normalized)) return normalized
@@ -130,7 +130,17 @@ export function normalizePlaybackUrl(url) {
     )
 
     const isHttp = parsed.protocol === 'http:'
-    if (isMkv || isKoyebWatch || needsProxyHost || isHttp) {
+
+    // Cross-origin direct video files (mp4/m3u8/webm/etc.) are routed through
+    // the proxy by default so the browser can play them without CORS errors
+    // or mixed-content blocks. Same-origin URLs and explicit direct-link opt-out
+    // are left untouched.
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const isSameOrigin = origin && parsed.origin === origin
+    const hasVideoExtension = /\.(mp4|m3u8|webm|ogg|mov|avi|flv|ts)(\?|#|$)/i.test(parsed.pathname + parsed.search)
+    const shouldProxyDirect = opts.forceProxy || (!isSameOrigin && hasVideoExtension)
+
+    if (isMkv || isKoyebWatch || needsProxyHost || isHttp || shouldProxyDirect) {
       let out = `/api/proxy?url=${encodeURIComponent(normalized)}`
       if (isMkv || isKoyebWatch) out += '&remux=1'
       if (hostname.includes('downloadwella') || hostname.includes('fsmc')) {

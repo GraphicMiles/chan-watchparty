@@ -164,6 +164,8 @@ export default async function handler(req, res) {
       })
       if (!response.ok) return fail(res, response.status, `Upstream returned ${response.status}`)
 
+      // Use the final URL after redirects so relative playlist entries resolve correctly
+      const finalUrl = response.url || targetUrl.href
       const text = await response.text()
       const rewritten = text.split('\n').map((line) => {
         const trimmed = line.trim()
@@ -171,7 +173,7 @@ export default async function handler(req, res) {
         if (trimmed.startsWith('#')) {
           return line.replace(/URI="([^"]+)"/gi, (_, keyUri) => {
             try {
-              const absKey = new URL(keyUri, targetUrl.href).href
+              const absKey = new URL(keyUri, finalUrl).href
               return `URI="/api/proxy?url=${encodeURIComponent(absKey)}"`
             } catch {
               return `URI="${keyUri}"`
@@ -179,7 +181,7 @@ export default async function handler(req, res) {
           })
         }
         try {
-          const absoluteUri = new URL(trimmed, targetUrl.href).href
+          const absoluteUri = new URL(trimmed, finalUrl).href
           return `/api/proxy?url=${encodeURIComponent(absoluteUri)}`
         } catch {
           return line
@@ -247,13 +249,15 @@ export default async function handler(req, res) {
     const isM3u8ByType = /(?:application\/vnd\.apple\.mpegurl|audio\/mpegurl|application\/x-mpegurl|text\/vnd\.apple\.mpegurl)/i.test(contentType)
     if (isM3u8ByType) {
       const text = await upstream.text()
+      // Use the final URL after redirects so relative playlist entries resolve correctly
+      const finalUrl = upstream.url || targetUrl.href
       const rewritten = text.split('\n').map((line) => {
         const trimmed = line.trim()
         if (!trimmed) return line
         if (trimmed.startsWith('#')) {
           return line.replace(/URI="([^"]+)"/gi, (_, keyUri) => {
             try {
-              const absKey = new URL(keyUri, targetUrl.href).href
+              const absKey = new URL(keyUri, finalUrl).href
               return `URI="/api/proxy?url=${encodeURIComponent(absKey)}"`
             } catch {
               return `URI="${keyUri}"`
@@ -261,7 +265,7 @@ export default async function handler(req, res) {
           })
         }
         try {
-          const absoluteUri = new URL(trimmed, targetUrl.href).href
+          const absoluteUri = new URL(trimmed, finalUrl).href
           return `/api/proxy?url=${encodeURIComponent(absoluteUri)}`
         } catch {
           return line
