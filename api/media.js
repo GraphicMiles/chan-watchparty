@@ -1864,6 +1864,92 @@ export default async function handler(req, res) {
         }
       }
 
+      // Nkiri URL resolution (show page → extract episode downloadwella links)
+      if (target.hostname.toLowerCase().includes('thenkiri') || target.hostname.toLowerCase().includes('nkiri.com')) {
+        try {
+          const pageHtml = await fetchHtml(url)
+          const $page = cheerio.load(pageHtml)
+          const pagePoster = $page('meta[property="og:image"]').attr('content')
+            || $page('img[src]').first().attr('src')
+            || null
+          const resolvedPoster = resolveUrl(pagePoster, url)
+
+          // Extract downloadwella links (episodes)
+          const episodes = []
+          const seenEp = new Set()
+
+          // Strategy 1: cheerio
+          $page('a[href*="downloadwella.com"]').each((_, el) => {
+            const href = $page(el).attr('href')
+            const text = $page(el).text().trim() || $page(el).attr('title') || ''
+            if (href && !seenEp.has(href)) {
+              seenEp.add(href)
+              episodes.push({ url: href, title: text || 'Episode', poster: resolvedPoster })
+            }
+          })
+
+          // Strategy 2: regex fallback
+          if (episodes.length === 0) {
+            const dlRe = /href="(https?:\/\/(?:www\.)?downloadwella\.com\/[^"]+)"/gi
+            let m
+            while ((m = dlRe.exec(pageHtml)) !== null) {
+              if (seenEp.has(m[1])) continue
+              seenEp.add(m[1])
+              const ctx = pageHtml.slice(Math.max(0, m.index - 200), Math.min(pageHtml.length, m.index + 500))
+              const titleMatch = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
+              episodes.push({ url: m[1], title: titleMatch?.[1] || m[1].split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Episode', poster: resolvedPoster })
+            }
+          }
+
+          if (episodes.length > 0) {
+            return ok(res, {
+              results: episodes.map(ep => ({
+                title: ep.title,
+                url: ep.url,
+                link: ep.url,
+                thumbnail: ep.poster,
+                image: ep.poster,
+                source: 'nkiri',
+                type: 'direct',
+                isDirect: false,
+                playableInRoom: false,
+                requiresResolve: true,
+                resolvedFrom: url,
+              })),
+              count: episodes.length,
+              directCount: 0,
+              resolved: false,
+              url,
+              site: 'nkiri',
+            })
+          }
+
+          // No episodes found
+          return ok(res, {
+            results: [{
+              title: 'No episodes found',
+              url,
+              link: url,
+              thumbnail: resolvedPoster,
+              image: resolvedPoster,
+              source: 'nkiri',
+              type: 'direct',
+              isDirect: false,
+              playableInRoom: false,
+              requiresResolve: false,
+              meta: 'This page has no downloadable episodes.',
+            }],
+            count: 1,
+            directCount: 0,
+            resolved: false,
+            url,
+            site: 'nkiri',
+          })
+        } catch (err) {
+          console.error('Nkiri scrape failed:', err.message)
+        }
+      }
+
       // NSFW provider URL resolution (xvideos/pornhub/spankbang page → direct video URL)
       if (isNsfwProviderUrl(url)) {
         let resolveError = null
