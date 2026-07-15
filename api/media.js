@@ -537,33 +537,93 @@ async function searchDirectLinks(query, options = {}) {
   const scrapeWork = Promise.all(scrapers.map(async (siteKey) => {
     try {
       // ─── NKiri: deep-scrape to extract episodes/downloads ───
+      // Uses multiple strategies: cheerio selectors → regex fallback → raw HTML scan
       if (siteKey === 'nkiri') {
         try {
           const config = getSiteConfig('nkiri')
-          // Search across 3 query layers in parallel
+          // Base query only for nkiri — avoid "season 1"/"complete series" variants
+          // which produce different search pages with duplicate or empty results
+          const nkiriQueries = [baseQ]
+
           const allSearchResults = await Promise.all(
-            queries.map(async (q) => {
+            nkiriQueries.map(async (q) => {
               const searchUrls = config.buildSearchUrls ? config.buildSearchUrls(q) : [config.buildSearchUrl?.(q)].filter(Boolean)
               for (const searchUrl of searchUrls) {
                 if (!searchUrl) continue
                 try {
                   const html = await fetchHtml(searchUrl)
+                  // Strategy 1: cheerio selectors
                   const items = parseListing(html, searchUrl, config)
                   if (items && items.length > 0) return items
+
+                  // Strategy 2: regex fallback — find nkiri post links and downloadwella links in raw HTML
+                  const regexItems = []
+                  const seenRegex = new Set()
+                  // Match nkiri post page links
+                  const postLinkRe = /href="(https:\/\/(?:www\.)?thenkiri\.com\/[^"]+\/)"/gi
+                  let m
+                  while ((m = postLinkRe.exec(html)) !== null) {
+                    if (!seenRegex.has(m[1]) && !m[1].includes('/page/') && !m[1].includes('/category/')) {
+                      seenRegex.add(m[1])
+                      // Try to find a title near this link
+                      const contextStart = Math.max(0, m.index - 200)
+                      const contextEnd = Math.min(html.length, m.index + 500)
+                      const context = html.slice(contextStart, contextEnd)
+                      const titleMatch = context.match(/title="([^"]+)"/) || context.match(/alt="([^"]+)"/) || context.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i)
+                      const imgMatch = context.match(/(?:src|data-src)="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i)
+                      regexItems.push({
+                        title: titleMatch?.[1] || m[1].split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Video',
+                        url: m[1],
+                        link: m[1],
+                        thumbnail: imgMatch?.[1] || null,
+                        image: imgMatch?.[1] || null,
+                        source: 'nkiri',
+                        type: 'direct',
+                        isDirect: false,
+                        playableInRoom: false,
+                        requiresResolve: true,
+                      })
+                    }
+                  }
+                  // Match direct downloadwella links
+                  const dlLinkRe = /href="(https?:\/\/(?:www\.)?downloadwella\.com\/[^"]+)"/gi
+                  while ((m = dlLinkRe.exec(html)) !== null) {
+                    if (!seenRegex.has(m[1])) {
+                      seenRegex.add(m[1])
+                      const contextStart = Math.max(0, m.index - 200)
+                      const contextEnd = Math.min(html.length, m.index + 500)
+                      const context = html.slice(contextStart, contextEnd)
+                      const titleMatch = context.match(/title="([^"]+)"/) || context.match(/alt="([^"]+)"/) || context.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i)
+                      regexItems.push({
+                        title: titleMatch?.[1] || 'Download Link',
+                        url: m[1],
+                        link: m[1],
+                        thumbnail: null,
+                        image: null,
+                        source: 'nkiri',
+                        type: 'direct',
+                        isDirect: false,
+                        playableInRoom: false,
+                        requiresResolve: true,
+                      })
+                    }
+                  }
+                  if (regexItems.length > 0) return regexItems
                 } catch { /* try next URL */ }
               }
               return []
             })
           )
 
-          // Deduplicate search-level results
+          // Deduplicate and soft-filter search-level results
           const searchCandidates = []
           const seenPageUrls = new Set()
           for (const variantItems of allSearchResults) {
             for (const item of variantItems) {
               if (item?.url && !seenPageUrls.has(item.url)) {
                 seenPageUrls.add(item.url)
-                if (softTitleMatch(item?.title, query)) {
+                // Loose filter — accept anything that has the base query word
+                if (softTitleMatch(item?.title, baseQ)) {
                   searchCandidates.push(item)
                 }
               }
@@ -572,7 +632,7 @@ async function searchDirectLinks(query, options = {}) {
 
           // Deep-scrape each nkiri result page to extract downloadwella episode links
           const deepResults = await Promise.all(
-            searchCandidates.slice(0, 8).map(async (candidate) => {
+            searchCandidates.slice(0, 6).map(async (candidate) => {
               try {
                 const pageHtml = await fetchHtml(candidate.url)
                 const $page = cheerio.load(pageHtml)
@@ -583,21 +643,40 @@ async function searchDirectLinks(query, options = {}) {
                 const resolvedPoster = resolveUrl(pagePoster, candidate.url)
 
                 const episodeLinks = []
-                // Find all downloadwella links on the page (these are episode/download links)
+                const seenEp = new Set()
+
+                // Strategy 1: cheerio — find downloadwella links
                 $page('a[href*="downloadwella.com"]').each((_, el) => {
                   const href = $page(el).attr('href')
                   const text = $page(el).text().trim() || $page(el).attr('title') || ''
-                  if (href && !episodeLinks.some(l => l.url === href)) {
+                  if (href && !seenEp.has(href)) {
+                    seenEp.add(href)
                     episodeLinks.push({ url: href, text })
                   }
                 })
 
-                // Also look for direct media links
-                $page('a[href*=".mp4"], a[href*=".mkv"], a[href*=".m3u8"]').each((_, el) => {
+                // Strategy 2: regex fallback for downloadwella links
+                if (episodeLinks.length === 0) {
+                  const dlRe = /href="(https?:\/\/(?:www\.)?downloadwella\.com\/[^"]+)"/gi
+                  let m
+                  while ((m = dlRe.exec(pageHtml)) !== null) {
+                    if (!seenEp.has(m[1])) {
+                      seenEp.add(m[1])
+                      const contextStart = Math.max(0, m.index - 200)
+                      const contextEnd = Math.min(pageHtml.length, m.index + 500)
+                      const context = pageHtml.slice(contextStart, contextEnd)
+                      const titleMatch = context.match(/title="([^"]+)"/) || context.match(/alt="([^"]+)"/) || context.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i)
+                      episodeLinks.push({ url: m[1], text: titleMatch?.[1] || m[1].split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Download' })
+                    }
+                  }
+                }
+
+                // Also look for direct media links (mp4/mkv/m3u8)
+                $page('a[href]').each((_, el) => {
                   const href = $page(el).attr('href')
-                  const text = $page(el).text().trim()
-                  if (href && /^https?:\/\//i.test(href) && !episodeLinks.some(l => l.url === href)) {
-                    episodeLinks.push({ url: href, text: text || 'Direct link' })
+                  if (href && /\.(mp4|mkv|m3u8|webm)(\?|#|$)/i.test(href) && !seenEp.has(href)) {
+                    seenEp.add(href)
+                    episodeLinks.push({ url: href, text: $page(el).text().trim() || 'Direct link' })
                   }
                 })
 
@@ -638,7 +717,7 @@ async function searchDirectLinks(query, options = {}) {
                   quality: extractQuality(candidate.title || ''),
                 }]
               } catch (err) {
-                // If deep-scrape fails, return the candidate page as-is
+                console.error('nkiri deep-scrape failed for', candidate.url, ':', err.message)
                 const cleanTitle = formatMediaTitle(candidate.title || 'Video')
                 return [{
                   title: cleanTitle,
