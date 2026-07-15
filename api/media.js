@@ -10,11 +10,20 @@ import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
 import { searchNaijaprey, resolveNaijapreyChain } from '../server-lib/naijapreyResolver.js'
 import { resolveO2TvShow, resolveO2TvEpisode, probeAndFixO2TvUrl, warmO2TvCache } from '../server-lib/o2tvResolver.js'
-import { resolveMeetDownload, resolveWaploaded, resolveGenericBrowser, getRenderedHtml } from '../server-lib/browser.js'
 import { searchNetNaija, resolveNetNaijaChain } from '../server-lib/netnaijaResolver.js'
 import { resolveArchiveOrgPage, resolveArchiveOrgDirectUrl } from '../server-lib/archiveResolver.js'
 import { searchMaxCinema, resolveMaxCinemaChain } from '../server-lib/maxcinemaResolver.js'
 import { sanitizeSearchQuery, sanitizeUrl, sanitizeAction } from '../server-lib/sanitize.js'
+
+// Lazy-load browser.js to avoid bundling 66MB @sparticuz/chromium into every request.
+// Only loaded when MeetDownload/Waploaded resolution is actually needed.
+let _browserModule = null
+async function getBrowserModule() {
+  if (!_browserModule) {
+    _browserModule = await import('../server-lib/browser.js')
+  }
+  return _browserModule
+}
 
 const ALLOWED_MEDIA_ACTIONS = ['search', 'scrape', 'refreshCatalog']
 
@@ -509,6 +518,7 @@ async function searchDirectLinks(query, options = {}) {
               // Resolve each link with Puppeteer
               for (const link of toResolve) {
                 try {
+                  const { resolveMeetDownload } = await getBrowserModule()
                   const resolved = await resolveMeetDownload(link.url)
                   for (const r of resolved) {
                     results.push({
@@ -540,6 +550,7 @@ async function searchDirectLinks(query, options = {}) {
             if (!searchUrl) continue
             try {
               // Try Puppeteer-rendered search first
+              const { getRenderedHtml } = await getBrowserModule()
               const html = await getRenderedHtml(searchUrl, { timeout: 8000, waitForSelector: 'a[href*="/movie/"], a[href*="/series/"]' })
               if (html) {
                 const $ = cheerio.load(html)
@@ -1324,6 +1335,7 @@ export async function resolvePageChain(startUrl, site) {
   // MeetDownload resolution: Puppeteer-based (JS countdown + tokens)
   if (rootHost.includes('meetdownload')) {
     try {
+      const { resolveMeetDownload } = await getBrowserModule()
       const mdResults = await resolveMeetDownload(startUrl)
       if (mdResults && mdResults.length) return mdResults
     } catch (err) {

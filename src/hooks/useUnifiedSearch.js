@@ -127,7 +127,10 @@ export function useUnifiedSearch() {
         signal: controller.signal,
       })
 
-      const data = await res.json()
+      const data = await res.json().catch(() => {
+        // Vercel sometimes returns HTML error pages instead of JSON
+        throw new Error(res.status === 500 ? 'Server error — please try again' : `HTTP ${res.status}`)
+      })
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
       if (!data.success) throw new Error(data.error || 'Search failed')
 
