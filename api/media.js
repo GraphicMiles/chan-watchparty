@@ -586,12 +586,31 @@ async function resolveDownloadwellaWithBrowser(pageUrl) {
 }
 
 /**
- * Nkiri Direct Link Search — 3-step chain:
- *   Step 1: Search thenkiri.com/?s=QUERY → get show/season pages
- *   Step 2: Scrape each show page → extract downloadwella links
- *   Step 3: Resolve downloadwella links → direct CDN URLs (via Puppeteer)
- *
- * Only Nkiri is active. Other providers removed — will be re-added next session.
+ * Generate related search queries for movies/shows to find sequels, prequels, parts.
+ * "batman" → ["batman", "batman 2", "batman part 2", "batman begins"]
+ * "avatar" → ["avatar", "avatar 2", "avatar 3", "avatar part 2"]
+ */
+function generateRelatedQueries(baseQ) {
+  const queries = [baseQ]
+  
+  // Add numbered sequels (2, 3, 4)
+  for (let i = 2; i <= 4; i++) {
+    queries.push(`${baseQ} ${i}`)
+    queries.push(`${baseQ} part ${i}`)
+  }
+  
+  // Add common sequel/prequel keywords
+  const keywords = ['begins', 'returns', 'reloaded', 'revolutions', 'eternal', 'forever', 'rises']
+  for (const keyword of keywords) {
+    queries.push(`${baseQ} ${keyword}`)
+  }
+  
+  return queries
+}
+
+/**
+ * Nkiri Direct Link Search — searches with multiple query variations
+ * to find related movies, sequels, prequels, and parts.
  */
 async function searchDirectLinks(query, options = {}) {
   const baseQ = String(query || '').trim()
@@ -600,47 +619,64 @@ async function searchDirectLinks(query, options = {}) {
   const limit = 25
   const NKIRI_BASE = 'https://thenkiri.com'
 
-  // STEP 1: Search nkiri
-  const searchUrl = NKIRI_BASE + '/?s=' + encodeURIComponent(baseQ)
-  let searchHtml = ''
-  try {
-    const c = new AbortController(), t = setTimeout(() => c.abort(), 5000)
-    const res = await fetch(searchUrl, { signal: c.signal, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', Accept: 'text/html', Referer: NKIRI_BASE + '/' }, redirect: 'follow' })
-    clearTimeout(t); if (res.ok) searchHtml = await res.text()
-  } catch (err) { console.error('Nkiri search failed:', err.message) }
-  if (!searchHtml) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
+  // Generate related queries for sequels/prequels/parts
+  const searchQueries = generateRelatedQueries(baseQ)
+  
+  // STEP 1: Search nkiri with multiple query variations
+  const allInitialPages = []
+  const seenUrls = new Set()
+  
+  for (const searchQ of searchQueries) {
+    const searchUrl = NKIRI_BASE + '/?s=' + encodeURIComponent(searchQ)
+    let searchHtml = ''
+    try {
+      const c = new AbortController(), t = setTimeout(() => c.abort(), 4000) // Reduced timeout for multiple queries
+      const res = await fetch(searchUrl, { signal: c.signal, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', Accept: 'text/html', Referer: NKIRI_BASE + '/' }, redirect: 'follow' })
+      clearTimeout(t); if (res.ok) searchHtml = await res.text()
+    } catch (err) { console.error('Nkiri search failed for', searchQ, ':', err.message) }
+    if (!searchHtml) continue
 
-  const $s = cheerio.load(searchHtml)
-  const initialPages = []; const seenUrls = new Set()
-  // Nkiri uses .search-entry-inner for search results
-  // Title is in <img alt="..."> inside the <a> tag
-  for (const sel of ['.search-entry-inner a[href]', 'article a[href]', '.post-item a[href]', 'h2 a[href]', 'h3 a[href]']) {
-    $s(sel).each((_, el) => {
-      const href = $s(el).attr('href') || ''
-      // Extract title from alt attribute of img inside, or title attr, or text
-      const title = $s(el).find('img').attr('alt') || $s(el).attr('title') || $s(el).text().trim() || ''
-      if (!href || !href.startsWith(NKIRI_BASE) || /\/(page|category|tag|search)\//i.test(href) || seenUrls.has(href)) return
-      seenUrls.add(href); initialPages.push({ url: href, title })
-    })
-    if (initialPages.length > 0) break
-  }
-  console.log('Nkiri cheerio found', initialPages.length, 'pages')
-  if (initialPages.length === 0) {
-    const re = new RegExp('href="(https://' + NKIRI_BASE.replace('https://', '') + '/[^"]+)"', 'gi'); let m
-    while ((m = re.exec(searchHtml)) !== null) {
-      const href = m[1]; if (/\/(page|category|tag|search)\//i.test(href) || seenUrls.has(href)) continue
-      seenUrls.add(href)
-      const ctx = searchHtml.slice(Math.max(0, m.index - 300), Math.min(searchHtml.length, m.index + 500))
-      const tm = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
-      initialPages.push({ url: href, title: tm?.[1] || href.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Video' })
+    const $s = cheerio.load(searchHtml)
+    const initialPages = []
+    
+    // Nkiri uses .search-entry-inner for search results
+    // Title is in <img alt="..."> inside the <a> tag
+    for (const sel of ['.search-entry-inner a[href]', 'article a[href]', '.post-item a[href]', 'h2 a[href]', 'h3 a[href]']) {
+      $s(sel).each((_, el) => {
+        const href = $s(el).attr('href') || ''
+        // Extract title from alt attribute of img inside, or title attr, or text
+        const title = $s(el).find('img').attr('alt') || $s(el).attr('title') || $s(el).text().trim() || ''
+        if (!href || !href.startsWith(NKIRI_BASE) || /\/(page|category|tag|search)\//i.test(href) || seenUrls.has(href)) return
+        seenUrls.add(href); initialPages.push({ url: href, title })
+      })
+      if (initialPages.length > 0) break
     }
-    console.log('Nkiri regex fallback found', initialPages.length, 'pages')
+    
+    if (initialPages.length === 0) {
+      const re = new RegExp('href="(https://' + NKIRI_BASE.replace('https://', '') + '/[^"]+)"', 'gi'); let m
+      while ((m = re.exec(searchHtml)) !== null) {
+        const href = m[1]; if (/\/(page|category|tag|search)\//i.test(href) || seenUrls.has(href)) continue
+        seenUrls.add(href)
+        const ctx = searchHtml.slice(Math.max(0, m.index - 300), Math.min(searchHtml.length, m.index + 500))
+        const tm = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
+        initialPages.push({ url: href, title: tm?.[1] || href.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Video' })
+      }
+    }
+    
+    allInitialPages.push(...initialPages)
+    
+    // Stop if we have enough results
+    if (allInitialPages.length >= 50) break
   }
-  const filtered = initialPages.filter(sp => softTitleMatch(sp.title, baseQ))
-  console.log('Nkiri after softTitleMatch:', filtered.length, 'of', initialPages.length)
+  
+  console.log('Nkiri search found', allInitialPages.length, 'pages across', searchQueries.length, 'queries')
+  
+  // Filter by title match
+  const filtered = allInitialPages.filter(sp => softTitleMatch(sp.title, baseQ))
+  console.log('Nkiri after softTitleMatch:', filtered.length, 'of', allInitialPages.length)
   if (filtered.length === 0) {
-    console.log('Nkiri search: found', initialPages.length, 'pages but 0 passed softTitleMatch for query:', baseQ)
-    initialPages.slice(0, 3).forEach(p => console.log('  Sample:', p.title.slice(0, 80)))
+    console.log('Nkiri search: found', allInitialPages.length, 'pages but 0 passed softTitleMatch for query:', baseQ)
+    allInitialPages.slice(0, 3).forEach(p => console.log('  Sample:', p.title.slice(0, 80)))
     return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
   }
 
