@@ -84,7 +84,7 @@ export default async function handler(req, res) {
 
   // --- Rate limiting (IP-based, since browser <video> can't send Bearer) ---
   const ip = clientKey(req)
-  const rl = checkRateLimit(`proxy:${ip}`, { limit: 120, windowMs: 60_000 })
+  const rl = await checkRateLimit(`proxy:${ip}`, { limit: 120, windowMs: 60_000 })
   if (!rl.allowed) {
     res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' })
     res.end(JSON.stringify({ success: false, error: 'Too many proxy requests — slow down' }))
@@ -94,6 +94,7 @@ export default async function handler(req, res) {
   try {
     const rawUrl = req.query?.url
     if (!rawUrl) return fail(res, 400, 'Missing url query parameter')
+    if (rawUrl.length > 2048) return fail(res, 400, 'URL too long')
 
     const targetUrl = validateProxyUrl(rawUrl)
 

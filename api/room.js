@@ -13,6 +13,15 @@ import { generateLiveKitToken } from '../server-lib/livekitHelper.js'
 import { generateAiSummary, generateSmartCatchup, generateRoomQuiz, voteRoomQuiz, generateAiSubtitles } from '../server-lib/aiHelper.js'
 import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
 import { timingSafeEqual } from 'node:crypto'
+import { sanitizeAction, sanitizeRoomId, sanitizeUid, sanitizeText } from '../server-lib/sanitize.js'
+
+const ALLOWED_ROOM_ACTIONS = [
+  'join', 'leave', 'end', 'kick', 'promote', 'mute',
+  'livekit', 'createlivekittoken',
+  'ai', 'summary', 'catchup', 'quiz', 'generatequiz', 'votequiz',
+  'subtitles', 'captions',
+  'cleanupstalerooms', 'cleanup',
+]
 
 async function requireUser(req, expectedUid) {
   const token = req.headers.authorization?.split('Bearer ')[1]
@@ -157,7 +166,7 @@ export default async function handler(req, res) {
   try {
     // --- Rate limiting (per IP) ---
     const ip = clientKey(req)
-    const rl = checkRateLimit(`room:${ip}`, { limit: 60, windowMs: 60_000 })
+    const rl = await checkRateLimit(`room:${ip}`, { limit: 60, windowMs: 60_000 })
     if (!rl.allowed) {
       res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' })
       res.end(JSON.stringify({ success: false, error: 'Too many requests — slow down' }))
@@ -168,7 +177,14 @@ export default async function handler(req, res) {
     }
 
     const body = req.body || {}
-    const action = String(body.action || req.query?.action || req.query?.legacy || '').toLowerCase()
+    const rawAction = String(body.action || req.query?.action || req.query?.legacy || '').toLowerCase()
+    const action = sanitizeAction(rawAction, ALLOWED_ROOM_ACTIONS)
+    if (rawAction && !action) return fail(res, 400, 'Invalid action')
+
+    // Validate roomId in body if present
+    if (body.roomId && !sanitizeRoomId(body.roomId)) return fail(res, 400, 'Invalid room ID')
+    // Validate UID in body if present
+    if (body.uid && !sanitizeUid(body.uid)) return fail(res, 400, 'Invalid UID')
 
     // Cron check / cleanup target (GET or POST)
     if (action === 'cleanupstalerooms' || action === 'cleanup' || (req.method === 'GET' && !action)) {

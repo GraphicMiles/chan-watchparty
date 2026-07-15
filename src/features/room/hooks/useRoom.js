@@ -111,10 +111,16 @@ export function useRoom(roomId, inviteCode = null) {
 
   const sendMessage = useCallback(async (text, replyTo = null) => {
     if (!user || !roomId || !text.trim()) return null
-    // Basic sanitization: strip HTML tags, limit length
+    // Sanitize: strip HTML tags and control chars, limit length
+    // Note: we do NOT HTML-encode here — JSX auto-escapes on render.
+    // This is defense-in-depth in case text is ever rendered in non-JSX context.
     const sanitized = text.trim()
-      .replace(/<[^>]*>/g, '')   // strip HTML tags
-      .replace(/&/g, '&amp;')    // encode ampersands
+      .replace(/<[^>]*>/g, '')                              // strip HTML tags
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')   // strip control chars (keep \n, \t, \r)
+      .replace(/\u200B|\uFEFF/g, '')                        // strip zero-width spaces / BOM
+      .replace(/[ \t]+/g, ' ')                              // collapse whitespace
+      .replace(/\n{3,}/g, '\n\n')                           // max 2 consecutive newlines
+      .trim()
       .slice(0, 500)
     if (!sanitized) return null
     const payload = {

@@ -14,6 +14,9 @@ import { resolveMeetDownload, resolveWaploaded, resolveGenericBrowser, getRender
 import { searchNetNaija, resolveNetNaijaChain } from '../server-lib/netnaijaResolver.js'
 import { resolveArchiveOrgPage, resolveArchiveOrgDirectUrl } from '../server-lib/archiveResolver.js'
 import { searchMaxCinema, resolveMaxCinemaChain } from '../server-lib/maxcinemaResolver.js'
+import { sanitizeSearchQuery, sanitizeUrl, sanitizeAction } from '../server-lib/sanitize.js'
+
+const ALLOWED_MEDIA_ACTIONS = ['search', 'scrape', 'refreshCatalog']
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY // server-side only — never use VITE_ prefix
@@ -1563,7 +1566,7 @@ export default async function handler(req, res) {
 
   // --- Rate limiting (per IP + per UID when available) ---
   const ip = clientKey(req)
-  const ipRl = checkRateLimit(`media:${ip}`, { limit: 40, windowMs: 60_000 })
+  const ipRl = await checkRateLimit(`media:${ip}`, { limit: 40, windowMs: 60_000 })
   if (!ipRl.allowed) {
     res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' })
     res.end(JSON.stringify({ success: false, error: 'Too many requests — slow down' }))
@@ -1572,7 +1575,23 @@ export default async function handler(req, res) {
 
   try {
     const body = req.body || {}
-    const action = body.action || req.query?.legacy || 'search'
+    const rawAction = body.action || req.query?.legacy || 'search'
+    const action = sanitizeAction(rawAction, ALLOWED_MEDIA_ACTIONS) || 'search'
+    const { query, options = {}, url, site } = body
+
+    // Validate search query
+    if (action === 'search' && query) {
+      const cleanQuery = sanitizeSearchQuery(query)
+      if (!cleanQuery) return fail(res, 400, 'Invalid search query')
+      body.query = cleanQuery
+    }
+
+    // Validate scrape URL
+    if (action === 'scrape' && url) {
+      const cleanUrl = sanitizeUrl(url)
+      if (!cleanUrl) return fail(res, 400, 'Invalid or unsafe URL')
+      body.url = cleanUrl
+    }
     if (action === 'refreshCatalog') {
       const catalog = await refreshIptvCatalog(req, body)
       return ok(res, catalog)

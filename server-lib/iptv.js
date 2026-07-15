@@ -64,13 +64,11 @@ const BUILTIN_EXTRA_CHANNELS = [
   // Sony channels with expired hdnea tokens (exp=1594424839 = June 2020) removed.
   // If valid tokens become available, add them via IPTV_CHANNELS_JSON env var instead.
 
-  { name: 'IN: SONY SAB', url: 'http://ddn.amrbd.com:8081/live/sonysab/playlist.m3u8', group: 'Entertainment', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'IN: SONY TV HD', url: 'http://channels.ooguy.com:80/auth?channel=SonyTvHdIndia&type=index.m3u8&authorization=RnJFZUFjQ2VTcw==', group: 'Entertainment', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'UK: SONY TV HD', url: 'http://channels.ooguy.com:80/auth?channel=SonyTvHdUk&type=index.m3u8&authorization=RnJFZUFjQ2VTcw==', group: 'Entertainment', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'IN: SONY AATH', url: 'http://137.59.155.253:8088/hls/Zee_Cinema.m3u8', group: 'Movies', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'USA: SONY TV HD', url: 'http://ok2.se:8000/live/e4f1F1Uvb5cccME2H/7deeF1UDa6PNxFp03/407.m3u8', group: 'Entertainment', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'Sony Crime', url: 'http://178.159.5.210:1000/play/SonyCrime/index.m3u8', group: 'Movies', provider: 'Chan Curated Live TV', isNSFW: false },
-  { name: 'Sony Movies', url: 'http://178.159.5.210:1000/play/sonymovies/index.m3u8', group: 'Movies', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'Sony Action', url: 'http://178.159.5.210:1000/play/Sonyaction/index.m3u8', group: 'Movies', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'Sony Action 2', url: 'http://178.159.5.210:1000/play/a03r/index.m3u8', group: 'Movies', provider: 'Chan Curated Live TV', isNSFW: false },
   { name: 'Sony Christmas', url: 'http://178.159.5.210:1000/play/a03s/index.m3u8', group: 'Movies', provider: 'Chan Curated Live TV', isNSFW: false },
