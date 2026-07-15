@@ -613,9 +613,12 @@ async function searchDirectLinks(query, options = {}) {
   const $s = cheerio.load(searchHtml)
   const initialPages = []; const seenUrls = new Set()
   // Nkiri uses .search-entry-inner for search results
+  // Title is in <img alt="..."> inside the <a> tag
   for (const sel of ['.search-entry-inner a[href]', 'article a[href]', '.post-item a[href]', 'h2 a[href]', 'h3 a[href]']) {
     $s(sel).each((_, el) => {
-      const href = $s(el).attr('href') || ''; const title = $s(el).attr('title') || $s(el).text().trim() || ''
+      const href = $s(el).attr('href') || ''
+      // Extract title from alt attribute of img inside, or title attr, or text
+      const title = $s(el).find('img').attr('alt') || $s(el).attr('title') || $s(el).text().trim() || ''
       if (!href || !href.startsWith(NKIRI_BASE) || /\/(page|category|tag|search)\//i.test(href) || seenUrls.has(href)) return
       seenUrls.add(href); initialPages.push({ url: href, title })
     })
@@ -632,7 +635,10 @@ async function searchDirectLinks(query, options = {}) {
     }
   }
   const filtered = initialPages.filter(sp => softTitleMatch(sp.title, baseQ))
-  if (filtered.length === 0) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
+  if (filtered.length === 0) {
+    console.log('Nkiri search: found', initialPages.length, 'pages but 0 passed softTitleMatch for query:', baseQ)
+    return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
+  }
 
   // STEP 2: Scrape show pages for downloadwella links (NO Puppeteer — fast)
   // Recursively follow related season/part links (depth=1, max 10 pages)
