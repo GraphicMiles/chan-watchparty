@@ -79,12 +79,12 @@ export function normalizePlaybackUrl(url) {
   try {
     const parsed = new URL(normalized, 'https://chan.invalid')
     // Check if this is an MKV file that needs remuxing
-    // .mkv extension in pathname or -mkv suffix (NetNaija CDN uses /filename-mkv)
-    // Also check query params like ?name=movie.mkv (Koyeb CDN pattern)
     const isMkv = /\.mkv(\?|#|$)/i.test(parsed.pathname) 
       || /-mkv(\?|#|$)/i.test(parsed.pathname)
-      || /\.mkv(&|$)/i.test(parsed.search)
+      // Also check query params: ?name=movie.mkv or ?name=something-mkv
+      || /\.(mkv)(&|$)/i.test(parsed.search)
       || /-mkv(&|$)/i.test(parsed.search)
+      || parsed.searchParams.getAll('name').some(v => /\.mkv$/i.test(v) || /-mkv$/i.test(v))
     // Automatically route any HTTP stream through our secure Vercel Mixed-Content proxy (/api/proxy)
     // Also route MKV files through the proxy with remux=1 so they get converted to MP4
     if (isMkv) {

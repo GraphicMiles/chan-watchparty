@@ -1700,13 +1700,18 @@ export default async function handler(req, res) {
     const body = req.body || {}
     const rawAction = body.action || req.query?.legacy || 'search'
     const action = sanitizeAction(rawAction, ALLOWED_MEDIA_ACTIONS) || 'search'
-    const { query, options = {}, url, site } = body
+
+    // Validate and sanitize inputs early
+    let query = body.query || ''
+    let options = body.options || {}
+    let url = body.url || ''
+    let site = body.site || ''
 
     // Validate search query
     if (action === 'search' && query) {
       const cleanQuery = sanitizeSearchQuery(query)
       if (!cleanQuery) return fail(res, 400, 'Invalid search query')
-      body.query = cleanQuery
+      query = cleanQuery
     }
 
     // Validate scrape URL

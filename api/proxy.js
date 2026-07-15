@@ -373,7 +373,14 @@ export default async function handler(req, res) {
 
       } catch (peekErr) {
         console.error('Proxy MKV peek error:', peekErr.message)
-        // Fall through to direct streaming
+        // Body may already be consumed — fall through carefully.
+        // If we re-fetched, mkvUpstream has the body but the reader was lost.
+        // In this case, return a generic error rather than trying to stream.
+        if (reFetched) {
+          return fail(res, 502, 'MKV remux failed and fallback stream unavailable')
+        }
+        // If we didn't re-fetch, the original upstream body may still be usable.
+        // Fall through to the normal passthrough section.
       }
     }
 
