@@ -899,7 +899,12 @@ export class MkvRemuxStream extends Transform {
 
     // Only return tracks with supported codecs
     if (track.trackType === TRACK_TYPE_VIDEO) {
-      if (track.codecId === 'V_MPEG4/ISO/AVC' || track.codecId === 'V_MPEGH/ISO/HEVC') return track
+      if (track.codecId === 'V_MPEG4/ISO/AVC') return track
+      if (track.codecId === 'V_MPEGH/ISO/HEVC') {
+        // H.265/HEVC cannot be repackaged into AVC1 sample entries; browsers also
+        // have limited HEVC support. Emit a clear error instead of invalid MP4.
+        throw new Error('HEVC/H.265 video is not supported for browser playback')
+      }
       return null
     }
     if (track.trackType === TRACK_TYPE_AUDIO) {

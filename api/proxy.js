@@ -146,7 +146,9 @@ export default async function handler(req, res) {
         ? { Origin: 'https://www.pornhub.com' }
         : hostname.includes('downloadwella') || hostname.includes('fsmc')
           ? { Origin: 'https://downloadwella.com' }
-          : {}),
+          : hostname.includes('koyeb.app') || hostname.includes('maxcinema')
+            ? { Origin: 'https://www.maxcinema.name.ng' }
+            : {}),
     }
 
     // Forward the browser's Range header (used by <video> for seeking / buffering)
