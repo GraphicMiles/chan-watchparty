@@ -600,11 +600,11 @@ async function searchDirectLinks(query, options = {}) {
   const limit = 25
   const NKIRI_BASE = 'https://thenkiri.com'
 
-  // STEP 1: Search
+  // STEP 1: Search nkiri
   const searchUrl = NKIRI_BASE + '/?s=' + encodeURIComponent(baseQ)
   let searchHtml = ''
   try {
-    const c = new AbortController(), t = setTimeout(() => c.abort(), 8000)
+    const c = new AbortController(), t = setTimeout(() => c.abort(), 5000)
     const res = await fetch(searchUrl, { signal: c.signal, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', Accept: 'text/html', Referer: NKIRI_BASE + '/' }, redirect: 'follow' })
     clearTimeout(t); if (res.ok) searchHtml = await res.text()
   } catch (err) { console.error('Nkiri search failed:', err.message) }
@@ -633,37 +633,37 @@ async function searchDirectLinks(query, options = {}) {
   const filtered = initialPages.filter(sp => softTitleMatch(sp.title, baseQ))
   if (filtered.length === 0) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
 
-  // STEP 2: Recursively scrape ALL related pages (depth=2, max 30 pages)
-  const allDlLinks = []; const seenDl = new Set(); const scraped = new Set(); const MAX_PAGES = 30, MAX_DEPTH = 2
+  // STEP 2: Scrape show pages for downloadwella links (NO Puppeteer — fast)
+  // Recursively follow related season/part links (depth=1, max 10 pages)
+  const allDlLinks = []; const seenDl = new Set(); const scraped = new Set()
+  const MAX_PAGES = 10
 
   async function scrapePage(page, depth) {
     if (scraped.has(page.url) || scraped.size >= MAX_PAGES) return
     scraped.add(page.url)
     try {
-      const c = new AbortController(), t = setTimeout(() => c.abort(), 6000)
+      const c = new AbortController(), t = setTimeout(() => c.abort(), 4000)
       const res = await fetch(page.url, { signal: c.signal, headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'text/html', Referer: NKIRI_BASE + '/' }, redirect: 'follow' })
       clearTimeout(t); if (!res.ok) return
       const html = await res.text(); const $p = cheerio.load(html)
       const poster = $p('meta[property="og:image"]').attr('content') || $p('img[src]').first().attr('src') || null
       const resolvedPoster = poster ? resolveUrl(poster, page.url) : null
 
-      // Find downloadwella links
       $p('a[href*="downloadwella.com"]').each((_, el) => {
         const href = $p(el).attr('href'); const text = $p(el).text().trim() || $p(el).attr('title') || ''
         if (href && !seenDl.has(href)) { seenDl.add(href); allDlLinks.push({ url: href, title: text || page.title, poster: resolvedPoster }) }
       })
-      if (allDlLinks.filter(d => d.url.startsWith('https://downloadwella')).length === 0 || allDlLinks.length < 5) {
-        const dlRe = /href="(https?:\/\/(?:www\.)?downloadwella\.com\/[^"]+)"/gi; let m
-        while ((m = dlRe.exec(html)) !== null) {
-          if (seenDl.has(m[1])) continue; seenDl.add(m[1])
-          const ctx = html.slice(Math.max(0, m.index - 200), Math.min(html.length, m.index + 500))
-          const tm = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
-          allDlLinks.push({ url: m[1], title: tm?.[1] || m[1].split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Download', poster: resolvedPoster })
-        }
+      // Regex fallback
+      const dlRe = /href="(https?:\/\/(?:www\.)?downloadwella\.com\/[^"]+)"/gi; let m
+      while ((m = dlRe.exec(html)) !== null) {
+        if (seenDl.has(m[1])) continue; seenDl.add(m[1])
+        const ctx = html.slice(Math.max(0, m.index - 200), Math.min(html.length, m.index + 500))
+        const tm = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
+        allDlLinks.push({ url: m[1], title: tm?.[1] || m[1].split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Download', poster: resolvedPoster })
       }
 
-      // Follow related links (seasons/parts) up to MAX_DEPTH
-      if (depth < MAX_DEPTH) {
+      // Follow related season/part links (depth=1 only — keep it fast)
+      if (depth < 1) {
         $p('a[href]').each((_, el) => {
           const href = $p(el).attr('href') || ''; const text = $p(el).text().trim() || ''
           if (!href.startsWith(NKIRI_BASE) || /\/(page|category|tag|search)\//i.test(href) || scraped.has(href) || seenUrls.has(href)) return
@@ -679,35 +679,23 @@ async function searchDirectLinks(query, options = {}) {
   await Promise.all(Array.from({ length: Math.min(4, filtered.length) }, worker))
   if (allDlLinks.length === 0) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
 
-  // STEP 3: Resolve via Puppeteer (up to 100)
-  const resolved = []; const seenRes = new Set(); const toResolve = allDlLinks.slice(0, 100)
-  async function resolveDl(dl) {
-    try {
-      const direct = await resolveDownloadwellaWithBrowser(dl.url)
-      for (const dr of direct) {
-        const key = (dr.url || '').toLowerCase(); if (seenRes.has(key)) continue; seenRes.add(key)
-        resolved.push({
-          title: formatMediaTitle(dr.title || dl.title || 'Video'),
-          url: toProxiedPlaybackUrl(dr.url, { referer: 'https://downloadwella.com/' }),
-          link: toProxiedPlaybackUrl(dr.url, { referer: 'https://downloadwella.com/' }),
-          thumbnail: dl.poster || null, image: dl.poster || null,
-          source: 'nkiri', type: 'direct', isDirect: true, playableInRoom: true,
-          quality: extractQuality(dr.title || dl.title || ''), resolvedFrom: dl.url,
-        })
-      }
-    } catch (err) { console.error('DL resolution failed:', dl.url, err.message) }
-  }
-  let dc = 0; async function dlw() { while (true) { const i = dc++; if (i >= toResolve.length) return; await resolveDl(toResolve[i]) } }
-  await Promise.all(Array.from({ length: Math.min(4, toResolve.length) }, dlw))
+  // STEP 3: Return downloadwella page URLs (resolve on click via scrape endpoint)
+  // NO Puppeteer here — keeps search under 10s. Puppeteer runs on-demand when user clicks.
+  const results = allDlLinks.slice(0, 100).map(dl => ({
+    title: formatMediaTitle(dl.title || 'Video'),
+    url: dl.url,
+    link: dl.url,
+    thumbnail: dl.poster || null,
+    image: dl.poster || null,
+    source: 'nkiri',
+    type: 'direct',
+    isDirect: false,
+    playableInRoom: false,
+    requiresResolve: true,
+    quality: extractQuality(dl.title || ''),
+  }))
 
-  // Fallback
-  if (resolved.length === 0) {
-    for (const dl of toResolve.slice(0, 25)) {
-      resolved.push({ title: formatMediaTitle(dl.title || 'Video'), url: dl.url, link: dl.url, thumbnail: dl.poster || null, image: dl.poster || null, source: 'nkiri', type: 'direct', isDirect: false, playableInRoom: false, requiresResolve: true, quality: extractQuality(dl.title || '') })
-    }
-  }
-
-  const omdb = await enrichWithOMDbPosters(resolved, baseQ)
+  const omdb = await enrichWithOMDbPosters(results, baseQ)
   const deduped = deduplicateAndEnrich(omdb, baseQ)
   return { results: deduped.slice(offset, offset + limit), hasMore: offset + limit < deduped.length, searchedSites: ['nkiri'], multiLayerCascaded: false }
 }
