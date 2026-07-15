@@ -2,7 +2,7 @@ import { preflight, fail } from '../server-lib/http.js'
 import { validateFetchUrl, isPrivateHost } from '../server-lib/ssrf.js'
 import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
 import { probeAndFixO2TvUrl } from '../server-lib/o2tvResolver.js'
-import { MkvRemuxStream, isMkvContentType, isMkvUrl } from '../server-lib/mkvRemux.js'
+import { MkvRemuxStream, isMkvContentType } from '../server-lib/mkvRemux.js'
 
 /** Read optional domain allow-list from env (JSON array of hostnames). */
 function getProxyDomainAllowlist() {
@@ -247,14 +247,16 @@ export default async function handler(req, res) {
     // ─── MKV Remuxing: convert Matroska to fMP4 on-the-fly ───
     // Browsers can't play MKV containers natively. This remuxes the same
     // video/audio data into a fragmented MP4 container (no re-encoding).
-    const needsRemux = req.query?.remux === '1' || isMkvContentType(contentType) || isMkvUrl(targetUrl.href)
+    // Only trigger remuxing when EXPLICITLY requested via remux=1 query param,
+    // or when the upstream Content-Type is definitively Matroska.
+    // Do NOT auto-detect from URL patterns — that causes false positives on IPTV etc.
+    const needsRemux = req.query?.remux === '1' || isMkvContentType(contentType)
 
     if (needsRemux) {
       // For MKV files, we must fetch from the start (no Range header)
       // because the remuxer needs sequential MKV data from the beginning.
-      // If the upstream already has a Range header from a prior request,
-      // we need to fetch from byte 0 instead.
       let mkvUpstream = upstream
+      let reFetched = false
       if (req.headers.range && (upstream.status === 206 || upstream.headers.get('content-range'))) {
         // Re-fetch from the beginning without Range
         await upstream.body?.cancel().catch(() => {})
@@ -264,41 +266,89 @@ export default async function handler(req, res) {
         if (!mkvUpstream.ok && mkvUpstream.status !== 206) {
           return fail(res, mkvUpstream.status, `Upstream returned HTTP ${mkvUpstream.status}`)
         }
+        reFetched = true
       }
 
-      res.setHeader('Content-Type', 'video/mp4')
-      // No Accept-Ranges for remuxed streams (seeking not supported yet)
-      res.setHeader('Cache-Control', cacheControlForType('video/mp4'))
-      res.status(200)
-
-      if (req.method === 'HEAD') {
-        await mkvUpstream.body?.cancel().catch(() => {})
-        res.end()
-        return
-      }
-
-      // Create the MKV→fMP4 remuxing pipeline
-      const remuxer = new MkvRemuxStream()
-      const abortController = new AbortController()
-      const onClose = () => { abortController.abort(); remuxer.destroy() }
-      req.on('close', onClose)
-
-      // Handle remuxer errors gracefully
-      remuxer.on('error', (err) => {
-        console.error('MKV remux error:', err.message)
-        if (!res.headersSent) {
-          return fail(res, 500, 'MKV remuxing failed')
-        }
-        // If headers already sent, just end the response
-        res.end()
-      })
-
+      // Peek at the first bytes to verify it's actually MKV (EBML magic: 0x1A45DFA3)
+      // If not, fall through to passthrough instead of crashing the remuxer
       try {
-        // Pipe: upstream MKV bytes → remuxer → client response
         const reader = mkvUpstream.body.getReader()
+        const { value: firstChunk, done } = await reader.read()
+        if (done || !firstChunk) {
+          return fail(res, 502, 'Empty response from upstream')
+        }
+        
+        const firstBytes = Buffer.from(firstChunk)
+        // EBML header always starts with 0x1A (first byte of ID 0x1A45DFA3)
+        if (firstBytes[0] !== 0x1A) {
+          // Not MKV — fall through to direct streaming passthrough
+          console.log('Proxy: remux=1 requested but data is not MKV, falling through to passthrough')
+          
+          // If we re-fetched, we need to resume with this data
+          res.setHeader('Content-Type', mkvUpstream.headers.get('content-type') || contentType || 'application/octet-stream')
+          res.setHeader('Accept-Ranges', 'bytes')
+          res.setHeader('Cache-Control', cacheControlForType(contentType))
+          res.status(200)
 
-        // Read MKV chunks and feed to remuxer
-        const processChunks = async () => {
+          if (req.method === 'HEAD') {
+            await reader.cancel().catch(() => {})
+            res.end()
+            return
+          }
+
+          const abortController = new AbortController()
+          const onClose = () => { abortController.abort() }
+          req.on('close', onClose)
+
+          // Write the first chunk we already read
+          res.write(firstBytes)
+
+          try {
+            await pipeStreamToResponse(reader, res, abortController.signal)
+          } catch { /* */ }
+          finally { req.off('close', onClose); await reader.cancel().catch(() => {}) }
+          res.end()
+          return
+        }
+
+        // It IS MKV — proceed with remuxing
+        res.setHeader('Content-Type', 'video/mp4')
+        res.setHeader('Cache-Control', cacheControlForType('video/mp4'))
+        res.status(200)
+
+        if (req.method === 'HEAD') {
+          await reader.cancel().catch(() => {})
+          res.end()
+          return
+        }
+
+        const remuxer = new MkvRemuxStream()
+        const abortController = new AbortController()
+        const onClose = () => { abortController.abort(); remuxer.destroy() }
+        req.on('close', onClose)
+
+        remuxer.on('error', (err) => {
+          console.error('MKV remux error:', err.message)
+          try { res.end() } catch { /* */ }
+        })
+
+        remuxer.on('data', (chunk) => {
+          if (!abortController.signal.aborted) {
+            res.write(chunk)
+          }
+        })
+
+        remuxer.on('end', () => {
+          try { res.end() } catch { /* */ }
+        })
+
+        // Feed the first chunk we already peeked at
+        if (!remuxer.destroyed) {
+          remuxer.write(firstBytes)
+        }
+
+        // Continue reading and feeding the remuxer
+        const processRemaining = async () => {
           try {
             while (!abortController.signal.aborted) {
               const { done, value } = await reader.read()
@@ -317,25 +367,14 @@ export default async function handler(req, res) {
           }
         }
 
-        // Pipe remuxer output to response
-        remuxer.on('data', (chunk) => {
-          if (!abortController.signal.aborted) {
-            res.write(chunk)
-          }
-        })
-
-        remuxer.on('end', () => {
-          res.end()
-        })
-
-        await processChunks()
-      } catch (err) {
-        console.error('MKV remux pipeline error:', err.message)
-      } finally {
+        await processRemaining()
         req.off('close', onClose)
-      }
+        return
 
-      return
+      } catch (peekErr) {
+        console.error('Proxy MKV peek error:', peekErr.message)
+        // Fall through to direct streaming
+      }
     }
 
     // ─── Stream the response directly to the client ───

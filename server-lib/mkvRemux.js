@@ -1125,6 +1125,6 @@ export function isMkvContentType(contentType) {
 
 export function isMkvUrl(url) {
   if (!url) return false
-  // .mkv file extension or -mkv suffix (NetNaija CDN uses /filename-mkv pattern)
-  return /\.mkv(\?|#|$)/i.test(url) || /-mkv(\?|#|$)/i.test(url)
+  // .mkv file extension or -mkv suffix in pathname or query string
+  return /\.mkv(\?|#|$)/i.test(url) || /-mkv(\?|#|$)/i.test(url) || /\.mkv&/i.test(url) || /-mkv&/i.test(url)
 }

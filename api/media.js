@@ -1600,7 +1600,6 @@ export default async function handler(req, res) {
     await requireUser(req)
     const decoded = await verifyIdToken(req.headers.authorization?.split('Bearer ')[1] || '')
     const layer = body.layer || body.source || 'youtube'
-    const { query, options = {}, url, site } = body
     
     // Legacy scrape endpoint
     if (action === 'scrape') {
@@ -1802,7 +1801,13 @@ export default async function handler(req, res) {
           break
         }
         case 'youtube':
-          results = await searchYouTube(query, Math.min(50, Math.max(1, Number(options.limit) || 20)))
+          try {
+            results = await searchYouTube(query, Math.min(50, Math.max(1, Number(options.limit) || 20)))
+          } catch (ytErr) {
+            console.error('YouTube search error:', ytErr.message)
+            // Return empty results with helpful message instead of 500 error
+            return ok(res, { success: true, results: [], searchedSites: ['youtube'], error: `YouTube: ${ytErr.message}` })
+          }
           break
         case 'omdb':
         case 'movies':

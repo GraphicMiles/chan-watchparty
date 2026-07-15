@@ -58,7 +58,8 @@ async function searchXVideos(query, limit = 20) {
         type: 'nsfw',
         isNSFW: true,
         isDirect: false,
-        requiresUserAction: true,
+        playableInRoom: false,
+        meta: 'Open to watch',
       })
     })
 
@@ -127,7 +128,8 @@ async function searchPornhub(query, limit = 20) {
               type: 'nsfw',
               isNSFW: true,
               isDirect: false,
-              requiresUserAction: true,
+              playableInRoom: false,
+              meta: 'Open to watch',
             })
           } catch {
             /* ignore */
@@ -202,7 +204,8 @@ async function searchSpankBang(query, limit = 20) {
               type: 'nsfw',
               isNSFW: true,
               isDirect: false,
-              requiresUserAction: true,
+              playableInRoom: false,
+              meta: 'Open to watch',
             })
           } catch {
             /* ignore */
