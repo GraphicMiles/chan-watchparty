@@ -100,6 +100,13 @@ async function fetchJson(url, referer) {
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const text = await res.text()
+    
+    // Check if response is HTML (PornHub returns login/anti-bot pages)
+    if (text.trim().startsWith('<') || text.includes('<!DOCTYPE')) {
+      console.log('PornHub remote fetch returned HTML instead of JSON — likely blocked by anti-bot')
+      return null
+    }
+    
     try {
       return JSON.parse(text)
     } catch {
@@ -198,9 +205,14 @@ async function expandRemoteDefinitions(definitions, pageUrl) {
 
     try {
       const remote = await fetchJson(url, pageUrl)
+      if (!remote) {
+        // fetchJson returned null (HTML response or parse error) — skip this remote def
+        console.log('Skipping remote definition — fetch returned null')
+        continue
+      }
       if (Array.isArray(remote)) {
         for (const item of remote) expanded.push(item)
-      } else if (remote && typeof remote === 'object') {
+      } else if (typeof remote === 'object') {
         if (Array.isArray(remote.mediaDefinitions)) {
           for (const item of remote.mediaDefinitions) expanded.push(item)
         } else if (remote.videoUrl || remote.url) {
