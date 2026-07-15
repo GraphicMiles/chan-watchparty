@@ -78,7 +78,14 @@ export function normalizePlaybackUrl(url) {
   const normalized = normalizeDirectUrl(url || '')
   try {
     const parsed = new URL(normalized, 'https://chan.invalid')
+    // Check if this is an MKV file that needs remuxing
+    // .mkv extension or -mkv suffix (NetNaija CDN uses /filename-mkv)
+    const isMkv = /\.mkv(\?|#|$)/i.test(parsed.pathname) || /-mkv(\?|#|$)/i.test(parsed.pathname)
     // Automatically route any HTTP stream through our secure Vercel Mixed-Content proxy (/api/proxy)
+    // Also route MKV files through the proxy with remux=1 so they get converted to MP4
+    if (isMkv) {
+      return `/api/proxy?url=${encodeURIComponent(normalized)}&remux=1`
+    }
     if (parsed.protocol === 'http:' && (typeof window !== 'undefined' && window.location.protocol === 'https:' || true)) {
       return `/api/proxy?url=${encodeURIComponent(normalized)}`
     }

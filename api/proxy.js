@@ -2,6 +2,7 @@ import { preflight, fail } from '../server-lib/http.js'
 import { validateFetchUrl, isPrivateHost } from '../server-lib/ssrf.js'
 import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
 import { probeAndFixO2TvUrl } from '../server-lib/o2tvResolver.js'
+import { MkvRemuxStream, isMkvContentType, isMkvUrl } from '../server-lib/mkvRemux.js'
 
 /** Read optional domain allow-list from env (JSON array of hostnames). */
 function getProxyDomainAllowlist() {
@@ -241,6 +242,100 @@ export default async function handler(req, res) {
       // Consume the body to free the connection
       await upstream.arrayBuffer().catch(() => {})
       return fail(res, 502, 'Stream server returned a web page instead of video — channel may be offline')
+    }
+
+    // ─── MKV Remuxing: convert Matroska to fMP4 on-the-fly ───
+    // Browsers can't play MKV containers natively. This remuxes the same
+    // video/audio data into a fragmented MP4 container (no re-encoding).
+    const needsRemux = req.query?.remux === '1' || isMkvContentType(contentType) || isMkvUrl(targetUrl.href)
+
+    if (needsRemux) {
+      // For MKV files, we must fetch from the start (no Range header)
+      // because the remuxer needs sequential MKV data from the beginning.
+      // If the upstream already has a Range header from a prior request,
+      // we need to fetch from byte 0 instead.
+      let mkvUpstream = upstream
+      if (req.headers.range && (upstream.status === 206 || upstream.headers.get('content-range'))) {
+        // Re-fetch from the beginning without Range
+        await upstream.body?.cancel().catch(() => {})
+        const freshHeaders = { ...upstreamHeaders }
+        delete freshHeaders.Range
+        mkvUpstream = await fetch(targetUrl.href, { redirect: 'follow', headers: freshHeaders })
+        if (!mkvUpstream.ok && mkvUpstream.status !== 206) {
+          return fail(res, mkvUpstream.status, `Upstream returned HTTP ${mkvUpstream.status}`)
+        }
+      }
+
+      res.setHeader('Content-Type', 'video/mp4')
+      // No Accept-Ranges for remuxed streams (seeking not supported yet)
+      res.setHeader('Cache-Control', cacheControlForType('video/mp4'))
+      res.status(200)
+
+      if (req.method === 'HEAD') {
+        await mkvUpstream.body?.cancel().catch(() => {})
+        res.end()
+        return
+      }
+
+      // Create the MKV→fMP4 remuxing pipeline
+      const remuxer = new MkvRemuxStream()
+      const abortController = new AbortController()
+      const onClose = () => { abortController.abort(); remuxer.destroy() }
+      req.on('close', onClose)
+
+      // Handle remuxer errors gracefully
+      remuxer.on('error', (err) => {
+        console.error('MKV remux error:', err.message)
+        if (!res.headersSent) {
+          return fail(res, 500, 'MKV remuxing failed')
+        }
+        // If headers already sent, just end the response
+        res.end()
+      })
+
+      try {
+        // Pipe: upstream MKV bytes → remuxer → client response
+        const reader = mkvUpstream.body.getReader()
+
+        // Read MKV chunks and feed to remuxer
+        const processChunks = async () => {
+          try {
+            while (!abortController.signal.aborted) {
+              const { done, value } = await reader.read()
+              if (done) break
+              if (!remuxer.destroyed) {
+                remuxer.write(Buffer.from(value))
+              }
+            }
+          } catch {
+            // Stream interrupted
+          } finally {
+            if (!remuxer.destroyed) {
+              remuxer.end()
+            }
+            await reader.cancel().catch(() => {})
+          }
+        }
+
+        // Pipe remuxer output to response
+        remuxer.on('data', (chunk) => {
+          if (!abortController.signal.aborted) {
+            res.write(chunk)
+          }
+        })
+
+        remuxer.on('end', () => {
+          res.end()
+        })
+
+        await processChunks()
+      } catch (err) {
+        console.error('MKV remux pipeline error:', err.message)
+      } finally {
+        req.off('close', onClose)
+      }
+
+      return
     }
 
     // ─── Stream the response directly to the client ───
