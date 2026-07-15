@@ -418,6 +418,9 @@ export default function VideoPlayer({
     4: 'Source not supported — the video URL may not return a playable video, the server may have returned an error page, or the stream timed out. Try a different source.',
   }
 
+  // Detect demuxer/pipeline errors from error message
+  const isDemuxerError = (msg) => /demuxer|pipeline|format error/i.test(msg || '')
+
   const handleError = useCallback((err) => {
     // ReactPlayer/FilePlayer passes MediaError objects or Events, NOT Error instances.
     // String(MediaError) = "[object Object]" — that's the "object entry" bug.
@@ -453,6 +456,13 @@ export default function VideoPlayer({
 
     console.error('Video error:', message, err)
 
+    // Special handling for demuxer/pipeline errors (common with live streams)
+    if (isDemuxerError(message)) {
+      message = videoType === 'youtube' && isLive
+        ? 'YouTube live stream error — the live stream may have ended, be geo-restricted, or have encoding issues. Try another source.'
+        : 'Stream decoding error — the video format may not be supported, the file may be corrupt, or the live stream may have ended. Try a different source.'
+    }
+
     // If this is a cross-origin direct file that hasn't been proxied yet,
     // route it through /api/proxy and retry. This fixes the most common
     // MEDIA_ELEMENT_ERROR: Format error caused by missing CORS headers.
@@ -474,6 +484,12 @@ export default function VideoPlayer({
     }
 
     setError(message)
+
+    // Don't retry demuxer/pipeline errors - they're usually fatal
+    if (isDemuxerError(message)) {
+      onError?.(new Error(message))
+      return
+    }
 
     if (retryCountRef.current < RETRY_ATTEMPTS) {
       retryCountRef.current += 1
