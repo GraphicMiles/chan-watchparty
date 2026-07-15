@@ -209,14 +209,18 @@ export default async function handler(req, res) {
 
       // Use the final URL after redirects so relative playlist entries resolve correctly
       const finalUrl = response.url || targetUrl.href
-      const text = await response.text()
+      let text = await response.text()
+      // Decode HTML entities that may appear in m3u8 playlists (common with PornHub/phncdn CDNs)
+      text = text.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x2F;/g, '/').replace(/&#47;/g, '/')
       const rewritten = text.split('\n').map((line) => {
         const trimmed = line.trim()
         if (!trimmed) return line
         if (trimmed.startsWith('#')) {
           return line.replace(/URI="([^"]+)"/gi, (_, keyUri) => {
             try {
-              const absKey = new URL(keyUri, finalUrl).href
+              // Also decode HTML entities inside URI attributes
+              const decodedKey = keyUri.replace(/&amp;/g, '&').replace(/&#x2F;/g, '/')
+              const absKey = new URL(decodedKey, finalUrl).href
               return `URI="/api/proxy?url=${encodeURIComponent(absKey)}"`
             } catch {
               return `URI="${keyUri}"`
@@ -298,7 +302,9 @@ export default async function handler(req, res) {
     // ─── Detect m3u8 by Content-Type (after redirect) ───
     const isM3u8ByType = /(?:application\/vnd\.apple\.mpegurl|audio\/mpegurl|application\/x-mpegurl|text\/vnd\.apple\.mpegurl)/i.test(contentType)
     if (isM3u8ByType) {
-      const text = await upstream.text()
+      let text = await upstream.text()
+      // Decode HTML entities that may appear in m3u8 playlists
+      text = text.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x2F;/g, '/').replace(/&#47;/g, '/')
       // Use the final URL after redirects so relative playlist entries resolve correctly
       const finalUrl = upstream.url || targetUrl.href
       const rewritten = text.split('\n').map((line) => {
@@ -307,7 +313,8 @@ export default async function handler(req, res) {
         if (trimmed.startsWith('#')) {
           return line.replace(/URI="([^"]+)"/gi, (_, keyUri) => {
             try {
-              const absKey = new URL(keyUri, finalUrl).href
+              const decodedKey = keyUri.replace(/&amp;/g, '&').replace(/&#x2F;/g, '/')
+              const absKey = new URL(decodedKey, finalUrl).href
               return `URI="/api/proxy?url=${encodeURIComponent(absKey)}"`
             } catch {
               return `URI="${keyUri}"`

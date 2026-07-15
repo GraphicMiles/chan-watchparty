@@ -35,19 +35,30 @@ const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY
 function toProxiedPlaybackUrl(mediaUrl, { referer } = {}) {
   if (!mediaUrl || typeof mediaUrl !== 'string') return mediaUrl
   if (mediaUrl.startsWith('/api/proxy')) return mediaUrl
+  // Safety net: decode HTML entities that may have leaked through from page scraping
+  // (JSON.parse does NOT decode &amp; → & so URLs extracted from HTML can contain entities)
+  let cleanUrl = mediaUrl
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x2F;/g, '/')
+    .replace(/&#47;/g, '/')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
   try {
-    const parsed = new URL(mediaUrl)
+    const parsed = new URL(cleanUrl)
     const isMkv = /\.mkv(\?|#|$)/i.test(parsed.pathname)
       || /-mkv(\?|#|$)/i.test(parsed.pathname)
       || parsed.searchParams.getAll('name').some((v) => /\.mkv$/i.test(v) || /-mkv$/i.test(v))
-    let out = `/api/proxy?url=${encodeURIComponent(mediaUrl)}`
+    let out = `/api/proxy?url=${encodeURIComponent(cleanUrl)}`
     if (isMkv) out += '&remux=1'
     if (referer && /^https?:\/\//i.test(referer)) {
       out += `&referer=${encodeURIComponent(referer)}`
     }
     return out
   } catch {
-    return `/api/proxy?url=${encodeURIComponent(mediaUrl)}`
+    return `/api/proxy?url=${encodeURIComponent(cleanUrl)}`
   }
 }
 

@@ -86,7 +86,18 @@ export function normalizeDirectUrl(url) {
 }
 
 export function normalizePlaybackUrl(url, opts = {}) {
-  const normalized = normalizeDirectUrl(url || '')
+  // Decode HTML entities that may leak through from server-side scraping
+  // (JSON.parse doesn't decode &amp; → & so URLs can contain entities)
+  let normalized = (url || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x2F;/g, '/')
+    .replace(/&#47;/g, '/')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+  normalized = normalizeDirectUrl(normalized)
   // Already a same-origin proxy path — leave intact (keeps remux/referer params)
   if (/^\/api\/proxy\?/i.test(normalized)) return normalized
   try {

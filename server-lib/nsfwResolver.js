@@ -21,6 +21,46 @@ import * as cheerio from 'cheerio'
 const RESOLVE_TIMEOUT_MS = 8000
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
+/**
+ * Decode HTML entities in a string. JSON.parse does NOT decode HTML entities,
+ * so URLs extracted from page source (via regex or JSON) can contain &amp; &quot; etc.
+ * This must be applied before using any URL extracted from HTML.
+ */
+function decodeHtmlEntities(str) {
+  if (!str || typeof str !== 'string') return str
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#x2F;/g, '/')
+    .replace(/&#47;/g, '/')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
+}
+
+/**
+ * Clean and validate a video URL extracted from HTML source.
+ * Decodes HTML entities, trims whitespace, and validates the URL.
+ */
+function cleanExtractedUrl(raw) {
+  if (!raw || typeof raw !== 'string') return null
+  let url = decodeHtmlEntities(raw.trim())
+  // Some JS-escaped URLs use \/ instead of /
+  url = url.replace(/\\\//g, '/')
+  // Remove trailing backslash escapes
+  url = url.replace(/\\["']/g, '')
+  if (!/^https?:\/\//i.test(url)) {
+    // Try prepending https: for protocol-relative URLs
+    if (url.startsWith('//')) url = 'https:' + url
+    else return null
+  }
+  return url
+}
+
 async function fetchHtml(pageUrl, referer) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), RESOLVE_TIMEOUT_MS)
@@ -79,20 +119,20 @@ function pickBestDefinition(definitions) {
   if (!Array.isArray(definitions) || !definitions.length) return null
 
   const isPlayable = (d) => {
-    const url = d?.videoUrl || d?.url || d?.link || ''
+    const url = cleanExtractedUrl(d?.videoUrl || d?.url || d?.link || '')
     return typeof url === 'string' && /^https?:\/\//i.test(url)
   }
 
   // Prefer progressive MP4 that is NOT a remote get_media JSON endpoint
   const mp4Direct = definitions
     .filter((d) => isPlayable(d) && String(d.format || '').toLowerCase() === 'mp4' && !d.remote)
-    .filter((d) => !/get_media|\/hls\//i.test(d.videoUrl || d.url || ''))
+    .filter((d) => !/get_media|\/hls\//i.test(cleanExtractedUrl(d.videoUrl || d.url || '') || ''))
     .sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0))
 
   if (mp4Direct.length) {
     const best = mp4Direct[0]
     return {
-      videoUrl: best.videoUrl || best.url,
+      videoUrl: cleanExtractedUrl(best.videoUrl || best.url),
       type: 'mp4',
       quality: best.quality,
     }
@@ -102,14 +142,14 @@ function pickBestDefinition(definitions) {
   const hls = definitions
     .filter((d) => isPlayable(d) && (
       String(d.format || '').toLowerCase() === 'hls'
-      || /\.m3u8/i.test(d.videoUrl || d.url || '')
+      || /\.m3u8/i.test(cleanExtractedUrl(d.videoUrl || d.url || '') || '')
     ))
     .sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0))
 
   if (hls.length) {
     const best = hls[0]
     return {
-      videoUrl: best.videoUrl || best.url,
+      videoUrl: cleanExtractedUrl(best.videoUrl || best.url),
       type: 'hls',
       quality: best.quality,
     }
@@ -118,15 +158,15 @@ function pickBestDefinition(definitions) {
   // Any remaining direct http URL that looks like media
   const anyMedia = definitions
     .filter(isPlayable)
-    .filter((d) => !/get_media/i.test(d.videoUrl || d.url || ''))
+    .filter((d) => !/get_media/i.test(cleanExtractedUrl(d.videoUrl || d.url || '') || ''))
     .sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0))
 
   if (anyMedia.length) {
     const best = anyMedia[0]
-    const url = best.videoUrl || best.url
+    const url = cleanExtractedUrl(best.videoUrl || best.url)
     return {
       videoUrl: url,
-      type: /\.m3u8/i.test(url) ? 'hls' : 'mp4',
+      type: /\.m3u8/i.test(url || '') ? 'hls' : 'mp4',
       quality: best.quality,
     }
   }
@@ -289,22 +329,25 @@ async function resolveXVideos(pageUrl) {
 
   const highMatch = html.match(/html5player\.setVideoUrlHigh\s*\(\s*['"]([^'"]+)['"]\s*\)/)
   if (highMatch?.[1]) {
-    return { videoUrl: highMatch[1], type: 'mp4', source: 'xvideos', referer: 'https://www.xvideos.com/' }
+    const url = cleanExtractedUrl(highMatch[1])
+    if (url) return { videoUrl: url, type: 'mp4', source: 'xvideos', referer: 'https://www.xvideos.com/' }
   }
 
   const lowMatch = html.match(/html5player\.setVideoUrlLow\s*\(\s*['"]([^'"]+)['"]\s*\)/)
   if (lowMatch?.[1]) {
-    return { videoUrl: lowMatch[1], type: 'mp4', source: 'xvideos', referer: 'https://www.xvideos.com/' }
+    const url = cleanExtractedUrl(lowMatch[1])
+    if (url) return { videoUrl: url, type: 'mp4', source: 'xvideos', referer: 'https://www.xvideos.com/' }
   }
 
   const hlsMatch = html.match(/html5player\.setVideoHLS\s*\(\s*['"]([^'"]+)['"]\s*\)/)
   if (hlsMatch?.[1]) {
-    return { videoUrl: hlsMatch[1], type: 'hls', source: 'xvideos', referer: 'https://www.xvideos.com/' }
+    const url = cleanExtractedUrl(hlsMatch[1])
+    if (url) return { videoUrl: url, type: 'hls', source: 'xvideos', referer: 'https://www.xvideos.com/' }
   }
 
   const flashvarsMatch = html.match(/video_url(?:_text)?=([^&"']+)/)
   if (flashvarsMatch?.[1]) {
-    const decoded = decodeURIComponent(flashvarsMatch[1])
+    const decoded = decodeHtmlEntities(decodeURIComponent(flashvarsMatch[1]))
     if (/^https?:\/\//i.test(decoded)) {
       return {
         videoUrl: decoded,
@@ -317,8 +360,9 @@ async function resolveXVideos(pageUrl) {
 
   const $ = cheerio.load(html)
   const sourceSrc = $('video source[type="video/mp4"]').attr('src') || $('video source').first().attr('src')
-  if (sourceSrc && /^https?:\/\//i.test(sourceSrc)) {
-    return { videoUrl: sourceSrc, type: 'mp4', source: 'xvideos', referer: 'https://www.xvideos.com/' }
+  if (sourceSrc) {
+    const url = cleanExtractedUrl(sourceSrc)
+    if (url) return { videoUrl: url, type: 'mp4', source: 'xvideos', referer: 'https://www.xvideos.com/' }
   }
 
   throw new Error('Could not extract video URL from XVideos page')
@@ -434,13 +478,16 @@ async function resolvePornhub(pageUrl) {
               } catch {
                 continue
               }
-            } else if (/^https?:\/\//i.test(best.url)) {
-              return {
-                videoUrl: best.url,
-                type: /\.m3u8/i.test(best.url) ? 'hls' : 'mp4',
-                source: 'pornhub',
-                quality: best.text,
-                referer: 'https://www.pornhub.com/',
+            } else {
+              const cleanedUrl = cleanExtractedUrl(best.url)
+              if (cleanedUrl && /^https?:\/\//i.test(cleanedUrl)) {
+                return {
+                  videoUrl: cleanedUrl,
+                  type: /\.m3u8/i.test(cleanedUrl) ? 'hls' : 'mp4',
+                  source: 'pornhub',
+                  quality: best.text,
+                  referer: 'https://www.pornhub.com/',
+                }
               }
             }
           }
@@ -454,9 +501,11 @@ async function resolvePornhub(pageUrl) {
   // Strategy 4: video_url / video_alt_url flashvars
   const flashUrlMatch = html.match(/(?:video_url|video_alt_url[0-9]*)\s*=\s*(?:encodeURIComponent\s*\(\s*)?['"]([^'"]+)['"]/)
   if (flashUrlMatch?.[1]) {
-    let url = flashUrlMatch[1]
-    try { url = decodeURIComponent(url) } catch { /* already decoded */ }
-    if (/^https?:\/\//i.test(url) && !/get_media/i.test(url)) {
+    let url = cleanExtractedUrl(flashUrlMatch[1])
+    if (!url) {
+      try { url = decodeHtmlEntities(decodeURIComponent(flashUrlMatch[1])) } catch { url = null }
+    }
+    if (url && /^https?:\/\//i.test(url) && !/get_media/i.test(url)) {
       return {
         videoUrl: url,
         type: url.includes('.m3u8') ? 'hls' : 'mp4',
@@ -469,8 +518,9 @@ async function resolvePornhub(pageUrl) {
   // Strategy 5: <source> tag
   const $ = cheerio.load(html)
   const sourceSrc = $('video source[type="video/mp4"]').attr('src') || $('video source').first().attr('src')
-  if (sourceSrc && /^https?:\/\//i.test(sourceSrc)) {
-    return { videoUrl: sourceSrc, type: 'mp4', source: 'pornhub', referer: 'https://www.pornhub.com/' }
+  if (sourceSrc) {
+    const url = cleanExtractedUrl(sourceSrc)
+    if (url) return { videoUrl: url, type: 'mp4', source: 'pornhub', referer: 'https://www.pornhub.com/' }
   }
 
   // Strategy 6: Look for embedded player vars in script tags
@@ -486,8 +536,8 @@ async function resolvePornhub(pageUrl) {
     // Try to find any direct video URLs in the script
     const directUrlMatch = script.match(/["'](https?:\/\/[^"']*\.(?:mp4|m3u8)[^"']*)["']/i)
     if (directUrlMatch?.[1]) {
-      const url = directUrlMatch[1]
-      if (!/get_media/i.test(url)) {
+      const url = cleanExtractedUrl(directUrlMatch[1])
+      if (url && !/get_media/i.test(url)) {
         return {
           videoUrl: url,
           type: /\.m3u8/i.test(url) ? 'hls' : 'mp4',
@@ -534,17 +584,16 @@ async function resolveSpankBang(pageUrl) {
 
   // Strategy 2: SpankBang often uses a <script> block with stream_url or player config
   const streamUrlMatch = html.match(/stream_url\s*=\s*['"]([^'"]+)['"]/)
-  if (streamUrlMatch?.[1] && /^https?:\/\//i.test(streamUrlMatch[1])) {
-    return { videoUrl: streamUrlMatch[1], type: 'mp4', source: 'spankbang', referer: 'https://spankbang.party/' }
+  if (streamUrlMatch?.[1]) {
+    const url = cleanExtractedUrl(streamUrlMatch[1])
+    if (url) return { videoUrl: url, type: 'mp4', source: 'spankbang', referer: 'https://spankbang.party/' }
   }
 
   // Strategy 3: Look for direct video URLs in script blocks (SpankBang embeds these)
   const scriptVideoMatch = html.match(/["']((?:https?:)?\/\/[a-z0-9.-]*(?:sb-cd|spankbang|spankcdn|cdn-)[^"']*\.(?:mp4|m3u8)[^"']*)["']/i)
   if (scriptVideoMatch?.[1]) {
-    let url = scriptVideoMatch[1]
-    if (url.startsWith('//')) url = 'https:' + url
-    try { url = decodeURIComponent(url) } catch { /* */ }
-    if (/^https?:\/\//i.test(url)) {
+    const url = cleanExtractedUrl(scriptVideoMatch[1])
+    if (url) {
       return {
         videoUrl: url,
         type: /\.m3u8/i.test(url) ? 'hls' : 'mp4',
@@ -557,10 +606,8 @@ async function resolveSpankBang(pageUrl) {
   // Strategy 4: videoUrl, playUrl, file_url patterns
   const videoUrlMatch = html.match(/(?:videoUrl|playUrl|file_url|video_url|src)\s*[:=]\s*['"]([^'"]+)['"]/i)
   if (videoUrlMatch?.[1]) {
-    let url = videoUrlMatch[1]
-    if (url.startsWith('//')) url = 'https:' + url
-    try { url = decodeURIComponent(url) } catch { /* */ }
-    if (/^https?:\/\//i.test(url)) {
+    const url = cleanExtractedUrl(videoUrlMatch[1])
+    if (url) {
       return {
         videoUrl: url,
         type: url.includes('.m3u8') ? 'hls' : 'mp4',
@@ -576,8 +623,9 @@ async function resolveSpankBang(pageUrl) {
     || $('video source').first().attr('src')
     || $('video').attr('src')
     || $('video').attr('data-src')
-  if (sourceSrc && /^https?:\/\//i.test(sourceSrc)) {
-    return { videoUrl: sourceSrc, type: 'mp4', source: 'spankbang', referer: 'https://spankbang.party/' }
+  if (sourceSrc) {
+    const url = cleanExtractedUrl(sourceSrc)
+    if (url) return { videoUrl: url, type: 'mp4', source: 'spankbang', referer: 'https://spankbang.party/' }
   }
 
   // Strategy 6: JSON-LD structured data
@@ -602,22 +650,28 @@ async function resolveSpankBang(pageUrl) {
   // Strategy 7: Look for any CDN video URL in the entire page source
   const cdnVideoMatch = html.match(/https?:\/\/[a-z0-9.-]*cdn[a-z0-9.-]*\.(?:sb-cd\.com|spankbang\.com|spankcdn\.net)[^"'\s<>]*\.(?:mp4|m3u8)[^"'\s<>]*/i)
   if (cdnVideoMatch?.[0]) {
-    return {
-      videoUrl: cdnVideoMatch[0],
-      type: /\.m3u8/i.test(cdnVideoMatch[0]) ? 'hls' : 'mp4',
-      source: 'spankbang',
-      referer: 'https://spankbang.party/',
+    const url = cleanExtractedUrl(cdnVideoMatch[0])
+    if (url) {
+      return {
+        videoUrl: url,
+        type: /\.m3u8/i.test(url) ? 'hls' : 'mp4',
+        source: 'spankbang',
+        referer: 'https://spankbang.party/',
+      }
     }
   }
 
   // Strategy 8: Generic video URL in script tags
   const genericMatch = html.match(/["'](https?:\/\/[^"']*(?:video|stream|cdn|media)[^"']*\.(?:mp4|m3u8)[^"']*)["']/i)
   if (genericMatch?.[1]) {
-    return {
-      videoUrl: genericMatch[1],
-      type: /\.m3u8/i.test(genericMatch[1]) ? 'hls' : 'mp4',
-      source: 'spankbang',
-      referer: 'https://spankbang.party/',
+    const url = cleanExtractedUrl(genericMatch[1])
+    if (url) {
+      return {
+        videoUrl: url,
+        type: /\.m3u8/i.test(url) ? 'hls' : 'mp4',
+        source: 'spankbang',
+        referer: 'https://spankbang.party/',
+      }
     }
   }
 
