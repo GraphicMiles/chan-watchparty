@@ -130,22 +130,8 @@ function pickBestDefinition(definitions) {
     return typeof url === 'string' && /^https?:\/\//i.test(url)
   }
 
-  // Prefer progressive MP4 that is NOT a remote get_media JSON endpoint
-  const mp4Direct = definitions
-    .filter((d) => isPlayable(d) && String(d.format || '').toLowerCase() === 'mp4' && !d.remote)
-    .filter((d) => !/get_media|\/hls\//i.test(cleanExtractedUrl(d.videoUrl || d.url || '') || ''))
-    .sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0))
-
-  if (mp4Direct.length) {
-    const best = mp4Direct[0]
-    return {
-      videoUrl: cleanExtractedUrl(best.videoUrl || best.url),
-      type: 'mp4',
-      quality: best.quality,
-    }
-  }
-
-  // HLS (m3u8) is playable via hls.js through the proxy
+  // Prefer HLS (m3u8) — segmented streams are seekable, MP4 often isn't
+  // (moov atom at end = must download entire file before seeking)
   const hls = definitions
     .filter((d) => isPlayable(d) && (
       String(d.format || '').toLowerCase() === 'hls'
@@ -158,6 +144,21 @@ function pickBestDefinition(definitions) {
     return {
       videoUrl: cleanExtractedUrl(best.videoUrl || best.url),
       type: 'hls',
+      quality: best.quality,
+    }
+  }
+
+  // Fallback: progressive MP4 that is NOT a remote get_media JSON endpoint
+  const mp4Direct = definitions
+    .filter((d) => isPlayable(d) && String(d.format || '').toLowerCase() === 'mp4' && !d.remote)
+    .filter((d) => !/get_media|\/hls\//i.test(cleanExtractedUrl(d.videoUrl || d.url || '') || ''))
+    .sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0))
+
+  if (mp4Direct.length) {
+    const best = mp4Direct[0]
+    return {
+      videoUrl: cleanExtractedUrl(best.videoUrl || best.url),
+      type: 'mp4',
       quality: best.quality,
     }
   }
