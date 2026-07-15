@@ -105,25 +105,46 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Headers', '*')
 
     // ─── Build upstream request headers ───
-    // NSFW CDNs require the provider site as Referer, not the CDN's own origin
+    // Many CDNs require a specific Referer (provider site), not the CDN origin.
+    // Optional override: /api/proxy?url=...&referer=https://example.com/
     let referer = targetUrl.origin
     const hostname = targetUrl.hostname.toLowerCase()
-    if (hostname.includes('xvideos') || hostname.includes('cdn-xl') || hostname.includes('cdn.xh')) {
+    const refererOverride = typeof req.query?.referer === 'string' ? req.query.referer : ''
+    if (refererOverride && /^https?:\/\//i.test(refererOverride) && refererOverride.length < 512) {
+      referer = refererOverride
+    } else if (hostname.includes('xvideos') || hostname.includes('cdn-xl') || hostname.includes('cdn.xh') || hostname.includes('xvideos-cdn')) {
       referer = 'https://www.xvideos.com/'
-    } else if (hostname.includes('pornhub') || hostname.includes('phncdn')) {
+    } else if (hostname.includes('pornhub') || hostname.includes('phncdn') || hostname.includes('pornhubpremium')) {
       referer = 'https://www.pornhub.com/'
-    } else if (hostname.includes('spankbang') || hostname.includes('sb-cd')) {
+    } else if (hostname.includes('spankbang') || hostname.includes('sb-cd') || hostname.includes('spankcdn')) {
       referer = 'https://spankbang.party/'
-    } else if (hostname.includes('dood') || hostname.includes('doodcdn')) {
-      // DoodStream requires the embed page as Referer, not the CDN origin
-      // The proxy URL's query param may contain the original referer hint
-      referer = targetUrl.origin
+    } else if (hostname.includes('dood') || hostname.includes('doodcdn') || hostname.includes('ds2play') || hostname.includes('d0000d')) {
+      referer = 'https://dood.li/'
+    } else if (hostname.includes('downloadwella') || hostname.includes('fsmc') || hostname.includes('download.') && hostname.includes('wella')) {
+      // DownloadWella hotlink tokens require the download host as Referer.
+      // Without it the CDN returns an HTML error page → browser "format error" / 502.
+      referer = 'https://downloadwella.com/'
+    } else if (hostname.includes('kissorgrab') || hostname.includes('meetdownload')) {
+      referer = 'https://meetdownload.com/'
+    } else if (hostname.includes('wideshares')) {
+      referer = 'https://wideshares.org/'
+    } else if (hostname.includes('np-downloader') || hostname.includes('wildshare') || hostname.includes('naijaprey')) {
+      referer = 'https://www.naijaprey.tv/'
+    } else if (hostname.includes('o2tv')) {
+      referer = 'http://d6.o2tv.org/'
     }
 
     const upstreamHeaders = {
       'User-Agent': UPSTREAM_UA,
       'Accept': '*/*',
+      'Accept-Language': 'en-US,en;q=0.9',
       'Referer': referer,
+      // Some CDNs also check Origin
+      ...(hostname.includes('phncdn') || hostname.includes('pornhub')
+        ? { Origin: 'https://www.pornhub.com' }
+        : hostname.includes('downloadwella') || hostname.includes('fsmc')
+          ? { Origin: 'https://downloadwella.com' }
+          : {}),
     }
 
     // Forward the browser's Range header (used by <video> for seeking / buffering)
@@ -252,11 +273,29 @@ export default async function handler(req, res) {
     }
 
     // ─── Guard: reject HTML when the client expects video ───
-    // (dead IPTV channels, o2tv error pages, etc.)
+    // (dead IPTV channels, o2tv error pages, expired downloadwella tokens, etc.)
     if (/^text\/html/i.test(contentType)) {
-      // Consume the body to free the connection
+      // Consume a small sample for diagnostics, then free the connection
+      let snippet = ''
+      try {
+        const text = await upstream.text()
+        snippet = text.replace(/\s+/g, ' ').slice(0, 180)
+      } catch {
+        await upstream.arrayBuffer().catch(() => {})
+      }
+      const hint = hostname.includes('downloadwella') || hostname.includes('fsmc')
+        ? 'Download link may be expired or missing Referer — re-resolve the page and try again.'
+        : hostname.includes('phncdn') || hostname.includes('pornhub')
+          ? 'PornHub CDN rejected the request — try resolving the page again.'
+          : 'channel may be offline or the link expired'
+      console.error('Proxy HTML-instead-of-video:', targetUrl.hostname, snippet)
+      return fail(res, 502, `Stream server returned a web page instead of video — ${hint}`)
+    }
+
+    // Also reject JSON error bodies disguised as application/json
+    if (/^application\/json/i.test(contentType) && !/\.json(\?|#|$)/i.test(targetUrl.pathname)) {
       await upstream.arrayBuffer().catch(() => {})
-      return fail(res, 502, 'Stream server returned a web page instead of video — channel may be offline')
+      return fail(res, 502, 'Stream server returned JSON instead of video — link may be expired')
     }
 
     // ─── MKV Remuxing: convert Matroska to fMP4 on-the-fly ───

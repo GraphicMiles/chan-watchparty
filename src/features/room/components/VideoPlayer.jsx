@@ -451,20 +451,37 @@ export default function VideoPlayer({
     // Pre-flight check for direct video URLs: verify the URL returns video data.
     // This catches cases where the proxy timed out (Vercel 504 HTML page) or
     // the CDN returned an error page instead of video.
-    if (!isHLS && resolvedUrl && videoType === 'direct' && resolvedUrl.includes('/api/proxy')) {
+    // NOTE: Skip preflight for remux=1 MKV streams — HEAD may not return video/*
+    // until the remuxer starts, and Range/GET is what actually matters for playback.
+    // Also prefer a tiny Range GET over HEAD because many CDNs (downloadwella, phncdn)
+    // reject or mishandle HEAD.
+    if (!isHLS && resolvedUrl && videoType === 'direct' && resolvedUrl.includes('/api/proxy') && !/[?&]remux=1(?:&|$)/.test(resolvedUrl)) {
       const checkUrl = async () => {
         try {
-          const checkRes = await fetch(resolvedUrl, { method: 'HEAD' })
+          let checkRes
+          try {
+            checkRes = await fetch(resolvedUrl, {
+              method: 'GET',
+              headers: { Range: 'bytes=0-1' },
+            })
+          } catch {
+            checkRes = await fetch(resolvedUrl, { method: 'HEAD' })
+          }
           const contentType = checkRes.headers.get('content-type') || ''
-          if (contentType.includes('text/html') || contentType.includes('application/json')) {
-            // The proxy returned HTML or JSON error — not video data
+          // Only hard-fail when the response is clearly an HTML/JSON error page
+          if (
+            (contentType.includes('text/html') || contentType.includes('application/json'))
+            && checkRes.status >= 400
+          ) {
             const errorMsg = checkRes.status === 504
               ? 'Stream proxy timed out — the video server is too slow for Vercel Hobby tier (10s limit). Try a smaller file or upgrade to Vercel Pro.'
               : checkRes.status === 502
-                ? 'Stream server returned an error page instead of video. The channel may be offline or the link expired.'
+                ? 'Stream server returned an error page instead of video. The channel may be offline or the link expired — re-resolve from search and try again.'
                 : `Stream returned ${contentType} instead of video data (HTTP ${checkRes.status}). Try a different source.`
             setError(errorMsg)
           }
+          // Drain body if any so the connection can close
+          try { await checkRes.arrayBuffer() } catch { /* */ }
         } catch {
           // Network error — let the player try and show its own error
         }

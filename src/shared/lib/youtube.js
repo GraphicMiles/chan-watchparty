@@ -87,22 +87,51 @@ export function normalizeDirectUrl(url) {
 
 export function normalizePlaybackUrl(url) {
   const normalized = normalizeDirectUrl(url || '')
+  // Already a same-origin proxy path — leave intact (keeps remux/referer params)
+  if (/^\/api\/proxy\?/i.test(normalized)) return normalized
   try {
-    const parsed = new URL(normalized, 'https://chan.invalid')
+    const parsed = new URL(normalized, typeof window !== 'undefined' ? window.location.origin : 'https://chan.invalid')
+    if (parsed.pathname.startsWith('/api/proxy')) {
+      return `${parsed.pathname}${parsed.search}`
+    }
+
+    const hostname = parsed.hostname.toLowerCase()
     // Check if this is an MKV file that needs remuxing
-    const isMkv = /\.mkv(\?|#|$)/i.test(parsed.pathname) 
+    const isMkv = /\.mkv(\?|#|$)/i.test(parsed.pathname)
       || /-mkv(\?|#|$)/i.test(parsed.pathname)
       // Also check query params: ?name=movie.mkv or ?name=something-mkv
       || /\.(mkv)(&|$)/i.test(parsed.search)
       || /-mkv(&|$)/i.test(parsed.search)
       || parsed.searchParams.getAll('name').some(v => /\.mkv$/i.test(v) || /-mkv$/i.test(v))
-    // Automatically route any HTTP stream through our secure Vercel Mixed-Content proxy (/api/proxy)
-    // Also route MKV files through the proxy with remux=1 so they get converted to MP4
-    if (isMkv) {
-      return `/api/proxy?url=${encodeURIComponent(normalized)}&remux=1`
-    }
-    if (parsed.protocol === 'http:' && (typeof window !== 'undefined' && window.location.protocol === 'https:' || true)) {
-      return `/api/proxy?url=${encodeURIComponent(normalized)}`
+
+    // Hosts that always need the proxy (Referer / CORS / mixed content)
+    const needsProxyHost = (
+      hostname.includes('downloadwella')
+      || hostname.includes('fsmc')
+      || hostname.includes('phncdn')
+      || hostname.includes('pornhub')
+      || hostname.includes('xvideos')
+      || hostname.includes('spankbang')
+      || hostname.includes('dood')
+      || hostname.includes('kissorgrab')
+      || hostname.includes('wideshares')
+      || hostname.includes('np-downloader')
+      || hostname.includes('wildshare')
+      || hostname.includes('o2tv')
+    )
+
+    const isHttp = parsed.protocol === 'http:'
+    if (isMkv || needsProxyHost || isHttp) {
+      let out = `/api/proxy?url=${encodeURIComponent(normalized)}`
+      if (isMkv) out += '&remux=1'
+      if (hostname.includes('downloadwella') || hostname.includes('fsmc')) {
+        out += `&referer=${encodeURIComponent('https://downloadwella.com/')}`
+      } else if (hostname.includes('phncdn') || hostname.includes('pornhub')) {
+        out += `&referer=${encodeURIComponent('https://www.pornhub.com/')}`
+      } else if (hostname.includes('xvideos')) {
+        out += `&referer=${encodeURIComponent('https://www.xvideos.com/')}`
+      }
+      return out
     }
     return normalized
   } catch {

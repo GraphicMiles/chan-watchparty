@@ -25,6 +25,29 @@ const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY // server-side only — neve
 const OMDB_API_KEY = process.env.OMDB_API_KEY || null  // no hardcoded fallback — must be configured
 const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY
 
+/**
+ * Route a remote media URL through /api/proxy so the browser can play it
+ * over HTTPS with the correct upstream Referer. MKV files get remux=1.
+ */
+function toProxiedPlaybackUrl(mediaUrl, { referer } = {}) {
+  if (!mediaUrl || typeof mediaUrl !== 'string') return mediaUrl
+  if (mediaUrl.startsWith('/api/proxy')) return mediaUrl
+  try {
+    const parsed = new URL(mediaUrl)
+    const isMkv = /\.mkv(\?|#|$)/i.test(parsed.pathname)
+      || /-mkv(\?|#|$)/i.test(parsed.pathname)
+      || parsed.searchParams.getAll('name').some((v) => /\.mkv$/i.test(v) || /-mkv$/i.test(v))
+    let out = `/api/proxy?url=${encodeURIComponent(mediaUrl)}`
+    if (isMkv) out += '&remux=1'
+    if (referer && /^https?:\/\//i.test(referer)) {
+      out += `&referer=${encodeURIComponent(referer)}`
+    }
+    return out
+  } catch {
+    return `/api/proxy?url=${encodeURIComponent(mediaUrl)}`
+  }
+}
+
 // ==================== UTILITY FUNCTIONS ====================
 
 /**
@@ -136,36 +159,58 @@ async function searchYouTube(query, limit = 20) {
     throw new Error('YouTube API key not configured. Add YOUTUBE_API_KEY to environment variables.')
   }
 
+  // Do NOT set videoEmbeddable:'true' on the search call.
+  // That filter is overly aggressive and often returns 0 items for normal
+  // queries (especially with restricted keys / certain regions).
+  // We enrich with videos.list afterwards and sort embeddable first instead.
+  const maxResults = Math.min(50, Math.max(1, Number(limit) || 20))
   const params = new URLSearchParams({
     part: 'snippet',
     q: query,
     type: 'video',
-    maxResults: String(limit),
+    maxResults: String(maxResults),
     key: YOUTUBE_API_KEY,
-    videoEmbeddable: 'true',
+    safeSearch: 'none',
   })
+
+  // Prefer the request Host / Origin when available so restricted API keys
+  // that are locked to the Vercel domain still work.
+  const referer = process.env.YOUTUBE_API_REFERER
+    || (process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}/`
+      : process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}/`
+        : 'https://chan-yz3p.vercel.app/')
 
   const res = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`, {
     headers: {
-      Referer: 'https://chan-yz3p.vercel.app/',
+      Referer: referer,
       'User-Agent': 'Mozilla/5.0 (compatible; ChanServer/1.0)',
     },
   })
   if (!res.ok) {
     const error = await res.json().catch(() => ({}))
-    throw new Error(error.error?.message || `YouTube API error: ${res.status}`)
+    const msg = error.error?.message || `YouTube API error: ${res.status}`
+    // Surface quota / key problems clearly so the UI doesn't just say "no results"
+    throw new Error(msg)
   }
-  
+
   const data = await res.json()
   const ids = (data.items || []).map((it) => it.id?.videoId).filter(Boolean)
-  
+
+  if (!ids.length) {
+    // Empty search is unusual for real queries — log for diagnostics
+    console.warn('YouTube search returned 0 items for query:', query, 'pageInfo:', data.pageInfo)
+    return []
+  }
+
   let statusById = {}
-  if (ids.length) {
+  try {
     const detailsRes = await fetch(
       `https://www.googleapis.com/youtube/v3/videos?part=status,snippet,contentDetails,statistics&id=${ids.join(',')}&key=${YOUTUBE_API_KEY}`,
       {
         headers: {
-          Referer: 'https://chan-yz3p.vercel.app/',
+          Referer: referer,
           'User-Agent': 'Mozilla/5.0 (compatible; ChanServer/1.0)',
         },
       }
@@ -176,15 +221,17 @@ async function searchYouTube(query, limit = 20) {
         statusById[it.id] = it
       }
     }
+  } catch (err) {
+    console.error('YouTube videos.list enrichment failed:', err.message)
   }
-  
+
   return ids.map((id) => {
-    const searchItem = data.items.find((it) => it.id?.videoId === id)
+    const searchItem = (data.items || []).find((it) => it.id?.videoId === id)
     const full = statusById[id]
     const sn = full?.snippet || searchItem?.snippet || {}
     const duration = full?.contentDetails?.duration
     const thumb = sn.thumbnails?.high?.url || sn.thumbnails?.medium?.url || sn.thumbnails?.default?.url || null
-    
+
     return {
       id,
       title: sn.title || 'Untitled',
@@ -199,7 +246,8 @@ async function searchYouTube(query, limit = 20) {
       views: full?.statistics?.viewCount,
       source: 'youtube',
       type: 'youtube',
-      embeddable: full?.status?.embeddable !== false,
+      // Prefer true embeddable; if status missing, assume playable (nocookie embed often works)
+      embeddable: full?.status ? full.status.embeddable !== false : true,
       isDirect: false,
     }
   }).sort((a, b) => Number(b.embeddable) - Number(a.embeddable))
@@ -1505,20 +1553,28 @@ export async function resolvePageChain(startUrl, site) {
     visited.add(current.url)
 
     const hostname = new URL(current.url).hostname.toLowerCase()
-    if (hostname === 'downloadwella.com' || hostname.endsWith('.downloadwella.com')) {
+    if (hostname === 'downloadwella.com' || hostname.endsWith('.downloadwella.com') || hostname.includes('downloadwella') || hostname.includes('fsmc')) {
       const resolved = await resolveDownloadwellaPage(current.url)
       if (resolved.directUrls.length) {
-        output.push(...resolved.directUrls.map((url) => ({
-          title: decodeURIComponent(new URL(url).pathname.split('/').pop() || 'Video'),
-          url,
-          link: url,
-          thumbnail: resolved.thumbnail || null,
-          image: resolved.thumbnail || null,
-          source: 'downloadwella',
-          isDirect: true,
-          playableInRoom: true,
-          resolvedFrom: current.url,
-        })))
+        output.push(...resolved.directUrls.map((mediaUrl) => {
+          const proxied = toProxiedPlaybackUrl(mediaUrl, { referer: 'https://downloadwella.com/' })
+          let title = 'Video'
+          try {
+            title = decodeURIComponent(new URL(mediaUrl).pathname.split('/').pop() || 'Video')
+          } catch { /* */ }
+          return {
+            title: title.replace(MEDIA_EXT_RE, ''),
+            url: proxied,
+            link: proxied,
+            thumbnail: resolved.thumbnail || null,
+            image: resolved.thumbnail || null,
+            source: 'downloadwella',
+            type: 'direct',
+            isDirect: true,
+            playableInRoom: true,
+            resolvedFrom: current.url,
+          }
+        }))
       } else {
         output.push(providerActionResult(current.url))
       }
@@ -1863,16 +1919,12 @@ export default async function handler(req, res) {
             // 1. NSFW CDNs require specific Referer headers (browser sends wrong Referer)
             // 2. CORS blocks direct browser-to-CDN requests
             // 3. HTTP URLs need HTTPS proxying (mixed content)
-            let videoUrl = resolved.videoUrl
-            try {
-              const parsed = new URL(videoUrl)
-              const isMkv = /\.mkv(\?|#|$)/i.test(parsed.pathname) || /-mkv(\?|#|$)/i.test(parsed.pathname) || parsed.searchParams.getAll('name').some(v => /\.mkv$/i.test(v))
-              if (isMkv) {
-                videoUrl = `/api/proxy?url=${encodeURIComponent(resolved.videoUrl)}&remux=1`
-              } else {
-                videoUrl = `/api/proxy?url=${encodeURIComponent(resolved.videoUrl)}`
-              }
-            } catch { videoUrl = `/api/proxy?url=${encodeURIComponent(resolved.videoUrl)}` }
+            const referer = resolved.referer
+              || (resolved.source === 'pornhub' ? 'https://www.pornhub.com/'
+                : resolved.source === 'xvideos' ? 'https://www.xvideos.com/'
+                  : resolved.source === 'spankbang' ? 'https://spankbang.party/'
+                    : 'https://www.pornhub.com/')
+            const videoUrl = toProxiedPlaybackUrl(resolved.videoUrl, { referer })
             return ok(res, {
               results: [{
                 title: decodeURIComponent(target.pathname.split('/').pop() || 'Video'),
@@ -1886,6 +1938,7 @@ export default async function handler(req, res) {
                 videoType: 'direct',
                 resolvedFrom: url,
                 quality: resolved.quality || null,
+                streamType: resolved.type || 'mp4',
               }],
               count: 1,
               directCount: 1,
@@ -1966,20 +2019,31 @@ export default async function handler(req, res) {
         })
       }
 
-      if (target.hostname.toLowerCase().endsWith('downloadwella.com')) {
-        const resolved = options.resolve === true ? await resolveDownloadwellaPage(url) : { directUrls: [], requiresUserAction: true }
+      if (target.hostname.toLowerCase().includes('downloadwella') || target.hostname.toLowerCase().includes('fsmc')) {
+        // Always resolve (and re-probe) downloadwella / fsmc CDN links — tokens expire
+        // and the CDN requires a downloadwella.com Referer via the proxy.
+        const resolved = await resolveDownloadwellaPage(url)
         const results = resolved.directUrls.length
-          ? resolved.directUrls.map((mediaUrl) => ({
-              title: decodeURIComponent(new URL(mediaUrl).pathname.split('/').pop() || 'Video'),
-              url: mediaUrl,
-              link: mediaUrl,
-              thumbnail: resolved.thumbnail || null,
-              image: resolved.thumbnail || null,
-              source: 'downloadwella',
-              isDirect: true,
-              playableInRoom: true,
-              resolvedFrom: url,
-            }))
+          ? resolved.directUrls.map((mediaUrl) => {
+              const proxied = toProxiedPlaybackUrl(mediaUrl, { referer: 'https://downloadwella.com/' })
+              let title = 'Video'
+              try {
+                title = decodeURIComponent(new URL(mediaUrl).pathname.split('/').pop() || 'Video')
+              } catch { /* */ }
+              return {
+                title: title.replace(MEDIA_EXT_RE, ''),
+                url: proxied,
+                link: proxied,
+                thumbnail: resolved.thumbnail || null,
+                image: resolved.thumbnail || null,
+                source: 'downloadwella',
+                type: 'direct',
+                isDirect: true,
+                playableInRoom: true,
+                resolvedFrom: url,
+                videoType: 'direct',
+              }
+            })
           : [{
               title: decodeURIComponent(target.pathname.split('/').pop() || 'Download page'),
               url,
@@ -1989,7 +2053,7 @@ export default async function handler(req, res) {
               source: 'downloadwella',
               isDirect: false,
               requiresUserAction: true,
-              meta: 'Provider download action could not be resolved automatically. Open the page to continue.',
+              meta: 'Provider download action could not be resolved automatically. The link may have expired — open Nkiri/DownloadWella again and pick a fresh result.',
             }]
         return ok(res, {
           results,
