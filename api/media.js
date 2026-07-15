@@ -2286,7 +2286,8 @@ export default async function handler(req, res) {
         }
         case 'youtube':
           try {
-            results = await searchYouTube(query, Math.min(50, Math.max(1, Number(options.limit) || 20)))
+            // Always fetch max (50) so client-side pagination (15/page) works via Load More
+            results = await searchYouTube(query, 50)
           } catch (ytErr) {
             console.error('YouTube search error:', ytErr.message)
             // Return empty results with helpful message instead of 500 error

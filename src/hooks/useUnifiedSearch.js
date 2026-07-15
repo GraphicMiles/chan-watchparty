@@ -133,7 +133,7 @@ export function useUnifiedSearch() {
           query: trimmedQuery,
           options: {
             ...normalizedOptions,
-            limit: 25,
+            limit: layer === 'youtube' ? 15 : 25,
             offset: requestOffset,
           },
         }),
