@@ -13,6 +13,7 @@ import { resolveO2TvShow, resolveO2TvEpisode, probeAndFixO2TvUrl, warmO2TvCache 
 import { resolveMeetDownload, resolveWaploaded, resolveGenericBrowser, getRenderedHtml } from '../server-lib/browser.js'
 import { searchNetNaija, resolveNetNaijaChain } from '../server-lib/netnaijaResolver.js'
 import { resolveArchiveOrgPage, resolveArchiveOrgDirectUrl } from '../server-lib/archiveResolver.js'
+import { searchMaxCinema, resolveMaxCinemaChain } from '../server-lib/maxcinemaResolver.js'
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY // server-side only — never use VITE_ prefix
@@ -89,7 +90,7 @@ function deduplicateAndEnrich(items, query = null) {
 
     // Strict close match verification for direct and movie search results against the query
     if (query && String(query).trim() && !isAdult) {
-      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'fztvseries', 'archiveorg', 'meetdownload', 'waploaded', 'omdb'].includes(item.source)
+      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'fztvseries', 'archiveorg', 'meetdownload', 'waploaded', 'maxcinema', 'omdb'].includes(item.source)
       if (isDirectOrMovie) {
         // Allow season-specific results through (e.g. "silo season 2" when querying "silo")
         const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
@@ -304,7 +305,7 @@ async function enrichWithOMDbPosters(items, query = null) {
 
     // 2. Check if current thumbnail is already good (not from a scraped host)
     let thumb = item.thumbnail || item.image || null
-    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|mynetnaija|fzmovies|9jarocks|o2tv|naijaprey|np-downloader|wildshare|downloadwella|fztvseries|wideshares|archive\.org|meetdownload|waploaded|kissorgrab/i.test(thumb)
+    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|mynetnaija|fzmovies|9jarocks|o2tv|naijaprey|np-downloader|wildshare|downloadwella|fztvseries|wideshares|archive\.org|meetdownload|waploaded|kissorgrab|maxcinema|koyeb/i.test(thumb)
     const hasGoodThumbnail = isSuitableThumbnail(thumb) && !isScrapedHost
 
     if (hasGoodThumbnail) return item
@@ -337,7 +338,7 @@ async function searchDirectLinks(query, options = {}) {
   const requestedSite = options.site && options.site !== 'custom' && options.site !== 'all' ? options.site : null
   const scrapers = requestedSite
     ? [requestedSite]
-    : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv', 'naijaprey', 'fztvseries', 'archiveorg', 'meetdownload', 'waploaded']
+    : ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'o2tv', 'naijaprey', 'fztvseries', 'archiveorg', 'meetdownload', 'waploaded', 'maxcinema']
   
   const searchedSites = [...scrapers]
   
@@ -421,6 +422,43 @@ async function searchDirectLinks(query, options = {}) {
           }
         } catch (err) {
           console.error('netnaija search failed:', err.message)
+        }
+        return
+      }
+
+      // ─── MaxCinema: search + full chain resolution ───
+      if (siteKey === 'maxcinema') {
+        try {
+          const allMcResults = await Promise.all(
+            queries.map((q) => searchMaxCinema(q, 10).catch(() => []))
+          )
+          const mcResults = allMcResults.flat()
+          if (mcResults.length > 0) {
+            const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
+            const filtered = mcResults.filter((item) => {
+              if (!item?.title) return false
+              if (isTitleMatch(item.title, query)) return true
+              if (isTitleMatch(item.title, baseQuery)) return true
+              const itemBase = item.title.replace(/\s*[-–]\s*season\s*\d+.*$/i, '').replace(/\s*s\d+\s*e\d+.*$/i, '').trim()
+              return isTitleMatch(itemBase, baseQuery)
+            })
+            const enriched = filtered.length > 0 ? filtered : mcResults
+            for (const result of enriched) {
+              const thumb = result.thumbnail || result.image || null
+              results.push({
+                ...result,
+                thumbnail: thumb,
+                image: thumb,
+                source: 'maxcinema',
+                type: 'direct',
+                isDirect: result.isDirect === true,
+                playableInRoom: result.playableInRoom === true,
+                quality: extractQuality(result.title),
+              })
+            }
+          }
+        } catch (err) {
+          console.error('maxcinema search failed:', err.message)
         }
         return
       }
@@ -1106,6 +1144,7 @@ function siteConfigForUrl(url, fallbackSite) {
   if (hostname.includes('archive.org')) return getSiteConfig('archiveorg')
   if (hostname.includes('meetdownload')) return getSiteConfig('meetdownload')
   if (hostname.includes('waploaded')) return getSiteConfig('waploaded')
+  if (hostname.includes('maxcinema')) return getSiteConfig('maxcinema')
   return getSiteConfig(fallbackSite)
 }
 
@@ -1127,6 +1166,8 @@ function isResolverHost(url, rootHost) {
     if (hostname.includes('kissorgrab.com')) return true
     // Internet Archive: details pages need resolution to find actual MP4 files
     if (hostname.includes('archive.org')) return true
+    // MaxCinema: info pages need resolution to find server download links
+    if (hostname.includes('maxcinema') || hostname.includes('koyeb.app')) return true
     return false
   } catch {
     return false
@@ -1294,6 +1335,16 @@ export async function resolvePageChain(startUrl, site) {
       if (archiveResults && archiveResults.length) return archiveResults
     } catch (err) {
       console.error('Archive.org resolution failed:', err.message)
+    }
+  }
+
+  // MaxCinema: info page → server URL → 302 redirect → CDN file
+  if (rootHost.includes('maxcinema') || rootHost.includes('koyeb.app')) {
+    try {
+      const mcResults = await resolveMaxCinemaChain(startUrl)
+      if (mcResults && mcResults.length) return mcResults
+    } catch (err) {
+      console.error('MaxCinema resolution failed:', err.message)
     }
   }
   
@@ -1612,6 +1663,27 @@ export default async function handler(req, res) {
           }
         } catch (err) {
           console.error('Archive.org scrape resolution failed:', err.message)
+        }
+      }
+
+      // MaxCinema URL resolution (info page → server → 302 → CDN)
+      if (target.hostname.toLowerCase().includes('maxcinema') || target.hostname.toLowerCase().includes('koyeb.app')) {
+        try {
+          const mcResults = await resolveMaxCinemaChain(url)
+          if (mcResults && mcResults.length > 0) {
+            const omdbResults = await enrichWithOMDbPosters(mcResults, query || '')
+            const results = deduplicateAndEnrich(omdbResults, query || '')
+            return ok(res, {
+              results,
+              count: results.length,
+              directCount: results.filter((item) => item.isDirect).length,
+              resolved: true,
+              url,
+              site: 'maxcinema',
+            })
+          }
+        } catch (err) {
+          console.error('MaxCinema scrape resolution failed:', err.message)
         }
       }
 
