@@ -201,9 +201,9 @@ export default async function handler(req, res) {
     const isM3u8ByPath = /\.m3u8(?:\?|#|$)/i.test(targetUrl.pathname)
 
     if (isM3u8ByPath) {
-      // Add timeout for playlist fetch (live streams can be slow)
+      // Add timeout for playlist fetch (Hobby plan = 10s total, keep it fast)
       const playlistController = new AbortController()
-      const playlistTimer = setTimeout(() => playlistController.abort(), 15000)
+      const playlistTimer = setTimeout(() => playlistController.abort(), 5000)
       let response
       try {
         response = await fetch(targetUrl.href, {
@@ -258,9 +258,9 @@ export default async function handler(req, res) {
     if (isKeyHost) {
       console.log(`Proxy upstream fetch: ${targetUrl.hostname} ${targetUrl.pathname.slice(0, 80)} remux=${req.query?.remux || 'auto'}`)
     }
-    // Add timeout for upstream fetch (segments can be slow on live streams)
+    // Add timeout for upstream fetch (Hobby plan = 10s total, leave 2s buffer)
     const upstreamController = new AbortController()
-    const upstreamTimer = setTimeout(() => upstreamController.abort(), 30000)
+    const upstreamTimer = setTimeout(() => upstreamController.abort(), 8000)
     let upstream
     try {
       upstream = await fetch(targetUrl.href, {
