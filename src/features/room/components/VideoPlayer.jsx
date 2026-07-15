@@ -109,6 +109,8 @@ export default function VideoPlayer({
 
   const [error, setError] = useState(null)
   const [isReady, setIsReady] = useState(false)
+  const [isBuffering, setIsBuffering] = useState(false)
+  const [bufferingPercent, setBufferingPercent] = useState(0)
   const [isPlayingState, setIsPlayingState] = useState(Boolean(playing))
   const [currentSec, setCurrentSec] = useState(0)
   const [durationSec, setDurationSec] = useState(0)
@@ -497,12 +499,12 @@ export default function VideoPlayer({
   useEffect(() => {
     setError(null)
     setIsReady(false)
+    setIsBuffering(false)
+    setBufferingPercent(0)
     retryCountRef.current = 0
     hlsErrorCountRef.current = 0
     clearTimeout(retryTimeoutRef.current)
     destroyHls()
-
-    const fallbackReadyTimer = setTimeout(() => setIsReady(true), 5000)
 
     // Pre-flight check for direct video URLs: verify the URL returns video data.
     // This catches cases where the proxy timed out (Vercel 504 HTML page), the
@@ -944,10 +946,12 @@ export default function VideoPlayer({
             playsInline
             onPointerDown={handlePointerTouch}
             onClick={handleToggleControls}
-            onPlay={() => { setIsReady(true); emitPlay() }}
+            onPlay={() => { setIsReady(true); setIsBuffering(false); emitPlay() }}
             onPause={emitPause}
             onSeeked={() => emitSeek(currentTime())}
             onEnded={onEnded}
+            onWaiting={() => { setIsBuffering(true) }}
+            onCanPlay={() => { setIsBuffering(false) }}
             onTimeUpdate={(event) => {
               if (!isReady) setIsReady(true)
               const video = event.currentTarget
@@ -956,6 +960,7 @@ export default function VideoPlayer({
               setCurrentSec(video.currentTime || 0)
               const loaded = video.buffered.length && dur ? (video.buffered.end(0) / dur) * 100 : 0
               setLoadedPercent(loaded)
+              setBufferingPercent(Math.round(loaded))
               onProgress?.({
                 played: dur ? video.currentTime / dur : 0,
                 playedSeconds: video.currentTime,
@@ -995,11 +1000,14 @@ export default function VideoPlayer({
             volume={localVolume}
             muted={localMuted}
             playbackRate={playbackRate}
-            onStart={() => setIsReady(true)}
+            onStart={() => { setIsReady(true); setIsBuffering(false) }}
+            onBuffer={() => setIsBuffering(true)}
+            onBufferEnd={() => setIsBuffering(false)}
             onProgress={(prog) => {
               if (!isReady) setIsReady(true)
               setCurrentSec(prog.playedSeconds || 0)
               setLoadedPercent((prog.loaded || 0) * 100)
+              setBufferingPercent(Math.round((prog.loaded || 0) * 100))
               onProgress?.(prog)
             }}
             onDuration={(dur) => {
@@ -1040,7 +1048,14 @@ export default function VideoPlayer({
         onContextMenu={(e) => e.preventDefault()}
       />
 
-      {!isReady && <div className={styles.loadingOverlay}>Loading stream...</div>}
+      {!isReady && (
+        <div className={styles.loadingOverlay}>
+          <div className={styles.loadingSpinner} />
+          <div className={styles.loadingText}>
+            {isBuffering ? `Buffering... ${bufferingPercent}%` : `Loading stream... ${bufferingPercent}%`}
+          </div>
+        </div>
+      )}
       {isLive && <div className={styles.liveIndicator}><Radio size={10} /> LIVE</div>}
 
       {/* Universal Hollywood Cinema AI Closed Captions / Subtitle Overlay */}
