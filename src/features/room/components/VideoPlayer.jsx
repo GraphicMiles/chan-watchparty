@@ -101,6 +101,7 @@ export default function VideoPlayer({
   const hlsRef = useRef(null)
   const videoRef = useRef(null)
   const retryCountRef = useRef(0)
+  const hlsErrorCountRef = useRef(0)
   const retryTimeoutRef = useRef(null)
   const playingRef = useRef(Boolean(playing))
   const onReadyRef = useRef(onReady)
@@ -497,6 +498,7 @@ export default function VideoPlayer({
     setError(null)
     setIsReady(false)
     retryCountRef.current = 0
+    hlsErrorCountRef.current = 0
     clearTimeout(retryTimeoutRef.current)
     destroyHls()
 
@@ -608,6 +610,11 @@ export default function VideoPlayer({
           // Non-fatal: retry network errors, recover media errors
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
             console.log('HLS network error, retrying load...')
+            // Show temporary warning after 3 retries
+            hlsErrorCountRef.current = (hlsErrorCountRef.current || 0) + 1
+            if (hlsErrorCountRef.current === 3) {
+              toast('Stream is having trouble loading — the IPTV server may be slow or blocking requests', { variant: 'warning', duration: 5000 })
+            }
             hls.startLoad()
           } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
             console.log('HLS media error, recovering...')
