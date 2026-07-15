@@ -482,7 +482,6 @@ async function searchDirectLinks(query, options = {}) {
       // ─── MeetDownload: Puppeteer-based resolution (JS countdown + tokens) ───
       if (siteKey === 'meetdownload') {
         try {
-          // First try scraping the search page for result links
           const config = getSiteConfig('meetdownload')
           const searchUrl = config?.buildSearchUrl?.(query)
           if (searchUrl) {
@@ -493,23 +492,22 @@ async function searchDirectLinks(query, options = {}) {
               $('a[href]').each((_, el) => {
                 const href = $(el).attr('href') || ''
                 const text = $(el).text().trim()
-                // MeetDownload links have the pattern /HASH/filename
                 if (href.includes('meetdownload.com/') && text && !href.includes('?s=')) {
                   links.push({ url: href, title: text })
                 }
               })
 
-              // Filter by query
               const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
               const filtered = links.filter((item) =>
                 isTitleMatch(item.title, query) || isTitleMatch(item.title, baseQuery)
               )
               const toResolve = (filtered.length > 0 ? filtered : links).slice(0, 5)
 
-              // Resolve each link with Puppeteer
+              // Resolve each link — try regex extraction first (no Puppeteer),
+              // fall back to Puppeteer if available
               for (const link of toResolve) {
                 try {
-                  const resolved = await resolveMeetDownload(link.url)
+                  const resolved = await resolveMeetDownloadPage(link.url)
                   for (const r of resolved) {
                     results.push({
                       ...r,
@@ -530,7 +528,7 @@ async function searchDirectLinks(query, options = {}) {
         return
       }
 
-      // ─── Waploaded: Puppeteer-based search (JS-rendered results) ───
+      // ─── Waploaded: cheerio-first search (try without Puppeteer) ───
       if (siteKey === 'waploaded') {
         try {
           const config = getSiteConfig('waploaded')
@@ -539,8 +537,9 @@ async function searchDirectLinks(query, options = {}) {
           for (const searchUrl of searchUrls) {
             if (!searchUrl) continue
             try {
-              // Try Puppeteer-rendered search first
-              const html = await getRenderedHtml(searchUrl, { timeout: 8000, waitForSelector: 'a[href*="/movie/"], a[href*="/series/"]' })
+              // Try fetching directly first — many "JS-rendered" sites
+              // actually serve server-rendered HTML that cheerio can parse
+              const html = await fetchHtml(searchUrl).catch(() => null)
               if (html) {
                 const $ = cheerio.load(html)
                 $('a[href]').each((_, el) => {
@@ -564,8 +563,39 @@ async function searchDirectLinks(query, options = {}) {
                   }
                 })
               }
+
+              // If cheerio didn't find results and Puppeteer is available, try browser
+              if (results.length === 0 && isBrowserAvailable()) {
+                const browserHtml = await getRenderedHtml(searchUrl, { timeout: 8000, waitForSelector: 'a[href*="/movie/"], a[href*="/series/"]' })
+                if (browserHtml) {
+                  const $b = cheerio.load(browserHtml)
+                  $b('a[href]').each((_, el) => {
+                    const href = $b(el).attr('href') || ''
+                    const text = $b(el).text().trim()
+                    const isMedia = /\/movie\/|\/series\/|\/video\/|\.mp4|\.mkv/i.test(href)
+                    if (isMedia && text && text.length > 3 && text.length < 200) {
+                      const baseQuery = query.replace(/\s+season\s*\d+$/i, '').trim()
+                      if (isTitleMatch(text, query) || isTitleMatch(text, baseQuery)) {
+                        // Avoid duplicates
+                        if (!results.some(r => r.url === href)) {
+                          results.push({
+                            title: text,
+                            url: href,
+                            link: href,
+                            source: 'waploaded',
+                            type: 'direct',
+                            isDirect: /\.(mp4|mkv|m3u8)/i.test(href),
+                            playableInRoom: /\.(mp4|webm|m3u8)/i.test(href),
+                            quality: extractQuality(text),
+                          })
+                        }
+                      }
+                    }
+                  })
+                }
+              }
             } catch (err) {
-              console.error('Waploaded browser search failed:', err.message)
+              console.error('Waploaded search error:', err.message)
             }
             if (results.length > 0) break
           }
@@ -1281,6 +1311,99 @@ async function resolveWidesharesPage(pageUrl) {
   } catch (err) {
     console.error('Wideshares resolution error:', err.message)
     return null
+  }
+}
+
+/**
+ * Resolve a MeetDownload page WITHOUT Puppeteer.
+ * MeetDownload pages contain JS countdowns but the final download URLs
+ * are often embedded in the page source as onclick handlers or in script tags.
+ * This extracts them using regex.
+ */
+async function resolveMeetDownloadPage(url) {
+  try {
+    const html = await fetchHtml(url)
+    if (!html) return []
+
+    const results = []
+    const seen = new Set()
+
+    // Pattern 1: onclick="location.href='https://sub.kissorgrab.com/dl/...'"
+    const onclickRe = /location\.href\s*=\s*['"]([^'"]*(?:kissorgrab|download|\.mp4|\.mkv)[^'"]*)['"]/gi
+    let match
+    while ((match = onclickRe.exec(html)) !== null) {
+      const dlUrl = match[1].replace(/&amp;/g, '&')
+      if (!seen.has(dlUrl)) {
+        seen.add(dlUrl)
+        const filename = decodeURIComponent(dlUrl.split('/').pop()?.split('?')[0] || 'Video')
+        results.push({
+          title: filename.replace(/\.[^.]+$/, ''),
+          url: dlUrl,
+          link: dlUrl,
+          source: 'meetdownload',
+          type: 'direct',
+          isDirect: true,
+          playableInRoom: /\.(mp4|webm|m3u8)/i.test(dlUrl),
+          quality: extractQuality(filename),
+          resolvedFrom: url,
+        })
+      }
+    }
+
+    // Pattern 2: <a href="https://...kissorgrab.com/dl/...">
+    const hrefRe = /href\s*=\s*["']([^"']*(?:kissorgrab|\.mp4|\.mkv|download)[^"']*)["']/gi
+    while ((match = hrefRe.exec(html)) !== null) {
+      const dlUrl = match[1].replace(/&amp;/g, '&')
+      if (seen.has(dlUrl)) continue
+      seen.add(dlUrl)
+      const filename = decodeURIComponent(dlUrl.split('/').pop()?.split('?')[0] || 'Video')
+      results.push({
+        title: filename.replace(/\.[^.]+$/, ''),
+        url: dlUrl,
+        link: dlUrl,
+        source: 'meetdownload',
+        type: 'direct',
+        isDirect: true,
+        playableInRoom: /\.(mp4|webm|m3u8)/i.test(dlUrl),
+        quality: extractQuality(filename),
+        resolvedFrom: url,
+      })
+    }
+
+    // Pattern 3: window.location = '...' in script blocks
+    const scriptRe = /window\.location\s*=\s*['"]([^'"]*(?:kissorgrab|\.mp4|\.mkv|download)[^'"]*)['"]/gi
+    while ((match = scriptRe.exec(html)) !== null) {
+      const dlUrl = match[1].replace(/&amp;/g, '&')
+      if (seen.has(dlUrl)) continue
+      seen.add(dlUrl)
+      const filename = decodeURIComponent(dlUrl.split('/').pop()?.split('?')[0] || 'Video')
+      results.push({
+        title: filename.replace(/\.[^.]+$/, ''),
+        url: dlUrl,
+        link: dlUrl,
+        source: 'meetdownload',
+        type: 'direct',
+        isDirect: true,
+        playableInRoom: /\.(mp4|webm|m3u8)/i.test(dlUrl),
+        quality: extractQuality(filename),
+        resolvedFrom: url,
+      })
+    }
+
+    // If regex didn't find anything and Puppeteer is available, fall back
+    if (results.length === 0 && isBrowserAvailable()) {
+      const browserResults = await resolveMeetDownload(url)
+      return browserResults
+    }
+
+    return results
+  } catch (err) {
+    console.error('MeetDownload regex resolution error:', err.message)
+    // Fall back to Puppeteer if available
+    if (isBrowserAvailable()) {
+      return await resolveMeetDownload(url)
+    }
+    return []
   }
 }
 
