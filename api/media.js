@@ -636,11 +636,7 @@ async function searchDirectLinks(query, options = {}) {
     }
     console.log('Nkiri regex fallback found', initialPages.length, 'pages')
   }
-  const filtered = initialPages.filter(sp => {
-    const matches = softTitleMatch(sp.title, baseQ)
-    if (!matches) console.log('Nkiri filter OUT:', sp.title.slice(0, 60), '| query:', baseQ)
-    return matches
-  })
+  const filtered = initialPages.filter(sp => softTitleMatch(sp.title, baseQ))
   console.log('Nkiri after softTitleMatch:', filtered.length, 'of', initialPages.length)
   if (filtered.length === 0) {
     console.log('Nkiri search: found', initialPages.length, 'pages but 0 passed softTitleMatch for query:', baseQ)
@@ -648,71 +644,23 @@ async function searchDirectLinks(query, options = {}) {
     return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
   }
 
-  // STEP 2: Scrape show pages for downloadwella links (NO Puppeteer — fast)
-  // Recursively follow related season/part links (depth=1, max 10 pages)
-  const allDlLinks = []; const seenDl = new Set(); const scraped = new Set()
-  const MAX_PAGES = 10
-
-  async function scrapePage(page, depth) {
-    if (scraped.has(page.url) || scraped.size >= MAX_PAGES) return
-    scraped.add(page.url)
-    try {
-      const c = new AbortController(), t = setTimeout(() => c.abort(), 4000)
-      const res = await fetch(page.url, { signal: c.signal, headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'text/html', Referer: NKIRI_BASE + '/' }, redirect: 'follow' })
-      clearTimeout(t); if (!res.ok) return
-      const html = await res.text(); const $p = cheerio.load(html)
-      const poster = $p('meta[property="og:image"]').attr('content') || $p('img[src]').first().attr('src') || null
-      const resolvedPoster = poster ? resolveUrl(poster, page.url) : null
-
-      $p('a[href*="downloadwella.com"]').each((_, el) => {
-        const href = $p(el).attr('href'); const text = $p(el).text().trim() || $p(el).attr('title') || ''
-        if (href && !seenDl.has(href)) { seenDl.add(href); allDlLinks.push({ url: href, title: text || page.title, poster: resolvedPoster }) }
-      })
-      // Regex fallback
-      const dlRe = /href="(https?:\/\/(?:www\.)?downloadwella\.com\/[^"]+)"/gi; let m
-      while ((m = dlRe.exec(html)) !== null) {
-        if (seenDl.has(m[1])) continue; seenDl.add(m[1])
-        const ctx = html.slice(Math.max(0, m.index - 200), Math.min(html.length, m.index + 500))
-        const tm = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
-        allDlLinks.push({ url: m[1], title: tm?.[1] || m[1].split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Download', poster: resolvedPoster })
-      }
-
-      // Follow related season/part links (depth=1 only — keep it fast)
-      if (depth < 1) {
-        $p('a[href]').each((_, el) => {
-          const href = $p(el).attr('href') || ''; const text = $p(el).text().trim() || ''
-          if (!href.startsWith(NKIRI_BASE) || /\/(page|category|tag|search)\//i.test(href) || scraped.has(href) || seenUrls.has(href)) return
-          if (/season|part|episode|s\d+|complete/i.test(text) || /season|part|episode|s\d+/i.test(href)) {
-            seenUrls.add(href); scrapePage({ url: href, title: text || href.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Video' }, depth + 1)
-          }
-        })
-      }
-    } catch (err) { console.error('Nkiri page scrape failed:', page.url, err.message) }
-  }
-
-  let cur = 0; async function worker() { while (true) { const i = cur++; if (i >= filtered.length) return; await scrapePage(filtered[i], 0) } }
-  await Promise.all(Array.from({ length: Math.min(4, filtered.length) }, worker))
-  if (allDlLinks.length === 0) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
-
-  // STEP 3: Return downloadwella page URLs (resolve on click via scrape endpoint)
-  // NO Puppeteer here — keeps search under 10s. Puppeteer runs on-demand when user clicks.
-  const results = allDlLinks.slice(0, 100).map(dl => ({
-    title: formatMediaTitle(dl.title || 'Video'),
-    url: dl.url,
-    link: dl.url,
-    thumbnail: dl.poster || null,
-    image: dl.poster || null,
+  // STEP 2: Return Nkiri page URLs directly (don't scrape for downloadwella yet)
+  // Create Room page will scrape on-demand when user clicks
+  const results = filtered.slice(0, 100).map(page => ({
+    title: page.title,
+    url: page.url,
+    link: page.url,
+    thumbnail: null, // Will be fetched by Create Room page
+    image: null,
     source: 'nkiri',
     type: 'direct',
     isDirect: false,
     playableInRoom: false,
     requiresResolve: true,
-    quality: extractQuality(dl.title || ''),
+    quality: extractQuality(page.title),
   }))
 
-  const omdb = await enrichWithOMDbPosters(results, baseQ)
-  const deduped = deduplicateAndEnrich(omdb, baseQ)
-  return { results: deduped.slice(offset, offset + limit), hasMore: offset + limit < deduped.length, searchedSites: ['nkiri'], multiLayerCascaded: false }
+  return { results, hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
 }
 
 async function searchArchiveOrg(query, limit = 20) {
