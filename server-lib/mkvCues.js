@@ -369,12 +369,30 @@ export async function buildMkvCueIndex(url, headers = {}) {
     cues = [{ timeSec: 0, fileOffset: firstCluster.elementStart, cueTime: 0 }]
   }
 
+  // CRITICAL: header must end strictly before the first Cluster.
+  // If we include early clusters in the "header" buffer and then append a mid-file
+  // Range body, the remuxer emits those early clusters first → video restarts at 0
+  // while the UI seek bar shows the target time.
+  let safeHeaderEnd = headerEndOffset
+  if (firstCluster && firstCluster.elementStart > 0) {
+    safeHeaderEnd = firstCluster.elementStart
+  } else {
+    // No cluster in prefix — keep whatever we parsed, capped
+    safeHeaderEnd = Math.min(Math.max(safeHeaderEnd, segmentDataStart + 64), Math.min(prefix.length, 768 * 1024))
+  }
+  // Never extend past first cluster
+  if (firstCluster && safeHeaderEnd > firstCluster.elementStart) {
+    safeHeaderEnd = firstCluster.elementStart
+  }
+
   return {
     cues,
     durationSec,
     segmentDataStart,
-    headerEndOffset: Math.max(headerEndOffset, Math.min(prefix.length, 512 * 1024)),
+    headerEndOffset: Math.max(64, safeHeaderEnd),
     timecodeScale,
+    hasCues: cues.length > 1 || (cues.length === 1 && cues[0].timeSec > 0),
+    cueCount: cues.length,
   }
 }
 

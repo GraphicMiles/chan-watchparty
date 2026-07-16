@@ -370,7 +370,13 @@ export default function VideoPlayer({
     getCurrentTime: () => currentTime(),
     getDuration: () => {
       if (isHLS) return videoRef.current?.duration || durationSec || 0
-      return playerRef.current?.getDuration?.() || durationSec || 0
+      // Remux-from-t: player reports remaining length; prefer absolute durationSec
+      if (isRemuxProxyUrl(currentUrl) && durationSec > 0) return durationSec
+      const local = playerRef.current?.getDuration?.() || 0
+      if (isRemuxProxyUrl(currentUrl) && remuxBaseTimeRef.current > 0) {
+        return Math.max(durationSec || 0, remuxBaseTimeRef.current + local)
+      }
+      return local || durationSec || 0
     },
     getPlayerState: () => playerState(),
     playVideo: () => {
@@ -894,7 +900,8 @@ export default function VideoPlayer({
     const fraction = Number(e.target.value) / 1000
     const dur = adapter.getDuration() || durationSec || 0
     const targetSec = fraction * dur
-    adapter.seekTo(fraction, 'fraction')
+    // Always seek by absolute seconds so MKV remux uses ?t= correctly
+    adapter.seekTo(targetSec, 'seconds')
     setCurrentSec(targetSec)
     emitSeek(targetSec)
   }, [canControl, adapter, durationSec, emitSeek])

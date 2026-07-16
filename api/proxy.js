@@ -705,7 +705,19 @@ export default async function handler(req, res) {
               const hit = clusterOffsetForTime(index, seekTimeSec)
               clusterFileOffset = hit.fileOffset || 0
               startTimeSec = hit.cueTimeSec != null ? hit.cueTimeSec : seekTimeSec
-              console.log(`Proxy seek remux t=${seekTimeSec} cue=${startTimeSec} offset=${clusterFileOffset}`)
+              const cueCount = index.cueCount ?? (index.cues?.length || 0)
+              // Only one cue at t=0 means we cannot jump mid-file — fail clearly
+              if (cueCount <= 1 && clusterFileOffset <= (index.headerEndOffset || 0) + 64 && seekTimeSec > 5) {
+                return fail(
+                  res,
+                  502,
+                  'This MKV has no seek index (Cues). Mid-file seek is unavailable — play from start or use MP4.',
+                )
+              }
+              if (clusterFileOffset <= 0 && seekTimeSec > 5) {
+                return fail(res, 502, 'MKV seek resolved to file start — Cues missing or invalid for this file.')
+              }
+              console.log(`Proxy seek remux t=${seekTimeSec} cue=${startTimeSec} offset=${clusterFileOffset} cues=${cueCount}`)
             }
             if (req.query?.index === '1' && seekTimeSec <= 0) {
               // Metadata-only: return cue index JSON for clients (optional)
@@ -753,11 +765,12 @@ export default async function handler(req, res) {
         }
 
         let bodyRes = null
-        if (clusterFileOffset > 0 && startTimeSec > 0.5) {
-          // Range from cue cluster to EOF (Hobby will stop at deadline)
+        if (clusterFileOffset > 0 && seekTimeSec > 0.5) {
+          // Never re-fetch from inside the header region
+          const from = Math.max(clusterFileOffset, headerEndOffset)
           bodyRes = await fetchUpstream(targetUrl.href, {
             ...upstreamHeaders,
-            Range: `bytes=${clusterFileOffset}-`,
+            Range: `bytes=${from}-`,
           }, SEEK_CONNECT_MS)
           if (!bodyRes.ok && bodyRes.status !== 206) {
             console.error('Seek range failed', bodyRes.status)
@@ -826,7 +839,15 @@ export default async function handler(req, res) {
           return
         }
 
-        const remuxer = new MkvRemuxStream({ startTimeSec })
+        // If we already Range-started at the target cluster, tell remuxer startTimeSec=0
+        // so it does not try to skip by timestamps (body already begins at seek point).
+        // Still pass requested seek for headers / logging only.
+        const remuxFromMidFile = clusterFileOffset > 0 && seekTimeSec > 0.5
+        const remuxer = new MkvRemuxStream({
+          // When mid-file Range is used, clusters already start near seek time —
+          // use a small epsilon so we don't drop the first keyframe cluster.
+          startTimeSec: remuxFromMidFile ? 0 : startTimeSec,
+        })
         const abortController = new AbortController()
         let inputBytes = 0
         const remuxDeadline = setTimeout(() => {
@@ -855,14 +876,13 @@ export default async function handler(req, res) {
 
         const feedLoop = async () => {
           try {
-            // Always feed header first so Tracks/Info are present for mid-file seeks
+            // Header only — must NOT include early Clusters or seek restarts at 0.
+            // Truncate to headerEndOffset in case the Range response was larger.
+            const pureHeader = headerBuf.subarray(0, Math.min(headerBuf.length, Math.max(64, headerEndOffset)))
             if (!remuxer.destroyed) {
-              remuxer.write(headerBuf)
-              inputBytes += headerBuf.length
+              remuxer.write(pureHeader)
+              inputBytes += pureHeader.length
             }
-            // If progressive from 0 and body starts after header, OK.
-            // If seek: body is cluster data; remuxer still needs EBML+Segment structure.
-            // Prepend is enough when header includes up through Tracks; clusters follow.
             if (bodyRes?.body) {
               const reader = bodyRes.body.getReader()
               while (!abortController.signal.aborted) {
