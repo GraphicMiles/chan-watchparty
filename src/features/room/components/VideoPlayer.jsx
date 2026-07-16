@@ -374,10 +374,15 @@ export default function VideoPlayer({
     },
     getPlayerState: () => playerState(),
     playVideo: () => {
+      // Show progress immediately while media catches up
+      setIsBuffering(true)
       if (isHLS) {
-        videoRef.current?.play()
+        const p = videoRef.current?.play?.()
+        if (p && typeof p.catch === 'function') p.catch(() => {})
       } else {
-        playerRef.current?.getInternalPlayer?.()?.playVideo?.() || playerRef.current?.getInternalPlayer?.()?.play?.()
+        try {
+          playerRef.current?.getInternalPlayer?.()?.playVideo?.() || playerRef.current?.getInternalPlayer?.()?.play?.()
+        } catch { /* */ }
       }
       playingRef.current = true
       setIsPlayingState(true)
@@ -578,24 +583,18 @@ export default function VideoPlayer({
   useEffect(() => {
     setError(null)
     setIsReady(false)
-    setIsBuffering(false)
+    setIsBuffering(true) // show loading as soon as source changes / play starts
     setBufferingPercent(0)
     retryCountRef.current = 0
     hlsErrorCountRef.current = 0
     clearTimeout(retryTimeoutRef.current)
     destroyHls()
 
-    // Pre-flight check for direct video URLs: verify the URL returns video data.
-    // This catches cases where the proxy timed out (Vercel 504 HTML page), the
-    // CDN returned an error page instead of video, or the source is HEVC/H.265
-    // which the proxy rejects with a clear 502 message.
-    // We use a tiny Range GET instead of HEAD because many CDNs (downloadwella,
-    // phncdn) reject or mishandle HEAD.
-    //
-    // Preflight: tiny Range probe. The proxy short-circuits bytes=0-1 and, on
-    // Vercel Hobby (10s), serves large files as 1 MiB chunks so this must never
-    // hang. remux=1 on large MKVs is passthrough-chunked (no full-file remux).
-    if (!isHLS && currentUrl && videoType === 'direct' && currentUrl.includes('/api/proxy')) {
+    // Non-blocking soft preflight: do NOT delay the player. Only surface a hard
+    // error if the probe clearly returns HTML/JSON error (expired link, 502/504).
+    // Skip for remux=1 — player must start progressive remux immediately.
+    const isRemux = /[?&]remux=1(?:&|$)/i.test(currentUrl || '')
+    if (!isHLS && currentUrl && videoType === 'direct' && currentUrl.includes('/api/proxy') && !isRemux) {
       const checkUrl = async () => {
         try {
           let checkRes
@@ -873,7 +872,9 @@ export default function VideoPlayer({
     if (!canControl) return
     if (playingRef.current) {
       adapter.pauseVideo()
+      setIsBuffering(false)
     } else {
+      setIsBuffering(true)
       adapter.playVideo()
     }
   }, [canControl, adapter])
@@ -1154,11 +1155,17 @@ export default function VideoPlayer({
         onContextMenu={(e) => e.preventDefault()}
       />
 
-      {!isReady && (
+      {(!isReady || isBuffering) && !error && !isMixedContent && (
         <div className={styles.loadingOverlay}>
           <div className={styles.loadingSpinner} />
           <div className={styles.loadingText}>
-            {isBuffering ? `Buffering... ${bufferingPercent}%` : `Loading stream... ${bufferingPercent}%`}
+            {!isReady
+              ? (bufferingPercent > 0
+                  ? `Loading stream... ${Math.min(99, bufferingPercent)}%`
+                  : 'Loading stream...')
+              : (bufferingPercent > 0
+                  ? `Buffering... ${Math.min(99, bufferingPercent)}%`
+                  : 'Buffering...')}
           </div>
         </div>
       )}

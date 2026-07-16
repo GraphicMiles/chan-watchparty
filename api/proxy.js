@@ -10,14 +10,14 @@ import { getCachedMkvCueIndex, clusterOffsetForTime } from '../server-lib/mkvCue
 // short byte-range CHUNKS; the browser re-requests the next range. Small files
 // stream in one shot. MKV remux is only attempted for small files.
 const HOBBY_MAX_DURATION_MS = 9_000
-const UPSTREAM_CONNECT_MS = 3_500
+const UPSTREAM_CONNECT_MS = 4_000 // allow slightly slower CDNs without failing cold start
 const SEEK_CONNECT_MS = 5_000
-const PLAYLIST_FETCH_MS = 4_000
+const PLAYLIST_FETCH_MS = 3_500
 const SMALL_FILE_BYTES = 8 * 1024 * 1024 // ≤8 MiB → full progressive stream
-// Larger chunks = fewer Hobby invocations per video. 5 MiB is a good balance:
-// ~5× fewer requests than 1 MiB, while still finishing well under the 10s limit
-// when streaming (not buffering the whole chunk in memory).
+// Steady-state chunks (fewer invocations). First open-range request uses a
+// smaller first chunk so the browser can paint the first frames faster.
 const CHUNK_BYTES = 5 * 1024 * 1024 // 5 MiB per large-file passthrough invocation
+const FIRST_CHUNK_BYTES = 2 * 1024 * 1024 // 2 MiB cold-start window (TTFB / first paint)
 // Progressive MKV→fMP4 remux (the Chrome loophole): stream as many clusters as
 // fit in Hobby time. Browser plays fMP4 from the first fragments even if the
 // function ends early. Do NOT require the whole file to remux.
@@ -110,11 +110,13 @@ function resolveServeWindow({ clientRange, totalSize, forceChunk }) {
 
   // Large / unknown → always 206 chunk
   const start = clientRange?.start ?? 0
+  // Cold start (from byte 0 with open-ended Range): smaller window → faster first paint
+  const windowSize = (start === 0 && (clientRange?.end == null)) ? FIRST_CHUNK_BYTES : CHUNK_BYTES
   let end
   if (clientRange?.end != null) {
-    end = Math.min(clientRange.end, start + CHUNK_BYTES - 1)
+    end = Math.min(clientRange.end, start + windowSize - 1)
   } else {
-    end = start + CHUNK_BYTES - 1
+    end = start + windowSize - 1
   }
   if (Number.isFinite(totalSize) && totalSize > 0) {
     end = Math.min(end, totalSize - 1)
@@ -404,24 +406,33 @@ export default async function handler(req, res) {
       return
     }
 
-    // ─── Size probe for large-file chunking (only when client sent no Range) ───
-    // HEAD first so we know Content-Length before committing to a body stream.
-    // If HEAD fails, we fall through and treat unknown size as "large" (chunk).
+    // ─── Size probe (optional, non-blocking for cold start) ───
+    // Prefer a tiny Range probe over HEAD (many CDNs mishandle HEAD).
+    // Skip entirely when the browser already sent Range — we can stream immediately
+    // and learn total size from Content-Range on the real response.
     let knownTotalSize = null
     let headSupportsRanges = true
     if (!clientRange && req.method === 'GET') {
       try {
-        const headRes = await fetchUpstream(targetUrl.href, { ...upstreamHeaders }, Math.min(2000, UPSTREAM_CONNECT_MS))
-        if (headRes.ok || headRes.status === 206) {
-          const cl = headRes.headers.get('content-length')
-          if (cl && /^\d+$/.test(cl)) knownTotalSize = Number(cl)
-          const ar = (headRes.headers.get('accept-ranges') || '').toLowerCase()
+        const probeRes = await fetchUpstream(
+          targetUrl.href,
+          { ...upstreamHeaders, Range: 'bytes=0-0' },
+          Math.min(1500, UPSTREAM_CONNECT_MS),
+        )
+        if (probeRes.ok || probeRes.status === 206) {
+          const cr = probeRes.headers.get('content-range')
+          const m = cr && cr.match(/\/(\d+)\s*$/)
+          if (m) knownTotalSize = Number(m[1])
+          else {
+            const cl = probeRes.headers.get('content-length')
+            if (cl && /^\d+$/.test(cl) && probeRes.status === 200) knownTotalSize = Number(cl)
+          }
+          const ar = (probeRes.headers.get('accept-ranges') || '').toLowerCase()
           if (ar === 'none') headSupportsRanges = false
-          // Drain / cancel head body if any
-          await headRes.arrayBuffer().catch(() => {})
+          await probeRes.arrayBuffer().catch(() => {})
         }
       } catch {
-        // HEAD unsupported or slow — continue without known size
+        // Probe slow/failed — treat as large/unknown and chunk
       }
     }
 
