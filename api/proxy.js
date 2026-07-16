@@ -4,6 +4,18 @@ import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
 import { probeAndFixO2TvUrl } from '../server-lib/o2tvResolver.js'
 import { MkvRemuxStream, isMkvContentType, probeMkvVideoCodec } from '../server-lib/mkvRemux.js'
 
+// ─── Vercel Hobby (~10s hard kill) ───────────────────────────────────────────
+// Each invocation must finish under the plan limit. Large files are served as
+// short byte-range CHUNKS; the browser re-requests the next range. Small files
+// stream in one shot. MKV remux is only attempted for small files.
+const HOBBY_MAX_DURATION_MS = 9_000
+const UPSTREAM_CONNECT_MS = 3_500
+const PLAYLIST_FETCH_MS = 4_000
+const SMALL_FILE_BYTES = 8 * 1024 * 1024 // ≤8 MiB → full progressive stream
+const CHUNK_BYTES = 1 * 1024 * 1024 // 1 MiB per large-file invocation
+const REMUX_MAX_INPUT_BYTES = 6 * 1024 * 1024 // remux only if source is small
+const REMUX_DEADLINE_MS = 7_000
+
 /** Read optional domain allow-list from env (JSON array of hostnames). */
 function getProxyDomainAllowlist() {
   const raw = process.env.PROXY_ALLOWED_DOMAINS
@@ -42,25 +54,120 @@ function cacheControlForType(contentType = '', isM3u8 = false) {
 
 const UPSTREAM_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
+/** Parse `bytes=start-end` (end optional). Returns null if invalid / multi-range. */
+function parseRangeHeader(rangeHeader) {
+  if (!rangeHeader || typeof rangeHeader !== 'string') return null
+  const m = rangeHeader.trim().match(/^bytes=(\d+)-(\d+)?$/i)
+  if (!m) return null
+  const start = Number(m[1])
+  const end = m[2] != null && m[2] !== '' ? Number(m[2]) : null
+  if (!Number.isFinite(start) || start < 0) return null
+  if (end != null && (!Number.isFinite(end) || end < start)) return null
+  return { start, end }
+}
+
 /**
- * Stream a ReadableStream from an upstream fetch directly to the Node.js
- * ServerResponse. Handles backpressure and client disconnects.
- *
- * Returns the number of bytes streamed.
+ * Decide the exact byte window this invocation will serve.
+ * - Small files: honour client range fully, or whole file if none.
+ * - Large / unknown size: clamp to CHUNK_BYTES so Hobby 10s never tries to
+ *   pump an entire movie through one serverless function.
  */
-async function pipeStreamToResponse(reader, res, abortSignal) {
+function resolveServeWindow({ clientRange, totalSize, forceChunk }) {
+  const isSmall = Number.isFinite(totalSize) && totalSize > 0 && totalSize <= SMALL_FILE_BYTES
+  const shouldChunk = forceChunk || !isSmall
+
+  if (!shouldChunk) {
+    if (!clientRange) {
+      return {
+        start: 0,
+        end: totalSize > 0 ? totalSize - 1 : null,
+        totalSize,
+        status: 200,
+        chunked: false,
+        isSmall: true,
+      }
+    }
+    const end = clientRange.end != null
+      ? clientRange.end
+      : (totalSize > 0 ? totalSize - 1 : clientRange.start + CHUNK_BYTES - 1)
+    return {
+      start: clientRange.start,
+      end,
+      totalSize,
+      status: 206,
+      chunked: false,
+      isSmall: true,
+    }
+  }
+
+  // Large / unknown → always 206 chunk
+  const start = clientRange?.start ?? 0
+  let end
+  if (clientRange?.end != null) {
+    end = Math.min(clientRange.end, start + CHUNK_BYTES - 1)
+  } else {
+    end = start + CHUNK_BYTES - 1
+  }
+  if (Number.isFinite(totalSize) && totalSize > 0) {
+    end = Math.min(end, totalSize - 1)
+  }
+  return {
+    start,
+    end,
+    totalSize: Number.isFinite(totalSize) && totalSize > 0 ? totalSize : null,
+    status: 206,
+    chunked: true,
+    isSmall: false,
+  }
+}
+
+/**
+ * Total size from Content-Length / Content-Range when present.
+ */
+function totalSizeFromUpstream(upstream) {
+  const cr = upstream.headers.get('content-range')
+  if (cr) {
+    const m = cr.match(/\/(\d+)\s*$/)
+    if (m) return Number(m[1])
+  }
+  const cl = upstream.headers.get('content-length')
+  if (cl && /^\d+$/.test(cl)) return Number(cl)
+  return null
+}
+
+/**
+ * Stream a ReadableStream to the client with optional byte + time caps.
+ * Returns { bytesSent, capped }.
+ */
+async function pipeStreamToResponse(reader, res, abortSignal, { maxBytes = Infinity, deadlineMs = HOBBY_MAX_DURATION_MS } = {}) {
   let bytesSent = 0
+  let capped = false
+  const started = Date.now()
   try {
     while (!abortSignal.aborted) {
+      if (Date.now() - started >= deadlineMs) {
+        capped = true
+        break
+      }
       const { done, value } = await reader.read()
       if (done) break
 
-      const chunk = Buffer.from(value)
+      let chunk = Buffer.from(value)
+      if (bytesSent + chunk.length > maxBytes) {
+        chunk = chunk.subarray(0, Math.max(0, maxBytes - bytesSent))
+        capped = true
+        if (!chunk.length) break
+      }
+
       const ok = res.write(chunk)
       bytesSent += chunk.length
 
+      if (bytesSent >= maxBytes) {
+        capped = true
+        break
+      }
+
       if (!ok) {
-        // Backpressure — wait for the client to drain
         await new Promise((resolve) => {
           const onDrain = () => { cleanup(); resolve() }
           const onClose = () => { cleanup(); resolve() }
@@ -76,26 +183,53 @@ async function pipeStreamToResponse(reader, res, abortSignal) {
   } catch {
     // Stream interrupted (client disconnect, upstream error, or abort)
   }
-  return bytesSent
+  return { bytesSent, capped }
 }
 
 /**
- * Stream an upstream response directly to the client.
- * Used as a fallback when MKV remux is skipped or after re-fetch.
+ * Stream an upstream response, optionally clamping to a byte window for
+ * large-file chunking under the Hobby 10s limit.
  */
-async function streamDirectResponse(upstreamRes, req, res) {
+async function streamDirectResponse(upstreamRes, req, res, options = {}) {
   const contentType = upstreamRes.headers.get('content-type') || ''
-  const contentRange = upstreamRes.headers.get('content-range')
-  const contentLength = upstreamRes.headers.get('content-length')
+  const {
+    window = null, // { start, end, totalSize, status, chunked }
+    deadlineMs = HOBBY_MAX_DURATION_MS,
+  } = options
 
   res.setHeader('Content-Type', contentType || 'application/octet-stream')
   res.setHeader('Accept-Ranges', 'bytes')
   res.setHeader('Cache-Control', cacheControlForType(contentType))
+  // Hint clients / CDNs that large media is intentionally ranged
+  if (window?.chunked) {
+    res.setHeader('X-Chan-Proxy-Mode', 'chunked')
+    res.setHeader('X-Chan-Proxy-Chunk-Bytes', String(CHUNK_BYTES))
+  } else {
+    res.setHeader('X-Chan-Proxy-Mode', 'full')
+  }
 
-  if (contentRange) res.setHeader('Content-Range', contentRange)
-  if (contentLength) res.setHeader('Content-Length', contentLength)
-
-  res.status(upstreamRes.status === 206 ? 206 : 200)
+  let maxBytes = Infinity
+  if (window) {
+    const length = window.end != null && window.start != null
+      ? (window.end - window.start + 1)
+      : null
+    if (length != null && length > 0) {
+      res.setHeader('Content-Length', String(length))
+      maxBytes = length
+    }
+    if (window.status === 206) {
+      const total = window.totalSize != null ? window.totalSize : '*'
+      const endPart = window.end != null ? window.end : ''
+      res.setHeader('Content-Range', `bytes ${window.start}-${endPart}/${total}`)
+    }
+    res.status(window.status === 206 ? 206 : 200)
+  } else {
+    const contentRange = upstreamRes.headers.get('content-range')
+    const contentLength = upstreamRes.headers.get('content-length')
+    if (contentRange) res.setHeader('Content-Range', contentRange)
+    if (contentLength) res.setHeader('Content-Length', contentLength)
+    res.status(upstreamRes.status === 206 ? 206 : 200)
+  }
 
   if (req.method === 'HEAD') {
     res.end()
@@ -108,7 +242,10 @@ async function streamDirectResponse(upstreamRes, req, res) {
 
   try {
     const reader = upstreamRes.body.getReader()
-    await pipeStreamToResponse(reader, res, abortController.signal)
+    await pipeStreamToResponse(reader, res, abortController.signal, {
+      maxBytes,
+      deadlineMs,
+    })
     await reader.cancel().catch(() => {})
   } catch {
     // Stream error
@@ -118,13 +255,75 @@ async function streamDirectResponse(upstreamRes, req, res) {
   }
 }
 
+/** Build common upstream headers (Referer / Origin / UA). */
+function buildUpstreamHeaders(targetUrl, req, refererOverride) {
+  const hostname = targetUrl.hostname.toLowerCase()
+  let referer = targetUrl.origin
+  if (refererOverride && /^https?:\/\//i.test(refererOverride) && refererOverride.length < 512) {
+    referer = refererOverride
+  } else if (hostname.includes('xvideos') || hostname.includes('cdn-xl') || hostname.includes('cdn.xh') || hostname.includes('xvideos-cdn')) {
+    referer = 'https://www.xvideos.com/'
+  } else if (hostname.includes('pornhub') || hostname.includes('phncdn') || hostname.includes('pornhubpremium')) {
+    referer = 'https://www.pornhub.com/'
+  } else if (hostname.includes('spankbang') || hostname.includes('sb-cd') || hostname.includes('spankcdn') || hostname.includes('spankbang.party') || hostname.includes('spankbang.com')) {
+    referer = 'https://spankbang.party/'
+  } else if (hostname.includes('dood') || hostname.includes('doodcdn') || hostname.includes('ds2play') || hostname.includes('d0000d')) {
+    referer = 'https://dood.li/'
+  } else if (hostname.includes('downloadwella') || hostname.includes('fsmc') || (hostname.includes('download.') && hostname.includes('wella'))) {
+    referer = 'https://downloadwella.com/'
+  } else if (hostname.includes('kissorgrab') || hostname.includes('meetdownload')) {
+    referer = 'https://meetdownload.com/'
+  } else if (hostname.includes('wideshares')) {
+    referer = 'https://wideshares.org/'
+  } else if (hostname.includes('np-downloader') || hostname.includes('wildshare') || hostname.includes('silversurfer') || hostname.includes('naijaprey')) {
+    referer = 'https://www.naijaprey.tv/'
+  } else if (hostname.includes('koyeb.app') || hostname.includes('maxcinema')) {
+    referer = 'https://www.maxcinema.name.ng/'
+  } else if (hostname.includes('o2tv')) {
+    referer = 'http://d6.o2tv.org/'
+  }
+
+  const upstreamHeaders = {
+    'User-Agent': UPSTREAM_UA,
+    Accept: '*/*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    Referer: referer,
+    ...(hostname.includes('phncdn') || hostname.includes('pornhub')
+      ? { Origin: 'https://www.pornhub.com' }
+      : hostname.includes('spankbang') || hostname.includes('sb-cd') || hostname.includes('spankcdn')
+        ? { Origin: 'https://spankbang.party' }
+        : hostname.includes('downloadwella') || hostname.includes('fsmc')
+          ? { Origin: 'https://downloadwella.com' }
+          : hostname.includes('koyeb.app') || hostname.includes('maxcinema')
+            ? { Origin: 'https://www.maxcinema.name.ng' }
+            : {}),
+  }
+
+  return { upstreamHeaders, hostname, referer }
+}
+
+async function fetchUpstream(url, headers, timeoutMs) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetch(url, {
+      redirect: 'follow',
+      headers,
+      signal: controller.signal,
+    })
+    return response
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export default async function handler(req, res) {
   if (preflight(req, res, { methods: ['GET', 'HEAD', 'OPTIONS'] })) return
   if (req.method !== 'GET' && req.method !== 'HEAD') return fail(res, 405, 'Method not allowed')
 
   // --- Rate limiting (IP-based, since browser <video> can't send Bearer) ---
   const ip = clientKey(req)
-  const rl = await checkRateLimit(`proxy:${ip}`, { limit: 120, windowMs: 60_000 })
+  const rl = await checkRateLimit(`proxy:${ip}`, { limit: 180, windowMs: 60_000 })
   if (!rl.allowed) {
     res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' })
     res.end(JSON.stringify({ success: false, error: 'Too many proxy requests — slow down' }))
@@ -142,87 +341,32 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', '*')
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type, X-Chan-Proxy-Mode, X-Chan-Proxy-Chunk-Bytes')
 
-    // ─── Build upstream request headers ───
-    // Many CDNs require a specific Referer (provider site), not the CDN origin.
-    // Optional override: /api/proxy?url=...&referer=https://example.com/
-    let referer = targetUrl.origin
-    const hostname = targetUrl.hostname.toLowerCase()
     const refererOverride = typeof req.query?.referer === 'string' ? req.query.referer : ''
-    if (refererOverride && /^https?:\/\//i.test(refererOverride) && refererOverride.length < 512) {
-      referer = refererOverride
-    } else if (hostname.includes('xvideos') || hostname.includes('cdn-xl') || hostname.includes('cdn.xh') || hostname.includes('xvideos-cdn')) {
-      referer = 'https://www.xvideos.com/'
-    } else if (hostname.includes('pornhub') || hostname.includes('phncdn') || hostname.includes('pornhubpremium')) {
-      referer = 'https://www.pornhub.com/'
-    } else if (hostname.includes('spankbang') || hostname.includes('sb-cd') || hostname.includes('spankcdn') || hostname.includes('spankbang.party') || hostname.includes('spankbang.com')) {
-      referer = 'https://spankbang.party/'
-    } else if (hostname.includes('dood') || hostname.includes('doodcdn') || hostname.includes('ds2play') || hostname.includes('d0000d')) {
-      referer = 'https://dood.li/'
-    } else if (hostname.includes('downloadwella') || hostname.includes('fsmc') || (hostname.includes('download.') && hostname.includes('wella'))) {
-      // DownloadWella hotlink tokens require the download host as Referer.
-      // Without it the CDN returns an HTML error page → browser "format error" / 502.
-      referer = 'https://downloadwella.com/'
-    } else if (hostname.includes('kissorgrab') || hostname.includes('meetdownload')) {
-      referer = 'https://meetdownload.com/'
-    } else if (hostname.includes('wideshares')) {
-      referer = 'https://wideshares.org/'
-    } else if (hostname.includes('np-downloader') || hostname.includes('wildshare') || hostname.includes('silversurfer') || hostname.includes('naijaprey')) {
-      referer = 'https://www.naijaprey.tv/'
-    } else if (hostname.includes('koyeb.app') || hostname.includes('maxcinema')) {
-      referer = 'https://www.maxcinema.name.ng/'
-    } else if (hostname.includes('o2tv')) {
-      referer = 'http://d6.o2tv.org/'
-    }
+    const { upstreamHeaders, hostname } = buildUpstreamHeaders(targetUrl, req, refererOverride)
 
-    const upstreamHeaders = {
-      'User-Agent': UPSTREAM_UA,
-      'Accept': '*/*',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Referer': referer,
-      // Some CDNs also check Origin
-      ...(hostname.includes('phncdn') || hostname.includes('pornhub')
-        ? { Origin: 'https://www.pornhub.com' }
-        : hostname.includes('spankbang') || hostname.includes('sb-cd') || hostname.includes('spankcdn')
-          ? { Origin: 'https://spankbang.party' }
-          : hostname.includes('downloadwella') || hostname.includes('fsmc')
-            ? { Origin: 'https://downloadwella.com' }
-            : hostname.includes('koyeb.app') || hostname.includes('maxcinema')
-              ? { Origin: 'https://www.maxcinema.name.ng' }
-              : {}),
-    }
-
-    // Forward the browser's Range header (used by <video> for seeking / buffering)
-    if (req.headers.range) {
-      upstreamHeaders.Range = req.headers.range
-    }
+    const clientRange = parseRangeHeader(req.headers.range || '')
+    const isTinyRangeProbe = clientRange
+      && clientRange.start === 0
+      && clientRange.end != null
+      && clientRange.end <= 16
 
     // ─── Early m3u8 detection by URL path (avoids streaming a playlist) ───
     const isM3u8ByPath = /\.m3u8(?:\?|#|$)/i.test(targetUrl.pathname)
 
     if (isM3u8ByPath) {
-      // Playlist fetch timeout — keep under vercel.json maxDuration (30s).
-      const playlistController = new AbortController()
-      const playlistTimer = setTimeout(() => playlistController.abort(), 12000)
       let response
       try {
-        response = await fetch(targetUrl.href, {
-          redirect: 'follow',
-          headers: upstreamHeaders,
-          signal: playlistController.signal,
-        })
+        response = await fetchUpstream(targetUrl.href, upstreamHeaders, PLAYLIST_FETCH_MS)
       } catch (err) {
-        clearTimeout(playlistTimer)
-        if (err.name === 'AbortError') return fail(res, 504, 'Playlist fetch timed out')
+        if (err.name === 'AbortError') return fail(res, 504, 'Playlist fetch timed out (Hobby 10s budget)')
         throw err
       }
-      clearTimeout(playlistTimer)
       if (!response.ok) return fail(res, response.status, `Upstream returned ${response.status}`)
 
-      // Use the final URL after redirects so relative playlist entries resolve correctly
       const finalUrl = response.url || targetUrl.href
       let text = await response.text()
-      // Decode HTML entities that may appear in m3u8 playlists (common with PornHub/phncdn CDNs)
       text = text.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x2F;/g, '/').replace(/&#47;/g, '/')
       const rewritten = text.split('\n').map((line) => {
         const trimmed = line.trim()
@@ -230,7 +374,6 @@ export default async function handler(req, res) {
         if (trimmed.startsWith('#')) {
           return line.replace(/URI="([^"]+)"/gi, (_, keyUri) => {
             try {
-              // Also decode HTML entities inside URI attributes
               const decodedKey = keyUri.replace(/&amp;/g, '&').replace(/&#x2F;/g, '/')
               const absKey = new URL(decodedKey, finalUrl).href
               return `URI="/api/proxy?url=${encodeURIComponent(absKey)}"`
@@ -253,75 +396,169 @@ export default async function handler(req, res) {
       return
     }
 
-    // ─── Fetch from upstream (video, image, segment, anything else) ───
-    const isKeyHost = hostname.includes('koyeb') || hostname.includes('wildshare') || hostname.includes('silversurfer') || hostname.includes('kissorgrab') || hostname.includes('downloadwella') || hostname.includes('fsmc')
-    if (isKeyHost) {
-      console.log(`Proxy upstream fetch: ${targetUrl.hostname} ${targetUrl.pathname.slice(0, 80)} remux=${req.query?.remux || 'auto'}`)
-    }
-    // Upstream header/connect timeout only. Once headers arrive we stream the body
-    // for the rest of the function lifetime (vercel.json maxDuration = 30s).
-    // The previous 8s abort killed slow CDNs mid-handshake and produced the
-    // 504s seen on /api/proxy during room create + first play.
-    const upstreamController = new AbortController()
-    const upstreamTimer = setTimeout(() => upstreamController.abort(), 20000)
-    let upstream
-    try {
-      upstream = await fetch(targetUrl.href, {
-        redirect: 'follow',
-        headers: upstreamHeaders,
-        signal: upstreamController.signal,
-      })
-    } catch (err) {
-      clearTimeout(upstreamTimer)
-      if (err.name === 'AbortError') return fail(res, 504, 'Upstream fetch timed out — video CDN is too slow. Try again or pick another source.')
-      throw err
-    }
-    clearTimeout(upstreamTimer)
-    if (isKeyHost) {
-      console.log(`Proxy upstream response: ${targetUrl.hostname} status=${upstream.status} type=${upstream.headers.get('content-type') || 'none'}`)
+    // ─── Size probe for large-file chunking (only when client sent no Range) ───
+    // HEAD first so we know Content-Length before committing to a body stream.
+    // If HEAD fails, we fall through and treat unknown size as "large" (chunk).
+    let knownTotalSize = null
+    let headSupportsRanges = true
+    if (!clientRange && req.method === 'GET') {
+      try {
+        const headRes = await fetchUpstream(targetUrl.href, { ...upstreamHeaders }, Math.min(2000, UPSTREAM_CONNECT_MS))
+        if (headRes.ok || headRes.status === 206) {
+          const cl = headRes.headers.get('content-length')
+          if (cl && /^\d+$/.test(cl)) knownTotalSize = Number(cl)
+          const ar = (headRes.headers.get('accept-ranges') || '').toLowerCase()
+          if (ar === 'none') headSupportsRanges = false
+          // Drain / cancel head body if any
+          await headRes.arrayBuffer().catch(() => {})
+        }
+      } catch {
+        // HEAD unsupported or slow — continue without known size
+      }
     }
 
+    // Decide window before the real fetch so we can send a tight Range upstream.
+    const forceChunk = req.query?.chunk === '1'
+    let window = resolveServeWindow({
+      clientRange,
+      totalSize: knownTotalSize,
+      forceChunk,
+    })
+
+    // Tiny probes always stay tiny (preflight)
+    if (isTinyRangeProbe) {
+      window = {
+        start: 0,
+        end: clientRange.end,
+        totalSize: knownTotalSize,
+        status: 206,
+        chunked: false,
+        isSmall: true,
+      }
+    }
+
+    // Attach Range for chunked / partial requests so upstream only sends what we need.
+    const requestHeaders = { ...upstreamHeaders }
+    if (window.start != null && (window.chunked || window.status === 206 || clientRange)) {
+      const endPart = window.end != null ? window.end : ''
+      requestHeaders.Range = `bytes=${window.start}-${endPart}`
+    }
+
+    const isKeyHost = hostname.includes('koyeb') || hostname.includes('wildshare') || hostname.includes('silversurfer') || hostname.includes('kissorgrab') || hostname.includes('downloadwella') || hostname.includes('fsmc')
+    if (isKeyHost) {
+      console.log(`Proxy fetch: ${targetUrl.hostname} range=${requestHeaders.Range || 'none'} remux=${req.query?.remux || 'auto'} chunked=${window.chunked}`)
+    }
+
+    let upstream
+    try {
+      upstream = await fetchUpstream(targetUrl.href, requestHeaders, UPSTREAM_CONNECT_MS)
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        return fail(res, 504, 'Upstream fetch timed out — CDN too slow for Vercel Hobby (10s). Try another source.')
+      }
+      throw err
+    }
+
+    if (isKeyHost) {
+      console.log(`Proxy response: ${targetUrl.hostname} status=${upstream.status} type=${upstream.headers.get('content-type') || 'none'}`)
+    }
+
+    // If our Range was rejected (200 full body on a large file), re-clamp with a hard byte cap below.
     if (!upstream.ok && upstream.status !== 206) {
-      // ─── O2TV 404 retry: try to probe for the correct CDN suffix ───
-      // o2tv CDN URLs have random per-file suffixes (otv-XXXXX) that may be wrong.
-      // If we get a 404 from o2tv, try to find the correct URL.
       if (upstream.status === 404 && targetUrl.hostname.includes('o2tv.org')) {
         try {
           const fixedUrl = await probeAndFixO2TvUrl(targetUrl.href)
           if (fixedUrl !== targetUrl.href) {
-            const retryRes = await fetch(fixedUrl, {
-              redirect: 'follow',
-              headers: upstreamHeaders,
-            })
+            const retryRes = await fetchUpstream(fixedUrl, requestHeaders, UPSTREAM_CONNECT_MS)
             if (retryRes.ok || retryRes.status === 206) {
               const retryContentType = retryRes.headers.get('content-type') || ''
               if (/^text\/html/i.test(retryContentType)) {
                 await retryRes.arrayBuffer().catch(() => {})
                 return fail(res, 502, 'Stream server returned a web page instead of video')
               }
-              const retryContentRange = retryRes.headers.get('content-range')
-              const retryContentLength = retryRes.headers.get('content-length')
-              res.setHeader('Content-Type', retryContentType || 'application/octet-stream')
-              res.setHeader('Accept-Ranges', 'bytes')
-              res.setHeader('Cache-Control', cacheControlForType(retryContentType))
-              if (retryContentRange) res.setHeader('Content-Range', retryContentRange)
-              if (retryContentLength) res.setHeader('Content-Length', retryContentLength)
-              res.status(retryRes.status === 206 ? 206 : 200)
-              if (req.method === 'HEAD') { res.end(); return }
-              const reader = retryRes.body.getReader()
-              const ac = new AbortController()
-              const onClose = () => { ac.abort() }
-              req.on('close', onClose)
-              try { await pipeStreamToResponse(reader, res, ac.signal) } catch { /* */ }
-              finally { req.off('close', onClose); await reader.cancel().catch(() => {}) }
-              return
+              const total = totalSizeFromUpstream(retryRes) ?? knownTotalSize
+              const retryWindow = resolveServeWindow({
+                clientRange: parseRangeHeader(requestHeaders.Range || '') || clientRange,
+                totalSize: total,
+                forceChunk,
+              })
+              return streamDirectResponse(retryRes, req, res, { window: retryWindow })
             }
           }
         } catch {
-          // Probing failed — fall through to original 404
+          // fall through
         }
       }
-      return fail(res, upstream.status, `Upstream returned HTTP ${upstream.status}`)
+      // Some CDNs return 200 ignoring Range — still serve with byte cap below.
+      if (upstream.status !== 200) {
+        return fail(res, upstream.status, `Upstream returned HTTP ${upstream.status}`)
+      }
+    }
+
+    // Refine total size from the actual response
+    const responseTotal = totalSizeFromUpstream(upstream)
+    if (responseTotal != null) {
+      knownTotalSize = responseTotal
+      // Recompute window end clamp against real total
+      if (window.end != null && knownTotalSize > 0) {
+        window = {
+          ...window,
+          end: Math.min(window.end, knownTotalSize - 1),
+          totalSize: knownTotalSize,
+        }
+      } else if (window.totalSize == null && knownTotalSize != null) {
+        window = { ...window, totalSize: knownTotalSize }
+      }
+      // If we thought it was large but it's actually small and client wanted full file, switch mode
+      if (!clientRange && !forceChunk && knownTotalSize <= SMALL_FILE_BYTES && upstream.status === 200) {
+        window = {
+          start: 0,
+          end: knownTotalSize - 1,
+          totalSize: knownTotalSize,
+          status: 200,
+          chunked: false,
+          isSmall: true,
+        }
+      }
+    }
+
+    // If upstream ignored Range and returned 200 with a huge body, force chunked cap.
+    if (upstream.status === 200 && !window.isSmall) {
+      window = {
+        start: window.start ?? 0,
+        end: (window.start ?? 0) + CHUNK_BYTES - 1,
+        totalSize: knownTotalSize,
+        status: 206,
+        chunked: true,
+        isSmall: false,
+      }
+      if (knownTotalSize != null) {
+        window.end = Math.min(window.end, knownTotalSize - 1)
+      }
+    }
+
+    // Align window with upstream 206 content-range when present
+    if (upstream.status === 206) {
+      const cr = upstream.headers.get('content-range')
+      const m = cr && cr.match(/bytes\s+(\d+)-(\d+)\/(\d+|\*)/i)
+      if (m) {
+        const uStart = Number(m[1])
+        const uEnd = Number(m[2])
+        const uTotal = m[3] === '*' ? knownTotalSize : Number(m[3])
+        // Cap to CHUNK if large
+        let end = uEnd
+        if (!window.isSmall && (end - uStart + 1) > CHUNK_BYTES) {
+          end = uStart + CHUNK_BYTES - 1
+        }
+        window = {
+          start: uStart,
+          end,
+          totalSize: Number.isFinite(uTotal) ? uTotal : knownTotalSize,
+          status: 206,
+          chunked: !window.isSmall,
+          isSmall: window.isSmall,
+        }
+      }
     }
 
     const contentType = upstream.headers.get('content-type') || ''
@@ -330,9 +567,7 @@ export default async function handler(req, res) {
     const isM3u8ByType = /(?:application\/vnd\.apple\.mpegurl|audio\/mpegurl|application\/x-mpegurl|text\/vnd\.apple\.mpegurl)/i.test(contentType)
     if (isM3u8ByType) {
       let text = await upstream.text()
-      // Decode HTML entities that may appear in m3u8 playlists
       text = text.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x2F;/g, '/').replace(/&#47;/g, '/')
-      // Use the final URL after redirects so relative playlist entries resolve correctly
       const finalUrl = upstream.url || targetUrl.href
       const rewritten = text.split('\n').map((line) => {
         const trimmed = line.trim()
@@ -363,9 +598,7 @@ export default async function handler(req, res) {
     }
 
     // ─── Guard: reject HTML when the client expects video ───
-    // (dead IPTV channels, o2tv error pages, expired downloadwella tokens, etc.)
     if (/^text\/html/i.test(contentType)) {
-      // Consume a small sample for diagnostics, then free the connection
       let snippet = ''
       try {
         const text = await upstream.text()
@@ -382,32 +615,22 @@ export default async function handler(req, res) {
       return fail(res, 502, `Stream server returned a web page instead of video — ${hint}`)
     }
 
-    // Also reject JSON error bodies disguised as application/json
     if (/^application\/json/i.test(contentType) && !/\.json(\?|#|$)/i.test(targetUrl.pathname)) {
       await upstream.arrayBuffer().catch(() => {})
       return fail(res, 502, 'Stream server returned JSON instead of video — link may be expired')
     }
 
-    // ─── MKV Remuxing: convert Matroska to fMP4 on-the-fly ───
-    // Browsers can't play MKV containers natively. This remuxes the same
-    // video/audio data into a fragmented MP4 container (no re-encoding).
-    // Only trigger remuxing when EXPLICITLY requested via remux=1 query param,
-    // or when the upstream Content-Type is definitively Matroska.
-    // Do NOT auto-detect from URL patterns — that causes false positives on IPTV etc.
-    //
-    // CRITICAL for Vercel: full-file remux of multi-GB MKVs cannot finish inside
-    // maxDuration (30s). Client Range probes (bytes=0-1) used by VideoPlayer
-    // preflight must NEVER enter the remux path — remuxing a whole MKV for a
-    // 2-byte range is what produced the 504 Runtime Timeouts in production logs.
-    const rangeHeader = req.headers.range || ''
-    const isTinyRangeProbe = /^bytes=0-\d{1,4}$/i.test(rangeHeader)
+    // ─── MKV Remuxing (SMALL FILES ONLY on Hobby) ───
+    // Full-file remux cannot finish in 10s for multi‑GB MKVs. Only remux when:
+    // - progressive request (no Range / not a probe)
+    // - known size is small OR size unknown but we will hard-cap input bytes
+    // Large MKV → chunked passthrough (browser may need MSE/native MKV support).
     const wantsRemux = req.query?.remux === '1' || isMkvContentType(contentType)
-    // Only remux progressive (no Range) requests. Seeking / preflight uses Range
-    // and must passthrough (or fail fast) so the function returns before timeout.
-    const needsRemux = wantsRemux && !rangeHeader
+    const rangeHeader = req.headers.range || ''
+    const sizeOkForRemux = knownTotalSize == null || knownTotalSize <= REMUX_MAX_INPUT_BYTES
+    const needsRemux = wantsRemux && !rangeHeader && sizeOkForRemux && !window.chunked
 
     if (wantsRemux && isTinyRangeProbe) {
-      // Fast path for VideoPlayer preflight: validate magic / content-type without remux.
       try {
         const reader = upstream.body.getReader()
         const { value: firstChunk, done } = await reader.read()
@@ -417,13 +640,13 @@ export default async function handler(req, res) {
         }
         const firstBytes = Buffer.from(firstChunk)
         const looksMkv = firstBytes[0] === 0x1A
-        // Respond with a tiny body so the client can inspect Content-Type quickly.
         res.setHeader('Content-Type', looksMkv ? 'video/x-matroska' : (contentType || 'application/octet-stream'))
         res.setHeader('Accept-Ranges', 'bytes')
         res.setHeader('Cache-Control', cacheControlForType(contentType))
         res.setHeader('Content-Length', String(Math.min(firstBytes.length, 2)))
+        res.setHeader('X-Chan-Proxy-Mode', 'probe')
         res.status(206)
-        res.setHeader('Content-Range', `bytes 0-1/*`)
+        res.setHeader('Content-Range', `bytes 0-1/${knownTotalSize != null ? knownTotalSize : '*'}`)
         if (req.method === 'HEAD') {
           res.end()
           return
@@ -436,16 +659,25 @@ export default async function handler(req, res) {
       }
     }
 
+    if (wantsRemux && !needsRemux) {
+      // Large MKV or Range seek: never remux under Hobby — chunk passthrough.
+      console.log(
+        `Proxy: remux skipped (Hobby) host=${hostname} size=${knownTotalSize ?? 'unknown'} range=${Boolean(rangeHeader)} chunked=${window.chunked}`,
+      )
+    }
+
     if (needsRemux) {
-      // For MKV files, we must fetch from the start (no Range header)
-      // because the remuxer needs sequential MKV data from the beginning.
       let mkvUpstream = upstream
       if (req.headers.range && (upstream.status === 206 || upstream.headers.get('content-range'))) {
-        // Re-fetch from the beginning without Range
         await upstream.body?.cancel().catch(() => {})
         const freshHeaders = { ...upstreamHeaders }
         delete freshHeaders.Range
-        mkvUpstream = await fetch(targetUrl.href, { redirect: 'follow', headers: freshHeaders })
+        try {
+          mkvUpstream = await fetchUpstream(targetUrl.href, freshHeaders, UPSTREAM_CONNECT_MS)
+        } catch (err) {
+          if (err.name === 'AbortError') return fail(res, 504, 'Upstream fetch timed out during remux re-fetch')
+          throw err
+        }
         if (!mkvUpstream.ok && mkvUpstream.status !== 206) {
           return fail(res, mkvUpstream.status, `Upstream returned HTTP ${mkvUpstream.status}`)
         }
@@ -453,10 +685,6 @@ export default async function handler(req, res) {
 
       try {
         const reader = mkvUpstream.body.getReader()
-
-        // Verify MKV magic (EBML header starts with 0x1A) and probe the video codec
-        // before committing to a 200 response. This lets us return a clear error for
-        // HEVC/H.265 sources instead of silently sending a broken MP4 stream.
         const { value: firstChunk, done } = await reader.read()
         if (done || !firstChunk) {
           await reader.cancel().catch(() => {})
@@ -465,17 +693,14 @@ export default async function handler(req, res) {
         const firstBytes = Buffer.from(firstChunk)
         if (firstBytes[0] !== 0x1A) {
           await reader.cancel().catch(() => {})
-          console.log('Proxy: remux=1 requested but data is not MKV, falling through to passthrough')
-          // Re-fetch so the normal passthrough path below has a fresh body.
-          const refetch = await fetch(targetUrl.href, { redirect: 'follow', headers: upstreamHeaders })
+          console.log('Proxy: remux=1 but data is not MKV — passthrough')
+          const refetch = await fetchUpstream(targetUrl.href, requestHeaders, UPSTREAM_CONNECT_MS)
           if (!refetch.ok && refetch.status !== 206) {
             return fail(res, refetch.status, `Upstream returned HTTP ${refetch.status}`)
           }
-          return streamDirectResponse(refetch, req, res)
+          return streamDirectResponse(refetch, req, res, { window })
         }
 
-        // Wrap the reader so the probe can consume from the start (including the
-        // first chunk we already read), then continue into the remuxer.
         let queued = firstBytes
         const probingReader = {
           read: async () => {
@@ -491,29 +716,26 @@ export default async function handler(req, res) {
 
         let videoCodec = null
         try {
-          // Keep probe short — every ms here counts against maxDuration.
-          videoCodec = await probeMkvVideoCodec(probingReader, { maxBytes: 262144, timeoutMs: 3000 })
+          videoCodec = await probeMkvVideoCodec(probingReader, { maxBytes: 131072, timeoutMs: 2000 })
         } catch (probeErr) {
           console.error('MKV codec probe error:', probeErr.message)
         }
 
         const isHevc = videoCodec && /HEVC|H\.265|V_MPEGH/i.test(videoCodec)
         if (isHevc) {
-          console.log('Proxy: HEVC/H.265 MKV detected — passing through for browser to decode', targetUrl.hostname, videoCodec)
-          // Don't remux HEVC — pass through original bytes (fresh fetch).
+          console.log('Proxy: HEVC MKV — passthrough', hostname, videoCodec)
           await reader.cancel().catch(() => {})
-          const refetch = await fetch(targetUrl.href, { redirect: 'follow', headers: upstreamHeaders })
+          const refetch = await fetchUpstream(targetUrl.href, requestHeaders, UPSTREAM_CONNECT_MS)
           if (!refetch.ok && refetch.status !== 206) {
             return fail(res, refetch.status, `Upstream returned HTTP ${refetch.status}`)
           }
-          return streamDirectResponse(refetch, req, res)
+          return streamDirectResponse(refetch, req, res, { window })
         }
 
-        // Commit to a 200 MP4 response now that we know the codec.
         res.setHeader('Content-Type', 'video/mp4')
         res.setHeader('Cache-Control', cacheControlForType('video/mp4'))
-        // Remux is progressive-only; seeking requires a full re-request.
         res.setHeader('Accept-Ranges', 'none')
+        res.setHeader('X-Chan-Proxy-Mode', 'remux-small')
         res.status(200)
 
         if (req.method === 'HEAD') {
@@ -524,14 +746,13 @@ export default async function handler(req, res) {
 
         const remuxer = new MkvRemuxStream()
         const abortController = new AbortController()
-        // Hard stop remux before Vercel kills the function so the client gets a
-        // clean end rather than a truncated body with no error.
+        let inputBytes = firstBytes.length
         const remuxDeadline = setTimeout(() => {
-          console.error('Proxy: MKV remux deadline reached — ending stream early to avoid 504')
+          console.error('Proxy: MKV remux Hobby deadline — ending early')
           abortController.abort()
           try { remuxer.destroy() } catch { /* */ }
           try { res.end() } catch { /* */ }
-        }, 25000)
+        }, REMUX_DEADLINE_MS)
         const onClose = () => {
           abortController.abort()
           remuxer.destroy()
@@ -543,34 +764,33 @@ export default async function handler(req, res) {
           console.error('MKV remux error:', err.message)
           try { res.end() } catch { /* */ }
         })
-
         remuxer.on('data', (chunk) => {
-          if (!abortController.signal.aborted) {
-            res.write(chunk)
-          }
+          if (!abortController.signal.aborted) res.write(chunk)
         })
-
         remuxer.on('end', () => {
           try { res.end() } catch { /* */ }
         })
 
-        // Feed any leftover bytes the probe did not consume, then continue reading.
         const feedLoop = async () => {
           try {
-            // First feed the queued chunk if the probe left it
             if (queued) {
               if (!remuxer.destroyed) remuxer.write(queued)
               queued = null
             }
             while (!abortController.signal.aborted) {
-              const { done, value } = await reader.read()
-              if (done) break
-              if (!remuxer.destroyed) {
-                remuxer.write(Buffer.from(value))
+              const { done: d, value } = await reader.read()
+              if (d) break
+              const buf = Buffer.from(value)
+              inputBytes += buf.length
+              if (!remuxer.destroyed) remuxer.write(buf)
+              // Hard cap remux input so we never chew the whole Hobby budget
+              if (inputBytes >= REMUX_MAX_INPUT_BYTES) {
+                console.log('Proxy: remux input byte cap reached')
+                break
               }
             }
           } catch {
-            // Stream interrupted
+            // interrupted
           } finally {
             if (!remuxer.destroyed) remuxer.end()
             await reader.cancel().catch(() => {})
@@ -582,25 +802,19 @@ export default async function handler(req, res) {
         req.off('close', onClose)
         clearTimeout(remuxDeadline)
         return
-
       } catch (peekErr) {
         console.error('Proxy MKV peek error:', peekErr.message)
         return fail(res, 502, 'MKV remux failed — could not read stream header')
       }
     }
 
-    // remux requested but client sent Range (seek) — passthrough original MKV.
-    // Browser may fail to play; better than a 30s timeout.
-    if (wantsRemux && rangeHeader) {
-      console.log('Proxy: remux skipped for Range request — passthrough', targetUrl.hostname)
-    }
-
-    // ─── Stream the response directly to the client ───
-    // No buffering. Data flows from upstream → proxy → browser in real-time.
-    // The browser's <video> element controls the flow via Range requests.
-    // If the function times out (10s Hobby / 60s Pro), the browser simply
-    // reconnects with a new Range request — this is standard HTTP behaviour.
-    return streamDirectResponse(upstream, req, res)
+    // ─── Stream (full for small, chunked for large) ───
+    // Browser <video> sees Accept-Ranges + Content-Range and requests the next
+    // 1 MiB window automatically. Each window is a new Hobby-safe invocation.
+    return streamDirectResponse(upstream, req, res, {
+      window,
+      deadlineMs: HOBBY_MAX_DURATION_MS,
+    })
   } catch (err) {
     console.error('Proxy error:', err)
     return fail(res, 502, 'Upstream request failed')
