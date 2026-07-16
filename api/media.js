@@ -10,7 +10,15 @@ import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
 import { resolveNsfwVideoUrl, isNsfwProviderUrl } from '../server-lib/nsfwResolver.js'
 import { resolveNaijapreyChain } from '../server-lib/naijapreyResolver.js'
-import { resolveO2TvShow, resolveO2TvEpisode, probeAndFixO2TvUrl, searchO2Tv } from '../server-lib/o2tvResolver.js'
+import {
+  resolveO2TvShow,
+  resolveO2TvEpisode,
+  probeAndFixO2TvUrl,
+  searchO2Tv,
+  getO2TvSeasons,
+  getO2TvEpisodes,
+} from '../server-lib/o2tvResolver.js'
+import { resolveO2TvEpisodeViaCaptcha } from '../server-lib/o2tvCaptchaResolver.js'
 import { resolveNetNaijaChain } from '../server-lib/netnaijaResolver.js'
 import { resolveArchiveOrgPage, resolveArchiveOrgDirectUrl } from '../server-lib/archiveResolver.js'
 import { searchMaxCinema, resolveMaxCinemaChain } from '../server-lib/maxcinemaResolver.js'
@@ -18,7 +26,15 @@ import { resolveWithBrowser, getBrowser, isBrowserAvailable } from '../server-li
 import { resolveDoodUrl, isDoodUrl } from '../server-lib/doodResolver.js'
 import { sanitizeSearchQuery, sanitizeUrl, sanitizeAction } from '../server-lib/sanitize.js'
 
-const ALLOWED_MEDIA_ACTIONS = ['search', 'scrape', 'refreshCatalog', 'probeIptv']
+const ALLOWED_MEDIA_ACTIONS = [
+  'search',
+  'scrape',
+  'refreshCatalog',
+  'probeIptv',
+  'o2tvSeasons',
+  'o2tvEpisodes',
+  'o2tvResolve',
+]
 
 const MEDIA_EXT_RE = /\.(mp4|m3u8|webm|ogg|mov|mkv|avi|flv|ts)(\?|#|$)/i
 // Server-side key takes precedence; fall back to VITE_ key so a single
@@ -837,7 +853,11 @@ function parseNkiriSearchHtml(searchHtml, baseUrl, seenUrls) {
 }
 
 /**
- * Nkiri Direct Link Search — Hobby-safe (parallel, few queries, soft ranking).
+ * Direct Links = O2TV show listing only (fast, Hobby-safe).
+ * Flow: search shows → Create Room loads seasons → user picks season →
+ * episodes → user picks episode → o2tvResolve → playable proxy URL.
+ * Do NOT deep-resolve every episode at search time (that was incomplete /
+ * timeout-prone and produced flat episode dumps without hierarchy).
  */
 async function searchDirectLinks(query, options = {}) {
   const baseQ = String(query || '').trim()
@@ -845,66 +865,46 @@ async function searchDirectLinks(query, options = {}) {
     return { results: [], hasMore: false, searchedSites: ['o2tv'], multiLayerCascaded: false }
   }
 
-  const maxSeasons = Math.min(6, Math.max(1, Number(options.maxSeasons) || 3))
-  const maxEpisodes = Math.min(20, Math.max(1, Number(options.maxEpisodes) || 12))
-  const limit = Math.min(40, Math.max(5, Number(options.limit) || 25))
+  const limit = Math.min(40, Math.max(5, Number(options.limit) || 20))
 
-  // Direct layer = O2TV / tvshows4mobile only (progressive MP4, Range-seekable).
-  // Nkiri and other scrapers are intentionally disabled here.
-  let raw = []
+  let shows = []
   try {
-    raw = await Promise.race([
-      resolveO2TvShow(baseQ, maxSeasons, maxEpisodes),
+    shows = await Promise.race([
+      searchO2Tv(baseQ, limit),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error('O2TV search timed out')), DIRECT_SEARCH_TIMEOUT_MS),
       ),
     ])
   } catch (err) {
-    console.error('O2TV direct search failed:', err.message)
-    // Fallback: show listing only (no CDN probe) so UI is not empty
-    try {
-      const shows = await searchO2Tv(baseQ, 12)
-      raw = (shows || []).map((s) => ({
-        title: formatMediaTitle(s.title || s.showName || baseQ),
-        url: s.url || `https://tvshows4mobile.org/${s.showSlug}/index.html`,
-        link: s.url || `https://tvshows4mobile.org/${s.showSlug}/index.html`,
-        source: 'o2tv',
-        type: 'direct',
-        isDirect: false,
-        playableInRoom: false,
-        requiresResolve: true,
-        showSlug: s.showSlug,
-        showName: s.showName || s.title,
-      }))
-    } catch (e2) {
-      console.error('O2TV show list fallback failed:', e2.message)
-      raw = []
-    }
+    console.error('O2TV show search failed:', err.message)
+    shows = []
   }
 
-  if (!Array.isArray(raw)) raw = []
+  if (!Array.isArray(shows)) shows = []
 
-  let results = raw.slice(0, limit).map((item) => {
-    const title = formatMediaTitle(item.title || item.showName || baseQ)
-    let playUrl = item.url || item.link || ''
-    // Force progressive MP4 through proxy WITHOUT remux (Jul-14 Range seek path)
-    if (playUrl && item.isDirect && /^https?:\/\//i.test(playUrl) && !playUrl.startsWith('/api/proxy')) {
-      playUrl = `/api/proxy?url=${encodeURIComponent(playUrl)}&referer=${encodeURIComponent('http://d6.o2tv.org/')}`
-    }
+  let results = shows.slice(0, limit).map((s) => {
+    const showName = s.showName || s.title || baseQ
+    const showSlug = s.showSlug || ''
+    const pageUrl = s.url || (showSlug ? `https://tvshows4mobile.org/${showSlug}/` : '')
+    const title = formatMediaTitle(showName) || showName
     return {
       title,
-      url: playUrl,
-      link: playUrl,
-      thumbnail: item.thumbnail || item.image || null,
-      image: item.thumbnail || item.image || null,
+      url: pageUrl,
+      link: pageUrl,
+      thumbnail: null,
+      image: null,
       source: 'o2tv',
       type: 'direct',
-      isDirect: Boolean(item.isDirect || item.playableInRoom || /\.mp4(\?|#|$)/i.test(item.url || '') || /\/api\/proxy\?/i.test(playUrl)),
-      playableInRoom: Boolean(item.playableInRoom || item.isDirect || /\/api\/proxy\?/i.test(playUrl)),
-      requiresResolve: !item.isDirect && !item.playableInRoom,
-      quality: item.quality || extractQuality(item.title || '') || 'HD',
+      isDirect: false,
+      playableInRoom: false,
+      requiresResolve: true,
+      // Hierarchical browse flags for Create Room
+      o2tvKind: 'show',
+      showSlug,
+      showName,
+      quality: 'HD',
       videoType: 'direct',
-      meta: undefined,
+      meta: 'TV show — pick a season, then an episode',
     }
   })
 
@@ -914,11 +914,17 @@ async function searchDirectLinks(query, options = {}) {
     console.error('OMDb enrich (o2tv) failed:', err.message)
   }
 
-  // Final title polish after OMDb
   results = results.map((r) => ({
     ...r,
     title: formatMediaTitle(r.title) || r.title,
     source: 'o2tv',
+    o2tvKind: r.o2tvKind || 'show',
+    // Preserve show metadata after OMDb (enrich spreads item but be defensive)
+    showSlug: r.showSlug,
+    showName: r.showName || r.title,
+    isDirect: false,
+    playableInRoom: false,
+    requiresResolve: true,
   }))
 
   return {
@@ -1288,65 +1294,359 @@ function isResolverHost(url, rootHost) {
   }
 }
 
+/**
+ * Parse tvshows4mobile / o2tv page URLs into { showSlug, showName, seasonNum, epNum, kind }.
+ * kind: 'show' | 'season' | 'episode' | 'cdn'
+ */
+function parseO2TvUrl(pageUrl) {
+  const parsed = new URL(pageUrl)
+  const hostname = parsed.hostname.toLowerCase()
+  const isCdn = hostname.includes('o2tv.org')
+  const isListing = hostname.includes('tvshows4mobile') || hostname.includes('o2tvseries')
+
+  if (!isCdn && !isListing) return null
+
+  const parts = parsed.pathname.split('/').filter(Boolean).map((p) => {
+    try { return decodeURIComponent(p) } catch { return p }
+  })
+
+  // CDN: /Show Name/Season 01/Show Name - S01E01 (...).mp4
+  if (isCdn) {
+    const showName = (parts[0] || 'Show').trim()
+    const seasonMatch = (parts[1] || '').match(/Season[\s-]*(\d+)/i)
+    const seasonNum = seasonMatch ? parseInt(seasonMatch[1], 10) : 1
+    const filename = parts[parts.length - 1] || ''
+    const epMatch = filename.match(/S\d+E(\d+)/i) || filename.match(/Episode[\s-]*(\d+)/i)
+    const epNum = epMatch ? parseInt(epMatch[1], 10) : 1
+    return {
+      kind: /\.mp4/i.test(filename) ? 'cdn' : 'episode',
+      showSlug: showName.replace(/\s+/g, '-'),
+      showName,
+      seasonNum,
+      epNum,
+      rawUrl: pageUrl,
+    }
+  }
+
+  // Listing: /Show-Slug/ or /Show-Slug/Season-01/ or /Show-Slug/Season-01/Episode-01/
+  const showRaw = parts[0] || 'Show'
+  const showSlug = showRaw.replace(/\/index\.html?$/i, '')
+  const showName = showSlug
+    .replace(/^Download-/i, '')
+    .replace(/-otv[a-z0-9]+$/i, '')
+    .replace(/-/g, ' ')
+    .trim()
+
+  const seasonPart = parts[1] || ''
+  const episodePart = parts[2] || ''
+  const seasonMatch = seasonPart.match(/Season[\s-]*(\d+)/i)
+  const seasonNum = seasonMatch ? parseInt(seasonMatch[1], 10) : null
+  const epMatch = episodePart.match(/Episode[\s-]*(\d+)/i) || episodePart.match(/S\d+E(\d+)/i)
+  const epNum = epMatch ? parseInt(epMatch[1], 10) : null
+
+  let kind = 'show'
+  if (seasonNum != null && epNum != null) kind = 'episode'
+  else if (seasonNum != null) kind = 'season'
+
+  return { kind, showSlug, showName, seasonNum: seasonNum || 1, epNum: epNum || 1, rawUrl: pageUrl }
+}
+
 async function resolveO2TvPage(pageUrl) {
   try {
-    const parsed = new URL(pageUrl)
-    const hostname = parsed.hostname.toLowerCase()
-    if (!hostname.includes('o2tvseries') && !hostname.includes('o2tv.org') && !hostname.includes('tvshows4mobile')) {
-      return null
+    const info = parseO2TvUrl(pageUrl)
+    if (!info) return null
+
+    const { kind, showSlug, showName, seasonNum, epNum } = info
+
+    // CDN direct file — probe/fix if needed, then return as playable
+    if (kind === 'cdn') {
+      const fixedUrl = await probeAndFixO2TvUrl(pageUrl)
+      const s = String(seasonNum).padStart(2, '0')
+      const e = String(epNum).padStart(2, '0')
+      return [{
+        title: `${showName} - S${s}E${e}`,
+        url: fixedUrl,
+        link: fixedUrl,
+        source: 'o2tv',
+        isDirect: true,
+        playableInRoom: true,
+        resolvedFrom: pageUrl,
+        showSlug,
+        showName,
+        seasonNum,
+        episodeNum: epNum,
+      }]
     }
 
-    const parts = parsed.pathname.split('/').filter(Boolean).map(p => decodeURIComponent(p))
-    let showRaw = parts[0] || 'Show'
-    let seasonRaw = parts[1] || 'Season 01'
-    let episodeRaw = parts[2] || 'Episode 01'
-
-    const showClean = showRaw
-      .replace(/^Download-/i, '')
-      .replace(/-otv[a-z0-9]+$/i, '')
-      .replace(/-/g, ' ')
-      .trim()
-
-    const showSlug = showRaw
-
-    // Extract season number — handles both "Season 01" and "Season-01"
-    const seasonMatch = seasonRaw.match(/Season[\s-]*(\d+)/i)
-    const seasonNum = seasonMatch ? parseInt(seasonMatch[1], 10) : 1
-
-    // Extract episode number — handles both "Episode 01" and "Episode-01"
-    const epMatch = episodeRaw.match(/Episode[\s-]*(\d+)/i) || episodeRaw.match(/S\d+E(\d+)/i)
-    const epNum = epMatch ? parseInt(epMatch[1], 10) : 1
-
-    // If this is a season page (no episode), resolve all episodes
-    if (!episodeRaw || episodeRaw.startsWith('Season')) {
-      const results = await resolveO2TvShow(showClean, 1, 10)
-      // Filter to just the requested season
-      const seasonPrefix = `S${String(seasonNum).padStart(2, '0')}E`
-      return results.filter(r => r.title.includes(seasonPrefix))
+    // Show root: list seasons (do NOT deep-resolve every episode)
+    if (kind === 'show') {
+      const seasons = await getO2TvSeasons(showSlug)
+      if (!seasons.length) {
+        // Fallback: try resolveO2TvShow for first few eps so UI is not empty
+        const fallback = await resolveO2TvShow(showName, 1, 8)
+        return (fallback || []).map((r) => ({
+          ...r,
+          showSlug,
+          showName,
+          o2tvKind: 'episode',
+        }))
+      }
+      return seasons.map((season) => ({
+        title: `${showName}: Season ${season.number}`,
+        label: season.label || `Season ${season.number}`,
+        url: season.url || `https://tvshows4mobile.org/${showSlug}/Season-${String(season.number).padStart(2, '0')}/`,
+        link: season.url || `https://tvshows4mobile.org/${showSlug}/Season-${String(season.number).padStart(2, '0')}/`,
+        source: 'o2tv',
+        type: 'direct',
+        isDirect: false,
+        playableInRoom: false,
+        requiresResolve: true,
+        o2tvKind: 'season',
+        showSlug,
+        showName,
+        seasonNum: season.number,
+      }))
     }
 
-    // If this is an episode page, try to probe for the CDN URL
-    const result = await resolveO2TvEpisode(showClean, showSlug, seasonNum, epNum)
-    if (result) return [result]
+    // Season page: list episodes (do NOT CDN-probe each yet)
+    if (kind === 'season') {
+      const episodes = await getO2TvEpisodes(showSlug, seasonNum)
+      if (!episodes.length) {
+        // Probe first few as last resort
+        const probed = []
+        for (let ep = 1; ep <= 8; ep += 1) {
+          const result = await resolveO2TvEpisode(showName, showSlug, seasonNum, ep)
+          if (result) probed.push({ ...result, showSlug, showName, seasonNum, episodeNum: ep, o2tvKind: 'episode' })
+        }
+        return probed
+      }
+      const s = String(seasonNum).padStart(2, '0')
+      return episodes.map((ep) => {
+        const e = String(ep.number).padStart(2, '0')
+        return {
+          title: `${showName} - S${s}E${e}`,
+          label: ep.title || `Episode ${ep.number}`,
+          url: ep.url || `https://tvshows4mobile.org/${showSlug}/Season-${s}/Episode-${e}/`,
+          link: ep.url || `https://tvshows4mobile.org/${showSlug}/Season-${s}/Episode-${e}/`,
+          source: 'o2tv',
+          type: 'direct',
+          isDirect: false,
+          playableInRoom: false,
+          requiresResolve: true,
+          o2tvKind: 'episode',
+          showSlug,
+          showName,
+          seasonNum,
+          episodeNum: ep.number,
+        }
+      })
+    }
 
-    // Fallback: probe and fix the URL
-    const s = String(seasonNum).padStart(2, '0')
-    const e = String(epNum).padStart(2, '0')
-    const slugSuffix = showSlug.match(/otv([a-z0-9]+)$/i)?.[1] || '1awrk'
-    const fallbackUrl = `http://d6.o2tv.org/${encodeURIComponent(showClean)}/Season%20${s}/${encodeURIComponent(showClean)}%20-%20S${s}E${e}%20(TvShows4Mobile.Com)%20otv-${slugSuffix}.mp4`
-    const fixedUrl = await probeAndFixO2TvUrl(fallbackUrl)
-    return [{
-      title: `${showClean} - S${s}E${e}`,
-      url: fixedUrl,
-      link: fixedUrl,
-      source: 'o2tv',
-      isDirect: true,
-      playableInRoom: fixedUrl !== fallbackUrl,
-      resolvedFrom: pageUrl,
-    }]
+    // Episode page: probe CDN (and captcha fallback)
+    {
+      let result = await resolveO2TvEpisode(showName, showSlug, seasonNum, epNum)
+      if (!result) {
+        try {
+          const captchaResults = await resolveO2TvEpisodeViaCaptcha(showSlug, seasonNum, epNum)
+          if (captchaResults?.length && captchaResults[0]?.url) {
+            result = captchaResults[0]
+          }
+        } catch (err) {
+          console.error('O2TV captcha fallback failed:', err.message)
+        }
+      }
+      if (result) {
+        return [{
+          ...result,
+          showSlug,
+          showName,
+          seasonNum,
+          episodeNum: epNum,
+          o2tvKind: 'direct',
+          resolvedFrom: pageUrl,
+        }]
+      }
+
+      const s = String(seasonNum).padStart(2, '0')
+      const e = String(epNum).padStart(2, '0')
+      const slugSuffix = showSlug.match(/otv([a-z0-9]+)$/i)?.[1] || '1awrk'
+      const fallbackUrl = `http://d6.o2tv.org/${encodeURIComponent(showName)}/Season%20${s}/${encodeURIComponent(showName)}%20-%20S${s}E${e}%20(TvShows4Mobile.Com)%20otv-${slugSuffix}.mp4`
+      const fixedUrl = await probeAndFixO2TvUrl(fallbackUrl)
+      return [{
+        title: `${showName} - S${s}E${e}`,
+        url: fixedUrl,
+        link: fixedUrl,
+        source: 'o2tv',
+        isDirect: true,
+        playableInRoom: fixedUrl !== fallbackUrl,
+        resolvedFrom: pageUrl,
+        showSlug,
+        showName,
+        seasonNum,
+        episodeNum: epNum,
+        o2tvKind: 'direct',
+        probeFailed: fixedUrl === fallbackUrl,
+      }]
+    }
   } catch (err) {
     console.error('O2TV direct resolution error:', err)
     return null
+  }
+}
+
+/**
+ * Dedicated hierarchical O2TV handlers used by Create Room UI.
+ */
+async function handleO2TvSeasons({ showSlug, showName, thumbnail }) {
+  if (!showSlug) throw Object.assign(new Error('showSlug is required'), { status: 400 })
+  const seasons = await getO2TvSeasons(showSlug)
+  const name = showName || showSlug.replace(/-otv[a-z0-9]+$/i, '').replace(/-/g, ' ').trim()
+  let poster = thumbnail || null
+  if (!poster) {
+    try {
+      poster = await fetchBestOMDbPoster(name)
+    } catch { /* ignore */ }
+  }
+  const results = (seasons || []).map((season) => ({
+    title: `${name}: Season ${season.number}`,
+    label: season.label || `Season ${season.number}`,
+    url: season.url || `https://tvshows4mobile.org/${showSlug}/Season-${String(season.number).padStart(2, '0')}/`,
+    link: season.url || `https://tvshows4mobile.org/${showSlug}/Season-${String(season.number).padStart(2, '0')}/`,
+    thumbnail: poster,
+    image: poster,
+    source: 'o2tv',
+    type: 'direct',
+    isDirect: false,
+    playableInRoom: false,
+    requiresResolve: true,
+    o2tvKind: 'season',
+    showSlug,
+    showName: name,
+    seasonNum: season.number,
+  }))
+  return {
+    results,
+    count: results.length,
+    showSlug,
+    showName: name,
+    thumbnail: poster,
+    stage: 'seasons',
+  }
+}
+
+async function handleO2TvEpisodes({ showSlug, showName, seasonNum, thumbnail }) {
+  if (!showSlug) throw Object.assign(new Error('showSlug is required'), { status: 400 })
+  const season = Math.max(1, Number(seasonNum) || 1)
+  const name = showName || showSlug.replace(/-otv[a-z0-9]+$/i, '').replace(/-/g, ' ').trim()
+  const episodes = await getO2TvEpisodes(showSlug, season)
+  let poster = thumbnail || null
+  if (!poster) {
+    try {
+      poster = await fetchBestOMDbPoster(name)
+    } catch { /* ignore */ }
+  }
+  const s = String(season).padStart(2, '0')
+  const results = (episodes || []).map((ep) => {
+    const e = String(ep.number).padStart(2, '0')
+    return {
+      title: `${name} - S${s}E${e}`,
+      label: ep.title || `Episode ${ep.number}`,
+      url: ep.url || `https://tvshows4mobile.org/${showSlug}/Season-${s}/Episode-${e}/`,
+      link: ep.url || `https://tvshows4mobile.org/${showSlug}/Season-${s}/Episode-${e}/`,
+      thumbnail: poster,
+      image: poster,
+      source: 'o2tv',
+      type: 'direct',
+      isDirect: false,
+      playableInRoom: false,
+      requiresResolve: true,
+      o2tvKind: 'episode',
+      showSlug,
+      showName: name,
+      seasonNum: season,
+      episodeNum: ep.number,
+    }
+  })
+  return {
+    results,
+    count: results.length,
+    showSlug,
+    showName: name,
+    seasonNum: season,
+    thumbnail: poster,
+    stage: 'episodes',
+  }
+}
+
+async function handleO2TvResolve({ showSlug, showName, seasonNum, episodeNum, thumbnail }) {
+  if (!showSlug) throw Object.assign(new Error('showSlug is required'), { status: 400 })
+  const season = Math.max(1, Number(seasonNum) || 1)
+  const ep = Math.max(1, Number(episodeNum) || 1)
+  const name = showName || showSlug.replace(/-otv[a-z0-9]+$/i, '').replace(/-/g, ' ').trim()
+  const s = String(season).padStart(2, '0')
+  const e = String(ep).padStart(2, '0')
+
+  let resolved = await resolveO2TvEpisode(name, showSlug, season, ep)
+  if (!resolved?.url) {
+    try {
+      const captchaResults = await resolveO2TvEpisodeViaCaptcha(showSlug, season, ep)
+      if (captchaResults?.length && captchaResults[0]?.url) {
+        resolved = captchaResults[0]
+      }
+    } catch (err) {
+      console.error('O2TV resolve captcha failed:', err.message)
+    }
+  }
+
+  if (!resolved?.url) {
+    throw Object.assign(
+      new Error(`Could not resolve ${name} S${s}E${e}. Try another episode or quality.`),
+      { status: 404 },
+    )
+  }
+
+  let playUrl = resolved.url
+  if (playUrl && !playUrl.startsWith('/api/proxy') && /^https?:\/\//i.test(playUrl)) {
+    playUrl = `/api/proxy?url=${encodeURIComponent(playUrl)}&referer=${encodeURIComponent('http://d6.o2tv.org/')}`
+  }
+
+  let poster = thumbnail || resolved.thumbnail || null
+  if (!poster) {
+    try {
+      poster = await fetchBestOMDbPoster(name)
+    } catch { /* ignore */ }
+  }
+
+  const item = {
+    title: resolved.title || `${name} - S${s}E${e}`,
+    url: playUrl,
+    link: playUrl,
+    thumbnail: poster,
+    image: poster,
+    source: 'o2tv',
+    type: 'direct',
+    isDirect: true,
+    playableInRoom: true,
+    o2tvKind: 'direct',
+    showSlug,
+    showName: name,
+    seasonNum: season,
+    episodeNum: ep,
+    quality: resolved.quality || 'HD',
+    videoType: 'direct',
+  }
+
+  return {
+    results: [item],
+    count: 1,
+    directCount: 1,
+    resolved: true,
+    stage: 'resolved',
+    showSlug,
+    showName: name,
+    seasonNum: season,
+    episodeNum: ep,
+    thumbnail: poster,
   }
 }
 
@@ -1738,6 +2038,35 @@ export default async function handler(req, res) {
     await requireUser(req)
     const decoded = await verifyIdToken(req.headers.authorization?.split('Bearer ')[1] || '')
     const layer = body.layer || body.source || 'youtube'
+
+    // Hierarchical O2TV browse / resolve (Create Room flow)
+    if (action === 'o2tvSeasons') {
+      const payload = await handleO2TvSeasons({
+        showSlug: body.showSlug || options.showSlug,
+        showName: body.showName || options.showName,
+        thumbnail: body.thumbnail || options.thumbnail,
+      })
+      return ok(res, payload)
+    }
+    if (action === 'o2tvEpisodes') {
+      const payload = await handleO2TvEpisodes({
+        showSlug: body.showSlug || options.showSlug,
+        showName: body.showName || options.showName,
+        seasonNum: body.seasonNum ?? options.seasonNum,
+        thumbnail: body.thumbnail || options.thumbnail,
+      })
+      return ok(res, payload)
+    }
+    if (action === 'o2tvResolve') {
+      const payload = await handleO2TvResolve({
+        showSlug: body.showSlug || options.showSlug,
+        showName: body.showName || options.showName,
+        seasonNum: body.seasonNum ?? options.seasonNum,
+        episodeNum: body.episodeNum ?? options.episodeNum,
+        thumbnail: body.thumbnail || options.thumbnail,
+      })
+      return ok(res, payload)
+    }
     
     // Legacy scrape endpoint
     if (action === 'scrape') {
@@ -1925,25 +2254,51 @@ export default async function handler(req, res) {
         }
       }
 
-      // O2TV URL resolution: probe correct CDN suffix and proxy for HTTPS/CORS
+      // O2TV hierarchical listing / CDN resolve (show → seasons → episodes → MP4)
       if (target.hostname.toLowerCase().includes('o2tv.org') || target.hostname.toLowerCase().includes('tvshows4mobile') || target.hostname.toLowerCase().includes('o2tvseries')) {
         try {
           const o2tvResults = await resolveO2TvPage(url)
           if (o2tvResults && o2tvResults.length > 0) {
+            const info = parseO2TvUrl(url)
+            const posterQuery = info?.showName || query || ''
+            let poster = null
+            try {
+              if (posterQuery) poster = await fetchBestOMDbPoster(posterQuery)
+            } catch { /* ignore */ }
+
             const proxied = o2tvResults.map((item) => {
               if (!item || !item.url) return item
-              if (item.isDirect && !item.url.startsWith('/api/proxy')) {
+              const thumb = item.thumbnail || item.image || poster || null
+              if (item.isDirect && !item.url.startsWith('/api/proxy') && /^https?:\/\//i.test(item.url)) {
                 const playUrl = `/api/proxy?url=${encodeURIComponent(item.url)}&referer=${encodeURIComponent('http://d6.o2tv.org/')}`
-                return { ...item, url: playUrl, link: playUrl }
+                return {
+                  ...item,
+                  url: playUrl,
+                  link: playUrl,
+                  thumbnail: thumb,
+                  image: thumb,
+                  playableInRoom: true,
+                }
               }
-              return item
+              return {
+                ...item,
+                thumbnail: thumb,
+                image: thumb,
+              }
             })
-            const results = deduplicateAndEnrich(proxied, query || '')
+            // Don't title-filter hierarchical season/episode lists
+            const results = deduplicateAndEnrich(proxied, null)
+            const allDirect = results.every((item) => item.isDirect || item.playableInRoom)
             return ok(res, {
               results,
               count: results.length,
-              directCount: results.filter((item) => item.isDirect).length,
-              resolved: true,
+              directCount: results.filter((item) => item.isDirect || item.playableInRoom).length,
+              resolved: allDirect,
+              stage: info?.kind === 'show' ? 'seasons' : info?.kind === 'season' ? 'episodes' : 'resolved',
+              showSlug: info?.showSlug,
+              showName: info?.showName,
+              seasonNum: info?.seasonNum,
+              thumbnail: poster,
               url,
               site: 'o2tv',
             })
