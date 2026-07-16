@@ -108,7 +108,7 @@ export default function VideoPlayer({
   }, [resolvedUrl])
 
   // Detect HLS even when wrapped in /api/proxy?url=...%2Fplaylist.m3u8
-  const isHLS = useMemo(() => {
+  const isHls = useMemo(() => {
     if (!currentUrl) return false
     if (/(?:\.m3u8|m3u8)/i.test(currentUrl)) return true
     if (videoType === 'iptv' || videoType === 'sports') return true
@@ -127,6 +127,33 @@ export default function VideoPlayer({
     } catch { /* */ }
     return false
   }, [currentUrl, videoType, isLive])
+
+  /**
+   * True live linear streams (IPTV/sports) vs VOD HLS (PornHub etc.).
+   * CRITICAL: must NOT treat every m3u8 as live — that disables seeking
+   * (seekTo early-return + isLive() blocks double-tap / scrub for NSFW VOD).
+   */
+  const isLivePlayback = useCallback(() => {
+    if (videoType === 'iptv' || videoType === 'sports') return true
+    if (isLive && videoType !== 'nsfw' && videoType !== 'direct') return true
+    // Explicit room live flag only when not a VOD type
+    if (isLive && (videoType === 'nsfw' || videoType === 'direct')) {
+      // nsfw/direct with isLive is rare; trust finite duration when known
+      const d = durationSec || videoRef.current?.duration || 0
+      if (d > 0 && Number.isFinite(d) && d < 86400) return false
+      return Boolean(isLive)
+    }
+    if (isHls) {
+      const d = durationSec || videoRef.current?.duration || 0
+      // VOD HLS playlists have a finite duration (seconds–hours)
+      if (d > 0 && Number.isFinite(d) && d < 86400) return false
+      // No duration yet: default live only for iptv/sports (handled above)
+      // For nsfw/direct assume VOD until proven otherwise so seek works
+      if (videoType === 'nsfw' || videoType === 'direct' || videoType === 'youtube') return false
+      return !Number.isFinite(d) || d <= 0 || d >= 86400
+    }
+    return false
+  }, [videoType, isLive, isHls, durationSec])
   const isMixedContent = useMemo(
     () => typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(currentUrl),
     [currentUrl]
@@ -460,12 +487,22 @@ export default function VideoPlayer({
 
       if (isHLS) {
         if (videoRef.current) {
-          const isLiveOrIptvStream = isLive || !isFinite(videoRef.current.duration) || videoRef.current.duration > 86400 || videoType === 'iptv' || /(?:\.m3u8|m3u8)/i.test(currentUrl)
-          if (isLiveOrIptvStream) {
-            return
+          // Only block seek on true live linear streams — NOT VOD m3u8 (PornHub)
+          if (isLivePlayback()) return
+          const d = videoRef.current.duration
+          if (!Number.isFinite(d) || d <= 0) {
+            // Duration unknown yet — still try seek (HLS.js often accepts it after MANIFEST_PARSED)
           }
-          videoRef.current.currentTime = targetSec
-          setCurrentSec(targetSec)
+          try {
+            videoRef.current.currentTime = Math.max(0, targetSec)
+            setCurrentSec(targetSec)
+            // hls.js: ensure level loads around seek point
+            if (hlsRef.current) {
+              try { hlsRef.current.startLoad(targetSec) } catch { /* */ }
+            }
+          } catch (err) {
+            console.warn('HLS seek failed:', err)
+          }
         }
         return
       }
@@ -476,9 +513,10 @@ export default function VideoPlayer({
         setCurrentSec(value)
       }
     },
-    isLive: () => isLive || isHLS || !isFinite(durationSec) || durationSec > 86400 || videoType === 'iptv' || /(?:\.m3u8|m3u8)/i.test(currentUrl),
+    // Never treat VOD HLS (nsfw/direct) as live — that freezes the seek bar UX
+    isLive: () => isLivePlayback(),
     loadVideoById: () => {},
-  }), [currentTime, durationSec, isHLS, isLive, playerState, currentUrl, videoType])
+  }), [currentTime, durationSec, isHLS, isLive, playerState, currentUrl, videoType, isLivePlayback])
 
   const notifyReady = useCallback(() => {
     setIsReady(true)
@@ -697,12 +735,12 @@ export default function VideoPlayer({
       video.src = currentUrl
       video.addEventListener('loadedmetadata', onLoadedMetadata)
     } else if (Hls.isSupported()) {
-      // Live IPTV needs low-latency HLS settings; VOD m3u8 (e.g. PornHub) should not.
+      // Live IPTV needs low-latency HLS settings; VOD m3u8 (e.g. PornHub) must NOT
+      // use live mode — live mode breaks seeking / duration reporting.
       const isLiveHls = Boolean(
-        isLive
-        || videoType === 'iptv'
+        videoType === 'iptv'
         || videoType === 'sports'
-        || (videoType !== 'nsfw' && videoType !== 'direct' && /(?:\.m3u8|m3u8)/i.test(currentUrl) && !/\.mp4/i.test(currentUrl))
+        || (isLive && videoType !== 'nsfw' && videoType !== 'direct')
       )
       const hls = new Hls({
         enableWorker: true,
@@ -723,8 +761,18 @@ export default function VideoPlayer({
       hlsRef.current = hls
       hls.loadSource(currentUrl)
       hls.attachMedia(video)
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      hls.on(Hls.Events.MANIFEST_PARSED, (_ev, data) => {
         setHlsLevels(hls.levels || [])
+        // Seed duration early so VOD seek bar enables before first timeupdate
+        try {
+          const level = data?.levels?.[0] || hls.levels?.[0]
+          const details = level?.details
+          const total = details?.totalduration || details?.duration || video.duration || 0
+          if (total > 0 && Number.isFinite(total) && total < 86400) {
+            setDurationSec(total)
+            onDuration?.(total)
+          }
+        } catch { /* */ }
         notifyReady()
       })
       hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
@@ -1212,7 +1260,7 @@ export default function VideoPlayer({
           </div>
         </div>
       )}
-      {isLive && <div className={styles.liveIndicator}><Radio size={10} /> LIVE</div>}
+      {isLivePlayback() && <div className={styles.liveIndicator}><Radio size={10} /> LIVE</div>}
 
       {/* Universal Hollywood Cinema AI Closed Captions / Subtitle Overlay */}
       {subtitlesEnabled && currentSubtitleCueText && (
@@ -1455,9 +1503,9 @@ export default function VideoPlayer({
                   max="1000"
                   value={seekbarValue}
                   onChange={handleSeekSlider}
-                  disabled={!canControl || isLive}
+                  disabled={!canControl || isLivePlayback()}
                   className={styles.rangeInput}
-                  title="Seek position"
+                  title={isLivePlayback() ? 'Live stream — seeking disabled' : 'Seek position'}
                 />
               </div>
 
@@ -1530,9 +1578,9 @@ export default function VideoPlayer({
               max="1000"
               value={seekbarValue}
               onChange={handleSeekSlider}
-              disabled={!canControl || isLive}
+              disabled={!canControl || isLivePlayback()}
               className={styles.rangeInput}
-              title="Seek position"
+              title={isLivePlayback() ? 'Live stream — seeking disabled' : 'Seek position'}
             />
           </div>
 

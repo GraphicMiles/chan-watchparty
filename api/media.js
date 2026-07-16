@@ -1015,25 +1015,40 @@ async function searchIPTV(query, userChannels = [], provider = '', limit = 100) 
       return searchable.includes(term)
     })
     .slice(0, Math.max(1, Number(limit) || 100))
-    .map((channel) => ({
-      id: `iptv-${channel.name.replace(/\s+/g, '-').toLowerCase()}`,
-      title: channel.name,
-      description: channel.group,
-      thumbnail: channel.logo || null,
-      image: channel.logo || null,
-      url: channel.url,
-      channel: channel.name,
-      group: channel.group,
-      country: channel.country,
-      provider: channel.provider,
-      source: 'iptv',
-      type: 'iptv',
-      isDirect: true,
-      isLive: true,
-      // Include health metadata if available from the Firestore catalog
-      healthy: channel.healthy !== false,
-      program: { now: 'Live Broadcast', next: null },
-    }))
+    .map((channel) => {
+      // Always pre-wrap through proxy so http:// + CORS-hostile CDNs work in HTTPS app
+      const raw = channel.url
+      let playUrl = raw
+      try {
+        if (raw && !String(raw).startsWith('/api/proxy')) {
+          playUrl = toProxiedPlaybackUrl(raw)
+        }
+      } catch {
+        playUrl = raw
+      }
+      return {
+        id: `iptv-${channel.name.replace(/\s+/g, '-').toLowerCase()}`,
+        title: channel.name,
+        description: channel.group,
+        thumbnail: channel.logo || null,
+        image: channel.logo || null,
+        // Keep raw for health probes; client uses url for playback
+        url: playUrl,
+        link: playUrl,
+        rawUrl: raw,
+        channel: channel.name,
+        group: channel.group,
+        country: channel.country,
+        provider: channel.provider,
+        source: 'iptv',
+        type: 'iptv',
+        isDirect: true,
+        isLive: true,
+        videoType: 'iptv',
+        healthy: channel.healthy !== false,
+        program: { now: 'Live Broadcast', next: null },
+      }
+    })
 }
 
 function normalizeMatchText(value) {

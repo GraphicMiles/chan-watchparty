@@ -95,7 +95,14 @@ export function usePlayerSync(roomId, room, playerRef) {
     }
     lastPlayingRef.current = state.isPlaying
 
-    const isLiveStream = room?.isLive || room?.videoType === 'iptv' || room?.source === 'iptv' || player.isLive?.()
+    // VOD HLS (nsfw/direct) must still sync seeks — only true linear live skips them
+    const isLiveStream = (
+      room?.videoType === 'iptv'
+      || room?.videoType === 'sports'
+      || room?.source === 'iptv'
+      || (room?.isLive && room?.videoType !== 'nsfw' && room?.videoType !== 'direct')
+      || player.isLive?.()
+    )
     // MKV remux: any meaningful jump must remux-from-t (not only 0.5s drift)
     const remuxJump = isRemuxProxyUrl(room?.videoUrl) && (
       diff > 1.5

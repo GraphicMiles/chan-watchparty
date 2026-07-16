@@ -2,8 +2,10 @@ import { getDb } from './firebaseAdmin.js'
 
 const DEFAULT_PLAYLIST_URL = 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8'
 const CACHE_TTL_MS = 5 * 60 * 1000
-const FETCH_TIMEOUT_MS = 8000
-const HEALTH_TIMEOUT_MS = 4000
+const FETCH_TIMEOUT_MS = 12000
+const HEALTH_TIMEOUT_MS = 5000
+// Prefer a modern browser UA — some free CDNs block bare bots
+const IPTV_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 ChanIPTV/1.0'
 
 let playlistCache = { expiresAt: 0, channels: [] }
 
@@ -263,7 +265,10 @@ async function fetchPlaylist(source) {
   try {
     const response = await fetch(parsed, {
       signal: controller.signal,
-      headers: { 'User-Agent': 'Chan IPTV catalog/1.0', Accept: 'application/vnd.apple.mpegurl,text/plain' },
+      headers: {
+        'User-Agent': IPTV_UA,
+        Accept: 'application/vnd.apple.mpegurl,application/x-mpegURL,audio/x-mpegurl,text/plain,*/*',
+      },
     })
     if (!response.ok) throw new Error(`IPTV playlist returned HTTP ${response.status}`)
     return parseM3U(await response.text(), source)
@@ -308,9 +313,9 @@ export async function checkIptvChannel(url) {
         redirect: 'follow',
         signal: controller.signal,
         headers: {
-          'User-Agent': 'Chan IPTV health check/1.0',
+          'User-Agent': IPTV_UA,
           Range: 'bytes=0-0',
-          Accept: '*/*',
+          Accept: 'application/vnd.apple.mpegurl,application/x-mpegURL,*/*',
         },
       })
     } catch (fetchErr) {
@@ -320,7 +325,7 @@ export async function checkIptvChannel(url) {
           method: 'GET',
           redirect: 'follow',
           signal: controller.signal,
-          headers: { 'User-Agent': 'Chan IPTV health check/1.0' },
+          headers: { 'User-Agent': IPTV_UA, Accept: '*/*' },
         })
       } catch (retryErr) {
         return {
@@ -340,7 +345,7 @@ export async function checkIptvChannel(url) {
           method: 'HEAD',
           redirect: 'follow',
           signal: controller.signal,
-          headers: { 'User-Agent': 'Chan IPTV health check/1.0' },
+          headers: { 'User-Agent': IPTV_UA, Accept: '*/*' },
         })
       } catch {
         return { healthy: false, status: 0, contentType: '', error: 'timeout' }
