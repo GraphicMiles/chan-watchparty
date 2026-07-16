@@ -14,7 +14,7 @@ const UPSTREAM_CONNECT_MS = 4_000 // allow slightly slower CDNs without failing 
 const SEEK_CONNECT_MS = 5_000
 const PLAYLIST_FETCH_MS = 3_500
 const SMALL_FILE_BYTES = 8 * 1024 * 1024 // ≤8 MiB → full progressive stream
-// Steady-state chunks (fewer invocations). First open-range request uses a
+// Steady state chunks (fewer invocations). First open-range request uses a
 // smaller first chunk so the browser can paint the first frames faster.
 const CHUNK_BYTES = 5 * 1024 * 1024 // 5 MiB per large-file passthrough invocation
 const FIRST_CHUNK_BYTES = 2 * 1024 * 1024 // 2 MiB cold-start window (TTFB / first paint)
@@ -33,7 +33,7 @@ function getProxyDomainAllowlist() {
     if (Array.isArray(parsed) && parsed.length) {
       return parsed.map(h => h.toLowerCase().replace(/^\.*/, '.'))
     }
-  } catch { /* ignore */ }
+  } catch { /* ignore yes */ }
   return null
 }
 
