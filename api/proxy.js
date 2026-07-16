@@ -12,9 +12,12 @@ const HOBBY_MAX_DURATION_MS = 9_000
 const UPSTREAM_CONNECT_MS = 3_500
 const PLAYLIST_FETCH_MS = 4_000
 const SMALL_FILE_BYTES = 8 * 1024 * 1024 // ≤8 MiB → full progressive stream
-const CHUNK_BYTES = 1 * 1024 * 1024 // 1 MiB per large-file invocation
-const REMUX_MAX_INPUT_BYTES = 6 * 1024 * 1024 // remux only if source is small
-const REMUX_DEADLINE_MS = 7_000
+const CHUNK_BYTES = 1 * 1024 * 1024 // 1 MiB per large-file passthrough invocation
+// Progressive MKV→fMP4 remux (the Chrome loophole): stream as many clusters as
+// fit in Hobby time. Browser plays fMP4 from the first fragments even if the
+// function ends early. Do NOT require the whole file to remux.
+const REMUX_MAX_INPUT_BYTES = 80 * 1024 * 1024 // soft cap per invocation
+const REMUX_DEADLINE_MS = 8_500
 
 /** Read optional domain allow-list from env (JSON array of hostnames). */
 function getProxyDomainAllowlist() {
@@ -620,15 +623,17 @@ export default async function handler(req, res) {
       return fail(res, 502, 'Stream server returned JSON instead of video — link may be expired')
     }
 
-    // ─── MKV Remuxing (SMALL FILES ONLY on Hobby) ───
-    // Full-file remux cannot finish in 10s for multi‑GB MKVs. Only remux when:
-    // - progressive request (no Range / not a probe)
-    // - known size is small OR size unknown but we will hard-cap input bytes
-    // Large MKV → chunked passthrough (browser may need MSE/native MKV support).
+    // ─── MKV Remuxing (Chrome loophole — restored from ~Jul 15 behavior) ───
+    // Chrome cannot play Matroska. The working path was:
+    //   remux=1 → ignore client Range → re-fetch from byte 0 → stream fMP4
+    //   until the Hobby deadline. The browser starts playback from early
+    //   fragments even if the serverless function dies mid-file.
+    // Chunked RAW MKV passthrough does NOT work in Chrome — never skip remux
+    // just because the file is large or the client sent Range.
     const wantsRemux = req.query?.remux === '1' || isMkvContentType(contentType)
     const rangeHeader = req.headers.range || ''
-    const sizeOkForRemux = knownTotalSize == null || knownTotalSize <= REMUX_MAX_INPUT_BYTES
-    const needsRemux = wantsRemux && !rangeHeader && sizeOkForRemux && !window.chunked
+    // Tiny probes stay probes; everything else with remux=1 enters remux path.
+    const needsRemux = wantsRemux && !isTinyRangeProbe
 
     if (wantsRemux && isTinyRangeProbe) {
       try {
@@ -660,15 +665,19 @@ export default async function handler(req, res) {
     }
 
     if (wantsRemux && !needsRemux) {
-      // Large MKV or Range seek: never remux under Hobby — chunk passthrough.
+      // Only tiny Range probes skip remux (handled above).
       console.log(
-        `Proxy: remux skipped (Hobby) host=${hostname} size=${knownTotalSize ?? 'unknown'} range=${Boolean(rangeHeader)} chunked=${window.chunked}`,
+        `Proxy: remux skipped for probe host=${hostname} size=${knownTotalSize ?? 'unknown'} range=${rangeHeader || 'none'}`,
       )
     }
 
     if (needsRemux) {
+      // Always remux from byte 0 (historical working behavior). Client Range is ignored.
       let mkvUpstream = upstream
-      if (req.headers.range && (upstream.status === 206 || upstream.headers.get('content-range'))) {
+      const hadRange = Boolean(req.headers.range) || upstream.status === 206 || Boolean(upstream.headers.get('content-range'))
+      // Also re-fetch when we previously forced a chunked Range on the upstream request
+      const forcedChunkRange = Boolean(requestHeaders.Range)
+      if (hadRange || forcedChunkRange) {
         await upstream.body?.cancel().catch(() => {})
         const freshHeaders = { ...upstreamHeaders }
         delete freshHeaders.Range
@@ -734,8 +743,9 @@ export default async function handler(req, res) {
 
         res.setHeader('Content-Type', 'video/mp4')
         res.setHeader('Cache-Control', cacheControlForType('video/mp4'))
+        // Progressive remux is not seekable via HTTP Range (same as Jul 15 loophole)
         res.setHeader('Accept-Ranges', 'none')
-        res.setHeader('X-Chan-Proxy-Mode', 'remux-small')
+        res.setHeader('X-Chan-Proxy-Mode', 'remux-progressive')
         res.status(200)
 
         if (req.method === 'HEAD') {

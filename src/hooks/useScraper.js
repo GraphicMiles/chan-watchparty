@@ -1,7 +1,29 @@
 import { useState, useCallback } from 'react'
 import { isDirectVideoUrl, normalizeDirectUrl, normalizePlaybackUrl } from '../shared/lib/youtube.js'
 import { useAuth } from '../shared/auth/hooks/useAuth.jsx'
-import { isSuitableThumbnail, isTitleMatch } from '../shared/lib/mediaHelper.js'
+import { isSuitableThumbnail, isTitleMatch, cleanTitleForMatching } from '../shared/lib/mediaHelper.js'
+
+function softClientTitleMatch(title, query) {
+  if (!title || !query) return true
+  if (isTitleMatch(title, query)) return true
+  const baseQuery = String(query)
+    .replace(/\s+season\s*\d+.*$/i, '')
+    .replace(/\s+s\d+\s*e?\d*.*$/i, '')
+    .trim()
+  if (baseQuery && isTitleMatch(title, baseQuery)) return true
+  const qTokens = cleanTitleForMatching(baseQuery || query)
+    .split(/\s+/)
+    .filter((t) => t.length >= 3 && !['season', 'episode', 'complete', 'series'].includes(t))
+  if (!qTokens.length) return true
+  const tClean = cleanTitleForMatching(title)
+  // Majority of meaningful tokens is enough (strict every-token wiped Nkiri titles)
+  const hits = qTokens.filter((t) => tClean.includes(t))
+  if (hits.length === 0) {
+    // primary token only (e.g. "silo")
+    return qTokens[0] && tClean.includes(qTokens[0])
+  }
+  return hits.length >= Math.ceil(qTokens.length * 0.5)
+}
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 
@@ -69,16 +91,22 @@ export function useScraper() {
 
       const targetQuery = (url || query || '').trim()
 
-      const filtered = (data.results || []).filter((item) => {
+      const rawResults = data.results || []
+      let filtered = rawResults.filter((item) => {
         if (!item) return false
         if (!isActualUrl && targetQuery) {
           const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'omdb'].includes(item.source)
-          if (isDirectOrMovie && !isTitleMatch(item.title, targetQuery)) {
+          // Soft match only — strict isTitleMatch was returning 0 for real Nkiri hits
+          if (isDirectOrMovie && !softClientTitleMatch(item.title, targetQuery)) {
             return false
           }
         }
         return true
       })
+      // Never show empty if the server returned pages (layout/title noise)
+      if (filtered.length === 0 && rawResults.length > 0 && !isActualUrl) {
+        filtered = rawResults.filter(Boolean)
+      }
 
       const normalized = filtered.map((item, index) => {
         const link = normalizePlaybackUrl(item.url || item.link || '')

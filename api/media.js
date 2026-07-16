@@ -660,8 +660,11 @@ function parseNkiriSearchHtml(searchHtml, baseUrl, seenUrls) {
     if (!href.startsWith('http')) return
     // Accept thenkiri / nkiri hosts
     if (!/thenkiri\.com|nkiri\.com/i.test(href)) return
-    if (/\/(page|category|tag|search|author|wp-json|feed)\//i.test(href)) return
-    if (/[?&]s=/i.test(href) && !/\/\d{4}\//i.test(href)) return
+    // Drop WP chrome / taxonomy / feeds — keep content slugs like /silo-s03-complete-tv-series/
+    if (/\/(page|category|tag|search|author|wp-json|feed|wp-content|wp-includes|comments)\//i.test(href)) return
+    if (/[?&]s=/i.test(href)) return
+    if (/#/.test(href) && href.replace(/#.*$/, '').replace(/\/$/, '') === baseHost) return
+    if (/\/(how-to-download|login|register)\/?$/i.test(href)) return
     if (seenUrls.has(href)) return
     const title = String(titleRaw || '').replace(/\s+/g, ' ').trim()
       || href.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ')

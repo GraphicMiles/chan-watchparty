@@ -8,35 +8,40 @@ const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 function softClientTitleMatch(title, query) {
   if (!title || !query) return true
   if (isTitleMatch(title, query)) return true
-  const baseQuery = String(query).replace(/\s+season\s*\d+$/i, '').trim()
+  const baseQuery = String(query)
+    .replace(/\s+season\s*\d+.*$/i, '')
+    .replace(/\s+s\d+\s*e?\d*.*$/i, '')
+    .trim()
   if (baseQuery && isTitleMatch(title, baseQuery)) return true
   const itemBase = String(title)
     .replace(/\s*[-–]\s*season\s*\d+.*$/i, '')
     .replace(/\s*s\d+\s*e\d+.*$/i, '')
     .trim()
   if (baseQuery && isTitleMatch(itemBase, baseQuery)) return true
-  // Soft: all meaningful tokens appear in title
   const qTokens = cleanTitleForMatching(baseQuery || query)
     .split(/\s+/)
-    .filter((t) => t.length >= 3)
+    .filter((t) => t.length >= 3 && !['season', 'episode', 'complete', 'series', 'download'].includes(t))
   if (!qTokens.length) return true
   const tClean = cleanTitleForMatching(title)
-  return qTokens.every((t) => tClean.includes(t))
+  const hits = qTokens.filter((t) => tClean.includes(t))
+  if (hits.length === 0) return Boolean(qTokens[0] && tClean.includes(qTokens[0]))
+  return hits.length >= Math.ceil(qTokens.length * 0.5)
 }
 
 function deduplicateAndSyncThumbnails(items, query = null) {
   if (!Array.isArray(items)) return []
   const seenUrls = new Set()
   const seenTitles = new Set()
+  const q = query && String(query).trim()
 
-  return items.filter((item) => {
+  const kept = items.filter((item) => {
     if (!item) return false
 
     // Soft title filter only — strict isTitleMatch was wiping entire providers
     // (netnaija / maxcinema / fztvseries) when titles had quality tags.
-    if (query && String(query).trim()) {
+    if (q) {
       const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'fztvseries', 'archiveorg', 'meetdownload', 'waploaded', 'maxcinema', 'omdb'].includes(item.source)
-      if (isDirectOrMovie && !softClientTitleMatch(item.title, query)) {
+      if (isDirectOrMovie && !softClientTitleMatch(item.title, q)) {
         return false
       }
     }
@@ -61,6 +66,26 @@ function deduplicateAndSyncThumbnails(items, query = null) {
 
     return true
   })
+
+  // Never wipe the whole result set when titles are noisy (Nkiri "Silo S03 | TV Series")
+  if (kept.length === 0 && items.length > 0) {
+    const fallback = []
+    const seen = new Set()
+    for (const item of items) {
+      if (!item) continue
+      const urlKey = String(item.url || item.link || item.id || '').trim().toLowerCase()
+      if (!urlKey || seen.has(urlKey)) continue
+      seen.add(urlKey)
+      let thumb = item.thumbnail || item.image || item.poster || null
+      if (!isSuitableThumbnail(thumb)) thumb = null
+      item.thumbnail = thumb
+      item.image = thumb
+      fallback.push(item)
+      if (fallback.length >= 40) break
+    }
+    return fallback
+  }
+  return kept
 }
 
 export function useUnifiedSearch() {
