@@ -19,15 +19,21 @@ const BASE_URL = 'https://tvshows4mobile.org'
 const CDN_HOSTS = ['d6', 'd2', 'd4', 'd8', 'd1']
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 const TIMEOUT_MS = 8000
+// Full catalog page is ~600KB+; allow more time on cold Vercel / slow egress.
+const LIST_TIMEOUT_MS = 14000
 
 // ─── In-memory CDN suffix cache: showKey → { suffix, ts } ───
 const suffixCache = captchaSuffixCache  // Shared with o2tvCaptchaResolver
 const CACHE_TTL = 4 * 60 * 60 * 1000 // 4 hours
 
+// Catalog cache so repeated Direct searches don't re-download 600KB every time
+let catalogCache = { html: '', ts: 0, parsed: null }
+const CATALOG_TTL = 30 * 60 * 1000 // 30 minutes
+
 // ─── Fetch HTML from tvshows4mobile.org ───
-async function fetchPage(url) {
+async function fetchPage(url, timeoutMs = TIMEOUT_MS) {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const res = await fetch(url, {
       signal: controller.signal,
@@ -36,12 +42,71 @@ async function fetchPage(url) {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
       },
+      redirect: 'follow',
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     return await res.text()
   } finally {
     clearTimeout(timer)
   }
+}
+
+/**
+ * Parse the full show catalog once (regex — much lighter than cheerio on 600KB).
+ * Returns array of { showSlug, showName, url }.
+ */
+function parseCatalogHtml(html) {
+  if (!html) return []
+  const shows = []
+  const seen = new Set()
+  // Absolute + relative show root links
+  const patterns = [
+    /href=["'](https?:\/\/(?:www\.)?tvshows4mobile\.org\/([^/"'#?]+)\/(?:index\.html)?)["'][^>]*>([\s\S]*?)<\/a>/gi,
+    /href=["'](\/([^/"'#?]+)\/(?:index\.html)?)["'][^>]*>([\s\S]*?)<\/a>/gi,
+  ]
+  for (const re of patterns) {
+    let m
+    while ((m = re.exec(html)) !== null) {
+      const rawHref = m[1]
+      const showSlug = m[2]
+      if (!showSlug || seen.has(showSlug.toLowerCase())) continue
+      if (/^(search|css|images|download|enable-javascript|login|register|contact|about|privacy|dmca|faq|blog|page|tag|category|wp-|assets|static|js|fonts)/i.test(showSlug)) continue
+      if (/Season-|Episode-/i.test(showSlug)) continue
+      let text = String(m[3] || '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim()
+      // Prefer slug-derived name if anchor text is empty / junk
+      if (!text || text.length < 1) {
+        text = showSlug.replace(/-otv[a-z0-9]+$/i, '').replace(/-/g, ' ').trim()
+      }
+      const url = /^https?:\/\//i.test(rawHref)
+        ? rawHref
+        : `${BASE_URL}/${showSlug}/index.html`
+      seen.add(showSlug.toLowerCase())
+      shows.push({
+        showSlug,
+        showName: text,
+        title: text,
+        url,
+        source: 'o2tv',
+      })
+    }
+  }
+  return shows
+}
+
+async function getCatalogShows() {
+  if (catalogCache.parsed && Date.now() - catalogCache.ts < CATALOG_TTL) {
+    return catalogCache.parsed
+  }
+  const html = await fetchPage(`${BASE_URL}/search/list_all_tv_series`, LIST_TIMEOUT_MS)
+  const parsed = parseCatalogHtml(html)
+  catalogCache = { html, ts: Date.now(), parsed }
+  return parsed
 }
 
 // ─── HEAD-probe a single CDN URL ───
@@ -177,66 +242,89 @@ async function probeCdnForEpisode(showName, seasonNum, epNum, showSlug, maxConcu
 
 // ─── Search tvshows4mobile.org for a show ───
 export async function searchO2Tv(query, maxResults = 10) {
+  const qRaw = String(query || '').trim()
+  if (!qRaw) return []
+  const qNorm = normalize(qRaw)
+  if (!qNorm) return []
+
   try {
-    // The ?s= search uses Google CSE which we can't use server-side.
-    // Instead, scrape the list_all_tv_series page and filter by query.
-    const html = await fetchPage(`${BASE_URL}/search/list_all_tv_series`)
-    const $ = cheerio.load(html)
-    const results = []
-    const qNorm = normalize(query)
+    // Prefer full catalog (cached) — ?s= is Google CSE and unreliable server-side.
+    let catalog = []
+    try {
+      catalog = await getCatalogShows()
+    } catch (err) {
+      console.error('O2TV catalog fetch failed:', err.message)
+      catalog = []
+    }
 
-    // Show links on the list page
-    $('a[href*="tvshows4mobile.org/"]').each((_, el) => {
-      const href = $(el).attr('href') || ''
-      const text = $(el).text().trim()
-      if (!href || !text) return
-
-      // Only match show root links (not season/episode/css/etc)
-      const showMatch = href.match(/tvshows4mobile\.org\/([^/]+)\/(?:index\.html)?$/)
-      if (!showMatch) return
-
-      // Skip utility links
-      if (/^(search|css|images|download|enable-javascript)/i.test(showMatch[1])) return
-
-      const showSlug = showMatch[1]
-      const titleNorm = normalize(text)
-
-      // Match check: query tokens must appear in title
-      if (!titleNorm.includes(qNorm) && qNorm.length >= 3) {
-        // Also try: every query word appears in title
-        const qWords = qNorm.split(/(.{3,})/).filter(Boolean)
-        if (qWords.length > 1) {
-          const allPresent = qWords.every(w => titleNorm.includes(w))
-          if (!allPresent) return
-        } else {
-          return
+    // Fallback: homepage / search page if catalog empty
+    if (!catalog.length) {
+      for (const path of ['/', `/search/?s=${encodeURIComponent(qRaw)}`]) {
+        try {
+          const html = await fetchPage(`${BASE_URL}${path}`, TIMEOUT_MS)
+          catalog = parseCatalogHtml(html)
+          if (catalog.length) break
+        } catch (e) {
+          console.error('O2TV fallback search failed:', path, e.message)
         }
       }
+    }
 
-      // Extract clean show name from title text
-      const showName = text.trim()
-
-      results.push({
-        title: showName,
-        showSlug,
-        showName,
-        url: href,
+    const scored = []
+    for (const show of catalog) {
+      const titleNorm = normalize(show.showName || show.title)
+      const slugNorm = normalize(
+        String(show.showSlug || '')
+          .replace(/-otv[a-z0-9]+$/i, '')
+          .replace(/-/g, ' ')
+      )
+      let matchScore = 0
+      if (titleNorm === qNorm || slugNorm === qNorm) matchScore = 100
+      else if (titleNorm.startsWith(qNorm) || slugNorm.startsWith(qNorm)) matchScore = 90
+      else if (titleNorm.includes(qNorm) || slugNorm.includes(qNorm)) matchScore = 80
+      else {
+        // Multi-word: all significant tokens present
+        const tokens = qNorm.match(/[a-z0-9]{2,}/g) || []
+        if (tokens.length >= 2) {
+          const hay = titleNorm + slugNorm
+          if (tokens.every((t) => hay.includes(t))) matchScore = 60
+        }
+      }
+      if (matchScore <= 0) continue
+      scored.push({
+        title: show.showName || show.title,
+        showSlug: show.showSlug,
+        showName: show.showName || show.title,
+        url: show.url || `${BASE_URL}/${show.showSlug}/index.html`,
         source: 'o2tv',
-        matchScore: titleNorm === qNorm ? 100 : (titleNorm.includes(qNorm) ? 80 : 50),
+        matchScore,
       })
-    })
+    }
 
-    // Deduplicate by show slug and sort by match score
-    const seen = new Set()
-    const deduped = results
-      .filter(r => {
-        if (seen.has(r.showSlug)) return false
-        seen.add(r.showSlug)
-        return true
-      })
-      .sort((a, b) => b.matchScore - a.matchScore)
+    scored.sort((a, b) => b.matchScore - a.matchScore || a.title.localeCompare(b.title))
 
-    return deduped.slice(0, maxResults)
+    // Last-resort synthetic hit so UI is never empty for common titles when
+    // the catalog page is blocked but the show path may still exist.
+    if (!scored.length && qNorm.length >= 3) {
+      const guessSlug = qRaw
+        .trim()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+      if (guessSlug) {
+        scored.push({
+          title: qRaw,
+          showSlug: guessSlug,
+          showName: qRaw,
+          url: `${BASE_URL}/${guessSlug}/index.html`,
+          source: 'o2tv',
+          matchScore: 10,
+          guessed: true,
+        })
+      }
+    }
+
+    return scored.slice(0, Math.max(1, Number(maxResults) || 10))
   } catch (err) {
     console.error('O2TV search failed:', err.message)
     return []
@@ -256,9 +344,12 @@ export async function getO2TvSeasons(showSlug) {
       if (match) {
         const num = parseInt(match[1], 10)
         if (!seasons.find(s => s.number === num)) {
+          const abs = /^https?:\/\//i.test(href)
+            ? href
+            : `${BASE_URL}/${showSlug}/Season-${String(num).padStart(2, '0')}/index.html`
           seasons.push({
             number: num,
-            url: href,
+            url: abs,
             label: `Season ${num}`,
           })
         }
@@ -287,10 +378,13 @@ export async function getO2TvEpisodes(showSlug, seasonNum) {
       if (match) {
         const num = parseInt(match[1], 10)
         if (!episodes.find(e => e.number === num)) {
+          const abs = /^https?:\/\//i.test(href)
+            ? href
+            : `${BASE_URL}/${showSlug}/Season-${String(seasonNum).padStart(2, '0')}/Episode-${String(num).padStart(2, '0')}/index.html`
           episodes.push({
             number: num,
             title: text || `Episode ${num}`,
-            url: href,
+            url: abs,
           })
         }
       }

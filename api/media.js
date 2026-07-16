@@ -866,27 +866,52 @@ async function searchDirectLinks(query, options = {}) {
   }
 
   const limit = Math.min(40, Math.max(5, Number(options.limit) || 20))
+  // Catalog page is large; give searchO2Tv enough headroom (it caches after first hit).
+  const searchTimeout = Math.max(DIRECT_SEARCH_TIMEOUT_MS, 14000)
 
   let shows = []
+  let searchError = null
   try {
     shows = await Promise.race([
       searchO2Tv(baseQ, limit),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('O2TV search timed out')), DIRECT_SEARCH_TIMEOUT_MS),
+        setTimeout(() => reject(new Error('O2TV search timed out')), searchTimeout),
       ),
     ])
   } catch (err) {
+    searchError = err.message
     console.error('O2TV show search failed:', err.message)
     shows = []
   }
 
   if (!Array.isArray(shows)) shows = []
 
+  // Absolute last resort so Direct layer is never a hard empty for a typed title
+  if (!shows.length && baseQ.length >= 2) {
+    const guessSlug = baseQ
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+    if (guessSlug) {
+      shows = [{
+        title: baseQ,
+        showName: baseQ,
+        showSlug: guessSlug,
+        url: `https://tvshows4mobile.org/${guessSlug}/index.html`,
+        source: 'o2tv',
+        matchScore: 5,
+        guessed: true,
+      }]
+    }
+  }
+
   let results = shows.slice(0, limit).map((s) => {
-    const showName = s.showName || s.title || baseQ
-    const showSlug = s.showSlug || ''
-    const pageUrl = s.url || (showSlug ? `https://tvshows4mobile.org/${showSlug}/` : '')
-    const title = formatMediaTitle(showName) || showName
+    const showName = String(s.showName || s.title || baseQ).trim() || baseQ
+    const showSlug = String(s.showSlug || '').trim()
+    const pageUrl = String(s.url || (showSlug ? `https://tvshows4mobile.org/${showSlug}/index.html` : '')).trim()
+    // Keep short clean titles; formatMediaTitle is for noisy episode labels
+    const title = showName.length <= 80 ? showName : (formatMediaTitle(showName) || showName)
     return {
       title,
       url: pageUrl,
@@ -898,15 +923,17 @@ async function searchDirectLinks(query, options = {}) {
       isDirect: false,
       playableInRoom: false,
       requiresResolve: true,
-      // Hierarchical browse flags for Create Room
       o2tvKind: 'show',
       showSlug,
       showName,
       quality: 'HD',
       videoType: 'direct',
-      meta: 'TV show — pick a season, then an episode',
+      meta: s.guessed
+        ? 'Guessed show link — open to load seasons'
+        : 'TV show — pick a season, then an episode',
+      matchScore: s.matchScore || 0,
     }
-  })
+  }).filter((r) => r.url && r.showSlug)
 
   try {
     results = await enrichWithOMDbPosters(results, baseQ)
@@ -916,10 +943,9 @@ async function searchDirectLinks(query, options = {}) {
 
   results = results.map((r) => ({
     ...r,
-    title: formatMediaTitle(r.title) || r.title,
+    title: String(r.title || r.showName || baseQ),
     source: 'o2tv',
-    o2tvKind: r.o2tvKind || 'show',
-    // Preserve show metadata after OMDb (enrich spreads item but be defensive)
+    o2tvKind: 'show',
     showSlug: r.showSlug,
     showName: r.showName || r.title,
     isDirect: false,
@@ -932,6 +958,7 @@ async function searchDirectLinks(query, options = {}) {
     hasMore: false,
     searchedSites: ['o2tv'],
     multiLayerCascaded: false,
+    error: results.length ? undefined : (searchError || undefined),
   }
 }
 
@@ -2842,9 +2869,22 @@ export default async function handler(req, res) {
           break
         case 'direct': {
           const page = await searchDirectLinks(query, options)
-          results = page.results
+          results = page.results || []
           hasMore = page.hasMore
-          break
+          // Direct results are already title-matched by searchO2Tv — skip the
+          // second soft filter in deduplicateAndEnrich which can wipe short titles.
+          const omdbEnriched = await enrichWithOMDbPosters(results, query)
+          const deduped = deduplicateAndEnrich(omdbEnriched, null)
+          return ok(res, {
+            success: true,
+            layer,
+            query,
+            count: deduped.length,
+            hasMore: false,
+            results: deduped,
+            searchedSites: page.searchedSites || ['o2tv'],
+            error: page.error,
+          })
         }
         case 'iptv':
           results = await searchIPTV(query, options.userChannels || [], options.provider || '')
