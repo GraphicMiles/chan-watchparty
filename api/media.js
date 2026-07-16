@@ -2626,6 +2626,9 @@ export default async function handler(req, res) {
                   : resolved.source === 'spankbang' ? 'https://spankbang.party/'
                     : 'https://www.pornhub.com/')
             const videoUrl = toProxiedPlaybackUrl(resolved.videoUrl, { referer })
+            const streamType = resolved.type === 'hls' || /\.m3u8/i.test(resolved.videoUrl || '')
+              ? 'hls'
+              : (resolved.type || 'mp4')
             return ok(res, {
               results: [{
                 title: decodeURIComponent(target.pathname.split('/').pop() || 'Video'),
@@ -2636,10 +2639,12 @@ export default async function handler(req, res) {
                 type: 'nsfw',
                 isDirect: true,
                 playableInRoom: true,
-                videoType: 'direct',
+                // Keep nsfw type so room/player can treat stream correctly; HLS is seekable
+                videoType: 'nsfw',
                 resolvedFrom: url,
                 quality: resolved.quality || null,
-                streamType: resolved.type || 'mp4',
+                streamType,
+                seekable: streamType === 'hls' || resolved.seekable === true,
               }],
               count: 1,
               directCount: 1,

@@ -107,7 +107,26 @@ export default function VideoPlayer({
     proxyFallbackAttemptedRef.current = /^\/api\/proxy\?/i.test(resolvedUrl)
   }, [resolvedUrl])
 
-  const isHLS = useMemo(() => /(?:\.m3u8|m3u8)/i.test(currentUrl), [currentUrl])
+  // Detect HLS even when wrapped in /api/proxy?url=...%2Fplaylist.m3u8
+  const isHLS = useMemo(() => {
+    if (!currentUrl) return false
+    if (/(?:\.m3u8|m3u8)/i.test(currentUrl)) return true
+    if (videoType === 'iptv' || videoType === 'sports') return true
+    if (isLive && !/\.(mp4|webm|mkv|ogg|mov)(\?|#|$)/i.test(currentUrl)) return true
+    // Decode proxy target for detection
+    try {
+      if (/\/api\/proxy\?/i.test(currentUrl)) {
+        const u = new URL(currentUrl, typeof window !== 'undefined' ? window.location.origin : 'https://chan.invalid')
+        const target = u.searchParams.get('url') || ''
+        if (/(?:\.m3u8|m3u8)/i.test(target)) return true
+        try {
+          const decoded = decodeURIComponent(target)
+          if (/(?:\.m3u8|m3u8)/i.test(decoded)) return true
+        } catch { /* */ }
+      }
+    } catch { /* */ }
+    return false
+  }, [currentUrl, videoType, isLive])
   const isMixedContent = useMemo(
     () => typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(currentUrl),
     [currentUrl]
@@ -678,18 +697,28 @@ export default function VideoPlayer({
       video.src = currentUrl
       video.addEventListener('loadedmetadata', onLoadedMetadata)
     } else if (Hls.isSupported()) {
-      const isLiveHls = isLive || currentUrl.includes('/api/proxy') && /(?:\.m3u8|m3u8)/i.test(currentUrl)
+      // Live IPTV needs low-latency HLS settings; VOD m3u8 (e.g. PornHub) should not.
+      const isLiveHls = Boolean(
+        isLive
+        || videoType === 'iptv'
+        || videoType === 'sports'
+        || (videoType !== 'nsfw' && videoType !== 'direct' && /(?:\.m3u8|m3u8)/i.test(currentUrl) && !/\.mp4/i.test(currentUrl))
+      )
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: isLiveHls,
-        backBufferLength: isLiveHls ? 30 : 60,
-        maxBufferLength: isLiveHls ? 30 : 60,
+        backBufferLength: isLiveHls ? 30 : 90,
+        maxBufferLength: isLiveHls ? 30 : 90,
         maxMaxBufferLength: isLiveHls ? 120 : 600,
         liveSyncDurationCount: isLiveHls ? 3 : undefined,
-        liveMaxLatencyDurationCount: isLiveHls ? 8 : undefined,
-        manifestLoadingTimeOut: 15000,
-        levelLoadingTimeOut: 15000,
-        fragLoadingTimeOut: 20000,
+        liveMaxLatencyDurationCount: isLiveHls ? 10 : undefined,
+        // Tolerate flaky free IPTV CDNs
+        manifestLoadingTimeOut: isLiveHls ? 20000 : 15000,
+        levelLoadingTimeOut: isLiveHls ? 20000 : 15000,
+        fragLoadingTimeOut: isLiveHls ? 25000 : 20000,
+        manifestLoadingMaxRetry: 4,
+        levelLoadingMaxRetry: 4,
+        fragLoadingMaxRetry: 6,
       })
       hlsRef.current = hls
       hls.loadSource(currentUrl)

@@ -113,12 +113,21 @@ function isSupportedStreamUrl(value) {
     const host = url.hostname.toLowerCase()
     // Skip well-known non-IPTV hosts
     if (host.includes('youtube.com') || host.includes('youtu.be') || host.includes('twitch.tv')) return false
-    // Skip MPD (DASH) — browsers can't play it natively
-    if (/\.mpd(?:\?|#|$)/i.test(url.pathname)) return false
+    // Skip MPD (DASH) — browsers can't play it natively without dash.js
+    if (/\.mpd(?:\?|#|$)/i.test(url.pathname + url.search)) return false
     // Skip ellipsis / placeholder URLs
     if (value.includes('...')) return false
-    // Skip localhost / loopback
+    // Skip localhost / loopback / private link-local junk
     if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') return false
+    // Prefer formats browsers can play (HLS / progressive). Still allow
+    // extension-less live paths (common for Akamai/Wowza) — player will try HLS.
+    const path = `${url.pathname}${url.search}`.toLowerCase()
+    const looksStream =
+      /\.m3u8?(?:\?|#|$)/i.test(path)
+      || /\.(mp4|ts|mpd)(?:\?|#|$)/i.test(path)
+      || /playlist|chunklist|index|live|hls|stream|channel|master/i.test(path)
+      || url.port !== '' // many IPTV boxes use host:port/path without extension
+    if (!looksStream && !/\//.test(url.pathname.slice(1))) return false
     return true
   } catch {
     return false
@@ -342,12 +351,22 @@ export async function checkIptvChannel(url) {
     await response.body?.cancel?.()
 
     const contentType = response.headers.get('content-type') || ''
+    const ct = contentType.toLowerCase()
     // Accept video/mpeg, video/mp2t, application/octet-stream, and m3u8 content types
-    // Also accept 200/206 responses that are NOT HTML error pages
-    const isHtml = contentType.toLowerCase().includes('text/html')
-    const isVideoType = /video\/|mpegurl|octet-stream|mpeg|mp2t/i.test(contentType)
-    const healthy = (response.ok || response.status === 206) && !isHtml && (isVideoType || contentType === '')
-    return { healthy, status: response.status, contentType, error: healthy ? null : `HTTP ${response.status}` }
+    // Also accept 200/206 responses that are NOT HTML error pages.
+    // Many IPTV playlists return text/plain, audio/x-mpegurl, application/vnd.apple.mpegurl
+    // with empty/odd types — treat those as healthy when status is OK.
+    const isHtml = ct.includes('text/html')
+    const isPlaylistOrVideo = /video\/|mpegurl|x-mpegurl|apple\.mpegurl|octet-stream|mpeg|mp2t|text\/plain|application\/json/i.test(ct)
+      || ct === ''
+      || /\.m3u8?(?:\?|#|$)/i.test(url)
+    const healthy = (response.ok || response.status === 206) && !isHtml && isPlaylistOrVideo
+    return {
+      healthy,
+      status: response.status,
+      contentType,
+      error: healthy ? null : (isHtml ? 'HTML error page' : `HTTP ${response.status}`),
+    }
   } catch (error) {
     return {
       healthy: false,

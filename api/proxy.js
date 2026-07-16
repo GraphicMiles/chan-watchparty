@@ -362,8 +362,11 @@ export default async function handler(req, res) {
       && clientRange.end != null
       && clientRange.end <= 16
 
-    // ─── Early m3u8 detection by URL path (avoids streaming a playlist) ───
-    const isM3u8ByPath = /\.m3u8(?:\?|#|$)/i.test(targetUrl.pathname)
+    // ─── Early m3u8 / M3U playlist handling (rewrite relative segments through proxy) ───
+    // Match .m3u8 / .m3u in path OR query (some CDNs use ?type=index.m3u8)
+    const isM3u8ByPath = /\.m3u8?(?:\?|#|$)/i.test(targetUrl.pathname)
+      || /\.m3u8?/i.test(targetUrl.search)
+      || /[?&](?:type|format)=[^&]*m3u8?/i.test(targetUrl.search)
 
     if (isM3u8ByPath) {
       let response
@@ -377,31 +380,38 @@ export default async function handler(req, res) {
 
       const finalUrl = response.url || targetUrl.href
       let text = await response.text()
+      // Some CDNs return HTML error pages with 200 — reject those
+      if (/^\s*<(!DOCTYPE|html)/i.test(text)) {
+        return fail(res, 502, 'Upstream returned HTML instead of an HLS playlist')
+      }
       text = text.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x2F;/g, '/').replace(/&#47;/g, '/')
-      const rewritten = text.split('\n').map((line) => {
+      const rewriteUri = (rawUri) => {
+        try {
+          const decoded = String(rawUri).replace(/&amp;/g, '&').replace(/&#x2F;/g, '/').replace(/&#47;/g, '/')
+          const abs = new URL(decoded, finalUrl).href
+          // Preserve upstream referer for segment fetches when set
+          let out = `/api/proxy?url=${encodeURIComponent(abs)}`
+          if (refererOverride && /^https?:\/\//i.test(refererOverride)) {
+            out += `&referer=${encodeURIComponent(refererOverride)}`
+          }
+          return out
+        } catch {
+          return rawUri
+        }
+      }
+      const rewritten = text.split(/\r?\n/).map((line) => {
         const trimmed = line.trim()
         if (!trimmed) return line
         if (trimmed.startsWith('#')) {
-          return line.replace(/URI="([^"]+)"/gi, (_, keyUri) => {
-            try {
-              const decodedKey = keyUri.replace(/&amp;/g, '&').replace(/&#x2F;/g, '/')
-              const absKey = new URL(decodedKey, finalUrl).href
-              return `URI="/api/proxy?url=${encodeURIComponent(absKey)}"`
-            } catch {
-              return `URI="${keyUri}"`
-            }
-          })
+          // Rewrite URI="..." in EXT-X-KEY / EXT-X-MAP / EXT-X-MEDIA etc.
+          return line.replace(/URI="([^"]+)"/gi, (_, keyUri) => `URI="${rewriteUri(keyUri)}"`)
         }
-        try {
-          const absoluteUri = new URL(trimmed, finalUrl).href
-          return `/api/proxy?url=${encodeURIComponent(absoluteUri)}`
-        } catch {
-          return line
-        }
+        return rewriteUri(trimmed)
       }).join('\n')
 
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl')
       res.setHeader('Cache-Control', cacheControlForType('', true))
+      res.setHeader('Access-Control-Allow-Origin', '*')
       res.status(200).send(rewritten)
       return
     }

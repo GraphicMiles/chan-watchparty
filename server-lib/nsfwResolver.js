@@ -122,60 +122,100 @@ async function fetchJson(url, referer) {
   }
 }
 
+/**
+ * Score a quality label for playback viability.
+ * Prefer mid-tier (480–720): seekable enough, smaller than 1080/4K, better than 240.
+ */
+function qualityScore(q) {
+  const n = parseInt(String(q ?? '').replace(/[^\d]/g, ''), 10)
+  if (!Number.isFinite(n) || n <= 0) return 50
+  // Sweet spot ~720, then 480, then 360; penalize ultra-high (bandwidth) and tiny (looks bad)
+  if (n >= 700 && n <= 800) return 100
+  if (n >= 450 && n < 700) return 90
+  if (n >= 300 && n < 450) return 70
+  if (n > 800 && n <= 1100) return 60
+  if (n > 1100) return 30
+  return 40
+}
+
+function defUrl(d) {
+  return cleanExtractedUrl(d?.videoUrl || d?.url || d?.link || '')
+}
+
+function isHlsDef(d) {
+  const url = defUrl(d) || ''
+  const fmt = String(d?.format || d?.type || '').toLowerCase()
+  return fmt === 'hls' || fmt === 'm3u8' || /\.m3u8(\?|#|$)/i.test(url) || /\/hls\//i.test(url)
+}
+
+function isPlayableDef(d) {
+  const url = defUrl(d)
+  if (!url || !/^https?:\/\//i.test(url)) return false
+  // get_media / remote JSON endpoints are not playable files
+  if (/get_media/i.test(url) && !/\.(mp4|m3u8)(\?|#|$)/i.test(url)) return false
+  if (d?.remote === true && !isHlsDef(d) && !/\.(mp4|m3u8)(\?|#|$)/i.test(url)) return false
+  return true
+}
+
 function pickBestDefinition(definitions) {
   if (!Array.isArray(definitions) || !definitions.length) return null
 
-  const isPlayable = (d) => {
-    const url = cleanExtractedUrl(d?.videoUrl || d?.url || d?.link || '')
-    return typeof url === 'string' && /^https?:\/\//i.test(url)
-  }
+  const playable = definitions.filter(isPlayableDef)
+  if (!playable.length) return null
 
-  // Prefer HLS (m3u8) — segmented streams are seekable, MP4 often isn't
-  // (moov atom at end = must download entire file before seeking)
-  const hls = definitions
-    .filter((d) => isPlayable(d) && (
-      String(d.format || '').toLowerCase() === 'hls'
-      || /\.m3u8/i.test(cleanExtractedUrl(d.videoUrl || d.url || '') || '')
-    ))
-    .sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0))
+  // Prefer HLS (m3u8) — segmented streams are Range/seek friendly.
+  // Progressive PH MP4 often has moov-at-end → unseekable until fully downloaded.
+  const hls = playable
+    .filter(isHlsDef)
+    .sort((a, b) => qualityScore(b.quality) - qualityScore(a.quality)
+      || (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0))
 
   if (hls.length) {
     const best = hls[0]
     return {
-      videoUrl: cleanExtractedUrl(best.videoUrl || best.url),
+      videoUrl: defUrl(best),
       type: 'hls',
       quality: best.quality,
+      seekable: true,
     }
   }
 
-  // Fallback: progressive MP4 that is NOT a remote get_media JSON endpoint
-  const mp4Direct = definitions
-    .filter((d) => isPlayable(d) && String(d.format || '').toLowerCase() === 'mp4' && !d.remote)
-    .filter((d) => !/get_media|\/hls\//i.test(cleanExtractedUrl(d.videoUrl || d.url || '') || ''))
-    .sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0))
+  // Progressive MP4: prefer mid quality (480–720), never force 1080+ first
+  const mp4Direct = playable
+    .filter((d) => {
+      const url = defUrl(d) || ''
+      const fmt = String(d.format || '').toLowerCase()
+      if (d.remote === true) return false
+      if (/get_media/i.test(url)) return false
+      return fmt === 'mp4' || /\.mp4(\?|#|$)/i.test(url)
+    })
+    .sort((a, b) => qualityScore(b.quality) - qualityScore(a.quality))
 
   if (mp4Direct.length) {
     const best = mp4Direct[0]
     return {
-      videoUrl: cleanExtractedUrl(best.videoUrl || best.url),
+      videoUrl: defUrl(best),
       type: 'mp4',
       quality: best.quality,
+      // Progressive CDN MP4 may still be poorly seekable if moov is at end
+      seekable: false,
     }
   }
 
-  // Any remaining direct http URL that looks like media
-  const anyMedia = definitions
-    .filter(isPlayable)
-    .filter((d) => !/get_media/i.test(cleanExtractedUrl(d.videoUrl || d.url || '') || ''))
-    .sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0))
+  // Any remaining direct media URL
+  const anyMedia = playable
+    .filter((d) => !/get_media/i.test(defUrl(d) || ''))
+    .sort((a, b) => qualityScore(b.quality) - qualityScore(a.quality))
 
   if (anyMedia.length) {
     const best = anyMedia[0]
-    const url = cleanExtractedUrl(best.videoUrl || best.url)
+    const url = defUrl(best)
+    const hlsType = /\.m3u8/i.test(url || '')
     return {
       videoUrl: url,
-      type: /\.m3u8/i.test(url || '') ? 'hls' : 'mp4',
+      type: hlsType ? 'hls' : 'mp4',
       quality: best.quality,
+      seekable: hlsType,
     }
   }
 
@@ -540,28 +580,71 @@ async function resolvePornhub(pageUrl) {
   const scriptBlocks = []
   $('script').each((_, el) => {
     const text = $(el).html()
-    if (text && (text.includes('mediaDefinitions') || text.includes('videoUrl') || text.includes('flashvars'))) {
+    if (text && (text.includes('mediaDefinitions') || text.includes('videoUrl') || text.includes('flashvars') || text.includes('qualityItems'))) {
       scriptBlocks.push(text)
     }
   })
 
+  // Prefer m3u8 hits in scripts first (seekable), then mp4
+  const scriptCandidates = []
   for (const script of scriptBlocks) {
-    // Try to find any direct video URLs in the script
-    const directUrlMatch = script.match(/["'](https?:\/\/[^"']*\.(?:mp4|m3u8)[^"']*)["']/i)
-    if (directUrlMatch?.[1]) {
-      const url = cleanExtractedUrl(directUrlMatch[1])
-      if (url && !/get_media/i.test(url)) {
-        return {
-          videoUrl: url,
-          type: /\.m3u8/i.test(url) ? 'hls' : 'mp4',
-          source: 'pornhub',
-          referer: 'https://www.pornhub.com/',
-        }
-      }
+    const re = /["'](https?:\/\/[^"']+\.(?:m3u8|mp4)[^"']*)["']/gi
+    let sm
+    while ((sm = re.exec(script)) !== null) {
+      const url = cleanExtractedUrl(sm[1])
+      if (!url || /get_media/i.test(url)) continue
+      scriptCandidates.push(url)
+    }
+  }
+  const hlsScript = scriptCandidates.find((u) => /\.m3u8/i.test(u))
+  if (hlsScript) {
+    return {
+      videoUrl: hlsScript,
+      type: 'hls',
+      source: 'pornhub',
+      referer: 'https://www.pornhub.com/',
+      seekable: true,
+    }
+  }
+  if (scriptCandidates[0]) {
+    return {
+      videoUrl: scriptCandidates[0],
+      type: 'mp4',
+      source: 'pornhub',
+      referer: 'https://www.pornhub.com/',
+      seekable: false,
     }
   }
 
-  throw new Error('Could not extract video URL from PornHub page')
+  // Strategy 7: next-video / player bootstrap JSON sometimes embeds stream URLs
+  // after client-side "continue" — scrape any get_media links and expand them.
+  const getMediaUrls = [...html.matchAll(/https?:\/\/[^"'\\s]+get_media[^"'\\s]*/gi)]
+    .map((m) => cleanExtractedUrl(m[0]))
+    .filter(Boolean)
+  const uniqueGetMedia = [...new Set(getMediaUrls)].slice(0, 4)
+  for (const gm of uniqueGetMedia) {
+    try {
+      const remote = await fetchJson(gm, pageUrl)
+      const list = Array.isArray(remote)
+        ? remote
+        : (Array.isArray(remote?.mediaDefinitions) ? remote.mediaDefinitions : [])
+      const picked = pickBestDefinition(list)
+      if (picked?.videoUrl) {
+        return {
+          videoUrl: picked.videoUrl,
+          type: picked.type || 'mp4',
+          source: 'pornhub',
+          quality: picked.quality,
+          referer: 'https://www.pornhub.com/',
+          seekable: picked.seekable,
+        }
+      }
+    } catch {
+      /* next */
+    }
+  }
+
+  throw new Error('Could not extract video URL from PornHub page — stream may require browser JS unlock')
 }
 
 /**

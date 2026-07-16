@@ -148,8 +148,13 @@ export function normalizePlaybackUrl(url, opts = {}) {
     // are left untouched.
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
     const isSameOrigin = origin && parsed.origin === origin
-    const hasVideoExtension = /\.(mp4|m3u8|webm|ogg|mov|avi|flv|ts)(\?|#|$)/i.test(parsed.pathname + parsed.search)
-    const shouldProxyDirect = opts.forceProxy || (!isSameOrigin && hasVideoExtension)
+    const pathAndQuery = parsed.pathname + parsed.search
+    const hasVideoExtension = /\.(mp4|m3u8|webm|ogg|mov|avi|flv|ts)(\?|#|$)/i.test(pathAndQuery)
+    // Extension-less live paths still need proxy when http or CORS-hostile
+    const looksLiveHls = /playlist|chunklist|index\.m3u|master\.m3u|\/live\/|\/hls\//i.test(pathAndQuery)
+    const shouldProxyDirect = opts.forceProxy
+      || (!isSameOrigin && hasVideoExtension)
+      || (!isSameOrigin && looksLiveHls)
 
     if (isMkv || isKoyebWatch || needsProxyHost || isHttp || shouldProxyDirect) {
       let out = `/api/proxy?url=${encodeURIComponent(normalized)}`
