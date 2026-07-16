@@ -303,24 +303,49 @@ export async function searchO2Tv(query, maxResults = 10) {
 
     scored.sort((a, b) => b.matchScore - a.matchScore || a.title.localeCompare(b.title))
 
-    // Last-resort synthetic hit so UI is never empty for common titles when
-    // the catalog page is blocked but the show path may still exist.
+    // Last resort: only if a guessed show page actually exists (avoid fake results).
+    // Invalid slugs soft-redirect to the homepage (still 200 + Season- links), so
+    // we require the show slug to appear in the HTML title / canonical path.
     if (!scored.length && qNorm.length >= 3) {
       const guessSlug = qRaw
         .trim()
         .replace(/[^\w\s-]/g, '')
         .replace(/\s+/g, '-')
         .replace(/-+/g, '-')
-      if (guessSlug) {
-        scored.push({
-          title: qRaw,
-          showSlug: guessSlug,
-          showName: qRaw,
-          url: `${BASE_URL}/${guessSlug}/index.html`,
-          source: 'o2tv',
-          matchScore: 10,
-          guessed: true,
-        })
+        .replace(/^-|-$/g, '')
+      if (guessSlug && guessSlug.length >= 2) {
+        try {
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), 5000)
+          const res = await fetch(`${BASE_URL}/${guessSlug}/`, {
+            signal: controller.signal,
+            headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' },
+            redirect: 'follow',
+          })
+          clearTimeout(timer)
+          const finalUrl = res.url || ''
+          const probe = await res.text()
+          const slugInPath = new RegExp(`/${guessSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`, 'i').test(finalUrl)
+          const slugInHtml = new RegExp(guessSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(probe)
+          const isShowPage = slugInPath
+            && slugInHtml
+            && /Season-\d+/i.test(probe)
+            && !/404 Page Not Found/i.test(probe)
+            && !/list_all_tv_series/i.test(finalUrl)
+          if (isShowPage) {
+            scored.push({
+              title: qRaw,
+              showSlug: guessSlug,
+              showName: qRaw,
+              url: `${BASE_URL}/${guessSlug}/index.html`,
+              source: 'o2tv',
+              matchScore: 10,
+              guessed: true,
+            })
+          }
+        } catch {
+          /* no guess */
+        }
       }
     }
 

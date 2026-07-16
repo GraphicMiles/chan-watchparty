@@ -106,9 +106,15 @@ export function sanitizeUrl(rawUrl) {
 export function sanitizeAction(action, allowedActions = []) {
   if (!action || typeof action !== 'string') return null
   const clean = action.toLowerCase().trim()
+  // Allow camelCase / snake_case / kebab-case action ids
   if (!/^[a-z][a-z0-9_-]*$/.test(clean)) return null
-  if (allowedActions.length > 0 && !allowedActions.includes(clean)) return null
-  return clean
+  if (!Array.isArray(allowedActions) || allowedActions.length === 0) return clean
+  // Match case-insensitively, but return the canonical form from the allowlist
+  // (e.g. client sends "o2tvSeasons" → clean "o2tvseasons" → return "o2tvSeasons").
+  // Without this, camelCase actions like refreshCatalog / probeIptv / o2tvResolve
+  // were rejected and silently fell back to "search".
+  const canonical = allowedActions.find((a) => String(a).toLowerCase() === clean)
+  return canonical || null
 }
 
 /**

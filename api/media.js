@@ -886,25 +886,8 @@ async function searchDirectLinks(query, options = {}) {
 
   if (!Array.isArray(shows)) shows = []
 
-  // Absolute last resort so Direct layer is never a hard empty for a typed title
-  if (!shows.length && baseQ.length >= 2) {
-    const guessSlug = baseQ
-      .replace(/[^\w\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-    if (guessSlug) {
-      shows = [{
-        title: baseQ,
-        showName: baseQ,
-        showSlug: guessSlug,
-        url: `https://tvshows4mobile.org/${guessSlug}/index.html`,
-        source: 'o2tv',
-        matchScore: 5,
-        guessed: true,
-      }]
-    }
-  }
+  // Do NOT invent fake show slugs here — searchO2Tv already probes guesses.
+  // Returning bogus /Show/ links breaks Create Room season loading.
 
   let results = shows.slice(0, limit).map((s) => {
     const showName = String(s.showName || s.title || baseQ).trim() || baseQ
@@ -1669,22 +1652,36 @@ async function handleO2TvResolve({ showSlug, showName, seasonNum, episodeNum, th
   const s = String(season).padStart(2, '0')
   const e = String(ep).padStart(2, '0')
 
-  let resolved = await resolveO2TvEpisode(name, slug, season, ep)
+  // Prefer captcha/download-page resolve first when GROQ is available — CDN
+  // suffix probing is slow and often 404s for newer shows. Fall back to probe.
+  let resolved = null
+  try {
+    const captchaResults = await resolveO2TvEpisodeViaCaptcha(slug, season, ep)
+    if (captchaResults?.length && captchaResults[0]?.url && typeof captchaResults[0].url === 'string') {
+      resolved = captchaResults[0]
+    }
+  } catch (err) {
+    console.error('O2TV resolve captcha failed:', err.message)
+  }
+
   if (!resolved?.url || typeof resolved.url !== 'string') {
     try {
-      const captchaResults = await resolveO2TvEpisodeViaCaptcha(slug, season, ep)
-      if (captchaResults?.length && captchaResults[0]?.url && typeof captchaResults[0].url === 'string') {
-        resolved = captchaResults[0]
-      }
+      resolved = await resolveO2TvEpisode(name, slug, season, ep)
     } catch (err) {
-      console.error('O2TV resolve captcha failed:', err.message)
+      console.error('O2TV CDN probe failed:', err.message)
     }
   }
 
   const rawPlay = asPlainString(resolved?.url)
   if (!rawPlay) {
+    // Clear error — Create Room can show Retry; room is not created with a dead URL
+    const needsGroq = !process.env.GROQ_API_KEY
     throw Object.assign(
-      new Error(`Could not resolve ${name} S${s}E${e}. Try another episode or quality.`),
+      new Error(
+        needsGroq
+          ? `Could not resolve ${name} S${s}E${e}. Server needs GROQ_API_KEY for O2TV captcha unlock, or try another episode.`
+          : `Could not resolve ${name} S${s}E${e}. Try another episode or quality.`
+      ),
       { status: 404 },
     )
   }
