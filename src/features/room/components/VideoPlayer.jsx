@@ -8,7 +8,7 @@ import {
 import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
-import { normalizePlaybackUrl } from '../../../shared/lib/youtube.js'
+import { normalizePlaybackUrl, isRemuxProxyUrl, withRemuxSeekTime, getRemuxSeekTime } from '../../../shared/lib/youtube.js'
 import { useToast } from '../../../shared/ui/index.js'
 import { VideoUpscaler } from './VideoUpscaler.jsx'
 import styles from './VideoPlayer.module.scss'
@@ -85,8 +85,11 @@ export default function VideoPlayer({
   // Allow runtime proxy fallback if direct playback fails (e.g. missing CORS headers)
   const [currentUrl, setCurrentUrl] = useState(resolvedUrl)
   const proxyFallbackAttemptedRef = useRef(false)
+  // Logical timeline origin for MKV seek-by-time remux (player clock restarts at 0)
+  const remuxBaseTimeRef = useRef(0)
   useEffect(() => {
     setCurrentUrl(resolvedUrl)
+    remuxBaseTimeRef.current = getRemuxSeekTime(resolvedUrl)
     proxyFallbackAttemptedRef.current = /^\/api\/proxy\?/i.test(resolvedUrl)
   }, [resolvedUrl])
 
@@ -331,8 +334,13 @@ export default function VideoPlayer({
 
   const currentTime = useCallback(() => {
     if (isHLS) return videoRef.current?.currentTime || 0
-    return playerRef.current?.getCurrentTime?.() || 0
-  }, [isHLS])
+    const local = playerRef.current?.getCurrentTime?.() || 0
+    // Remux-from-t streams restart at 0; expose room-absolute time for sync
+    if (isRemuxProxyUrl(currentUrl)) {
+      return (remuxBaseTimeRef.current || 0) + local
+    }
+    return local
+  }, [isHLS, currentUrl])
 
   const playerState = useCallback(() => (playingRef.current ? 1 : 2), [])
 
@@ -363,19 +371,39 @@ export default function VideoPlayer({
     },
     seekTo: (value, type = 'seconds') => {
       const dur = (isHLS ? videoRef.current?.duration : playerRef.current?.getDuration?.()) || durationSec || 0
+      const seekType = type === true ? 'seconds' : type
+      const targetSec = seekType === 'fraction' ? (value * (dur || 0)) : value
+
+      // MKV remux: real seek = new remux-from-t URL (synced via playerState.currentTime)
+      if (!isHLS && isRemuxProxyUrl(currentUrl) && !isLive && videoType !== 'iptv') {
+        const t = Math.max(0, Number(targetSec) || 0)
+        const next = withRemuxSeekTime(currentUrl, t)
+        const prevT = getRemuxSeekTime(currentUrl)
+        if (Math.abs(t - prevT) < 1.25 && Math.abs((currentTime() || 0) - t) < 2) {
+          // Small nudge within progressive buffer — try native seek first
+          try { playerRef.current?.seekTo?.(t, 'seconds') } catch { /* */ }
+          setCurrentSec(t)
+          return
+        }
+        remuxBaseTimeRef.current = t
+        setCurrentSec(t)
+        setCurrentUrl(next)
+        // Notify room so viewers remux from the same t (absolute timeline)
+        onPlayerEventRef.current?.({ isPlaying: playingRef.current, currentTime: t, remuxStartSec: t })
+        return
+      }
+
       if (isHLS) {
         if (videoRef.current) {
           const isLiveOrIptvStream = isLive || !isFinite(videoRef.current.duration) || videoRef.current.duration > 86400 || videoType === 'iptv' || /(?:\.m3u8|m3u8)/i.test(currentUrl)
           if (isLiveOrIptvStream) {
             return
           }
-          const targetSec = type === 'fraction' ? value * dur : value
           videoRef.current.currentTime = targetSec
           setCurrentSec(targetSec)
         }
         return
       }
-      const seekType = type === true ? 'seconds' : type
       playerRef.current?.seekTo?.(value, seekType === 'fraction' ? 'fraction' : 'seconds')
       if (seekType === 'fraction' && dur) {
         setCurrentSec(value * dur)

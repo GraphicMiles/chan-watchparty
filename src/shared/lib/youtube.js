@@ -175,6 +175,59 @@ export function normalizePlaybackUrl(url, opts = {}) {
   }
 }
 
+
+/** True when playback URL is MKV remuxed through /api/proxy. */
+export function isRemuxProxyUrl(url) {
+  if (!url || typeof url !== 'string') return false
+  if (!/\/api\/proxy\?/i.test(url)) return false
+  if (/[?&]remux=1(?:&|$)/i.test(url)) return true
+  try {
+    const u = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'https://chan.invalid')
+    const target = u.searchParams.get('url') || ''
+    return /\.mkv(\?|#|$)/i.test(target) || /-mkv/i.test(target)
+  } catch {
+    return /\.mkv/i.test(url)
+  }
+}
+
+/**
+ * Set or clear seek-by-time on a remux proxy URL (?t=seconds).
+ * Used so host + all participants remux from the same MKV cue.
+ */
+export function withRemuxSeekTime(url, timeSec) {
+  if (!url || typeof url !== 'string') return url
+  const t = Math.max(0, Number(timeSec) || 0)
+  try {
+    const base = typeof window !== 'undefined' ? window.location.origin : 'https://chan.invalid'
+    // Relative /api/proxy?... 
+    if (url.startsWith('/api/proxy')) {
+      const u = new URL(url, base)
+      if (t < 0.5) u.searchParams.delete('t')
+      else u.searchParams.set('t', String(Math.floor(t * 10) / 10))
+      return `${u.pathname}?${u.searchParams.toString()}`
+    }
+    if (/\/api\/proxy\?/i.test(url)) {
+      const u = new URL(url)
+      if (t < 0.5) u.searchParams.delete('t')
+      else u.searchParams.set('t', String(Math.floor(t * 10) / 10))
+      return u.toString()
+    }
+  } catch { /* fall through */ }
+  return url
+}
+
+export function getRemuxSeekTime(url) {
+  if (!url || typeof url !== 'string') return 0
+  try {
+    const base = typeof window !== 'undefined' ? window.location.origin : 'https://chan.invalid'
+    const u = url.startsWith('/') ? new URL(url, base) : new URL(url)
+    const t = Number(u.searchParams.get('t') || 0)
+    return Number.isFinite(t) && t > 0 ? t : 0
+  } catch {
+    return 0
+  }
+}
+
 export function isMixedContentUrl(url) {
   return typeof window !== 'undefined'
     && window.location.protocol === 'https:'

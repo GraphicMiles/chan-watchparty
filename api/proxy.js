@@ -3,6 +3,7 @@ import { validateFetchUrl, isPrivateHost } from '../server-lib/ssrf.js'
 import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
 import { probeAndFixO2TvUrl } from '../server-lib/o2tvResolver.js'
 import { MkvRemuxStream, isMkvContentType, probeMkvVideoCodec } from '../server-lib/mkvRemux.js'
+import { getCachedMkvCueIndex, clusterOffsetForTime } from '../server-lib/mkvCues.js'
 
 // ─── Vercel Hobby (~10s hard kill) ───────────────────────────────────────────
 // Each invocation must finish under the plan limit. Large files are served as
@@ -623,16 +624,18 @@ export default async function handler(req, res) {
       return fail(res, 502, 'Stream server returned JSON instead of video — link may be expired')
     }
 
-    // ─── MKV Remuxing (Chrome loophole — restored from ~Jul 15 behavior) ───
-    // Chrome cannot play Matroska. The working path was:
-    //   remux=1 → ignore client Range → re-fetch from byte 0 → stream fMP4
-    //   until the Hobby deadline. The browser starts playback from early
-    //   fragments even if the serverless function dies mid-file.
-    // Chunked RAW MKV passthrough does NOT work in Chrome — never skip remux
-    // just because the file is large or the client sent Range.
+    // ─── MKV Remuxing + seek-by-time ───
+    // Chrome cannot play raw Matroska. remux=1 streams fMP4.
+    // Seek: ?remux=1&t=<seconds> uses MKV Cues + Range from cluster offset,
+    // then remuxes from that time so all participants can scrub in sync.
     const wantsRemux = req.query?.remux === '1' || isMkvContentType(contentType)
     const rangeHeader = req.headers.range || ''
-    // Tiny probes stay probes; everything else with remux=1 enters remux path.
+    const seekTimeSec = (() => {
+      const raw = req.query?.t ?? req.query?.time ?? req.query?.start
+      if (raw == null || raw === '') return 0
+      const n = Number(raw)
+      return Number.isFinite(n) && n > 0 ? n : 0
+    })()
     const needsRemux = wantsRemux && !isTinyRangeProbe
 
     if (wantsRemux && isTinyRangeProbe) {
@@ -664,45 +667,63 @@ export default async function handler(req, res) {
       }
     }
 
-    if (wantsRemux && !needsRemux) {
-      // Only tiny Range probes skip remux (handled above).
-      console.log(
-        `Proxy: remux skipped for probe host=${hostname} size=${knownTotalSize ?? 'unknown'} range=${rangeHeader || 'none'}`,
-      )
-    }
-
     if (needsRemux) {
-      // Always remux from byte 0 (historical working behavior). Client Range is ignored.
-      let mkvUpstream = upstream
-      const hadRange = Boolean(req.headers.range) || upstream.status === 206 || Boolean(upstream.headers.get('content-range'))
-      // Also re-fetch when we previously forced a chunked Range on the upstream request
-      const forcedChunkRange = Boolean(requestHeaders.Range)
-      if (hadRange || forcedChunkRange) {
-        await upstream.body?.cancel().catch(() => {})
-        const freshHeaders = { ...upstreamHeaders }
-        delete freshHeaders.Range
-        try {
-          mkvUpstream = await fetchUpstream(targetUrl.href, freshHeaders, UPSTREAM_CONNECT_MS)
-        } catch (err) {
-          if (err.name === 'AbortError') return fail(res, 504, 'Upstream fetch timed out during remux re-fetch')
-          throw err
-        }
-        if (!mkvUpstream.ok && mkvUpstream.status !== 206) {
-          return fail(res, mkvUpstream.status, `Upstream returned HTTP ${mkvUpstream.status}`)
-        }
-      }
-
       try {
-        const reader = mkvUpstream.body.getReader()
-        const { value: firstChunk, done } = await reader.read()
-        if (done || !firstChunk) {
-          await reader.cancel().catch(() => {})
-          return fail(res, 502, 'Empty response from upstream')
+        // Cancel any ranged/chunked body we already opened
+        await upstream.body?.cancel().catch(() => {})
+
+        let startTimeSec = seekTimeSec
+        let clusterFileOffset = 0
+        let headerEndOffset = 512 * 1024
+        let durationSec = null
+
+        // Build / reuse cue index when seeking (or always for remux so player can seek later)
+        if (seekTimeSec > 0.5 || req.query?.index === '1') {
+          try {
+            const index = await getCachedMkvCueIndex(targetUrl.href, upstreamHeaders)
+            durationSec = index.durationSec
+            headerEndOffset = index.headerEndOffset || headerEndOffset
+            if (seekTimeSec > 0.5) {
+              const hit = clusterOffsetForTime(index, seekTimeSec)
+              clusterFileOffset = hit.fileOffset || 0
+              startTimeSec = hit.cueTimeSec != null ? hit.cueTimeSec : seekTimeSec
+              console.log(`Proxy seek remux t=${seekTimeSec} cue=${startTimeSec} offset=${clusterFileOffset}`)
+            }
+            if (req.query?.index === '1' && seekTimeSec <= 0) {
+              // Metadata-only: return cue index JSON for clients (optional)
+              res.setHeader('Content-Type', 'application/json')
+              res.setHeader('Cache-Control', 'private, max-age=60')
+              res.status(200).send(JSON.stringify({
+                success: true,
+                durationSec: index.durationSec,
+                cues: (index.cues || []).slice(0, 500).map((c) => ({
+                  t: Math.round(c.timeSec * 100) / 100,
+                  o: c.fileOffset,
+                })),
+              }))
+              return
+            }
+          } catch (idxErr) {
+            console.error('MKV cue index failed:', idxErr.message)
+            if (seekTimeSec > 0.5) {
+              // Fall back to progressive from 0 — better than 502 on seek
+              startTimeSec = 0
+              clusterFileOffset = 0
+            }
+          }
         }
-        const firstBytes = Buffer.from(firstChunk)
-        if (firstBytes[0] !== 0x1A) {
-          await reader.cancel().catch(() => {})
-          console.log('Proxy: remux=1 but data is not MKV — passthrough')
+
+        // Fetch MKV: header (0..headerEnd) + from cluster (if seek) concatenated in remuxer feed
+        const headerRes = await fetchUpstream(targetUrl.href, {
+          ...upstreamHeaders,
+          Range: `bytes=0-${Math.max(0, headerEndOffset - 1)}`,
+        }, UPSTREAM_CONNECT_MS)
+        if (!headerRes.ok && headerRes.status !== 206) {
+          return fail(res, headerRes.status, `Upstream returned HTTP ${headerRes.status}`)
+        }
+        const headerBuf = Buffer.from(await headerRes.arrayBuffer())
+        if (!headerBuf.length || headerBuf[0] !== 0x1A) {
+          // Not MKV — passthrough full stream
           const refetch = await fetchUpstream(targetUrl.href, requestHeaders, UPSTREAM_CONNECT_MS)
           if (!refetch.ok && refetch.status !== 206) {
             return fail(res, refetch.status, `Upstream returned HTTP ${refetch.status}`)
@@ -710,30 +731,52 @@ export default async function handler(req, res) {
           return streamDirectResponse(refetch, req, res, { window })
         }
 
-        let queued = firstBytes
-        const probingReader = {
-          read: async () => {
-            if (queued) {
-              const chunk = queued
-              queued = null
-              return { value: chunk, done: false }
-            }
-            return reader.read()
-          },
-          cancel: (reason) => reader.cancel(reason),
+        let bodyRes = null
+        if (clusterFileOffset > 0 && startTimeSec > 0.5) {
+          // Range from cue cluster to EOF (Hobby will stop at deadline)
+          bodyRes = await fetchUpstream(targetUrl.href, {
+            ...upstreamHeaders,
+            Range: `bytes=${clusterFileOffset}-`,
+          }, UPSTREAM_CONNECT_MS)
+          if (!bodyRes.ok && bodyRes.status !== 206) {
+            console.error('Seek range failed, falling back to full progressive remux')
+            bodyRes = null
+            startTimeSec = 0
+            clusterFileOffset = 0
+          }
+        }
+        if (!bodyRes) {
+          // Progressive from 0: re-use header buffer then continue from headerEnd
+          bodyRes = await fetchUpstream(targetUrl.href, {
+            ...upstreamHeaders,
+            Range: `bytes=${headerBuf.length}-`,
+          }, UPSTREAM_CONNECT_MS)
+          if (!bodyRes.ok && bodyRes.status !== 206 && bodyRes.status !== 200) {
+            // Some CDNs ignore Range — full fetch
+            bodyRes = await fetchUpstream(targetUrl.href, { ...upstreamHeaders }, UPSTREAM_CONNECT_MS)
+          }
         }
 
+        // Codec probe on header
         let videoCodec = null
         try {
-          videoCodec = await probeMkvVideoCodec(probingReader, { maxBytes: 131072, timeoutMs: 2000 })
+          let hdrOff = 0
+          const hdrReader = {
+            read: async () => {
+              if (hdrOff >= headerBuf.length) return { done: true, value: undefined }
+              const slice = headerBuf.subarray(hdrOff, Math.min(headerBuf.length, hdrOff + 65536))
+              hdrOff = Math.min(headerBuf.length, hdrOff + 65536)
+              return { value: slice, done: false }
+            },
+            cancel: async () => {},
+          }
+          videoCodec = await probeMkvVideoCodec(hdrReader, { maxBytes: 262144, timeoutMs: 2000 })
         } catch (probeErr) {
           console.error('MKV codec probe error:', probeErr.message)
         }
-
         const isHevc = videoCodec && /HEVC|H\.265|V_MPEGH/i.test(videoCodec)
         if (isHevc) {
           console.log('Proxy: HEVC MKV — passthrough', hostname, videoCodec)
-          await reader.cancel().catch(() => {})
           const refetch = await fetchUpstream(targetUrl.href, requestHeaders, UPSTREAM_CONNECT_MS)
           if (!refetch.ok && refetch.status !== 206) {
             return fail(res, refetch.status, `Upstream returned HTTP ${refetch.status}`)
@@ -742,21 +785,26 @@ export default async function handler(req, res) {
         }
 
         res.setHeader('Content-Type', 'video/mp4')
-        res.setHeader('Cache-Control', cacheControlForType('video/mp4'))
-        // Progressive remux is not seekable via HTTP Range (same as Jul 15 loophole)
+        res.setHeader('Cache-Control', 'private, max-age=60')
         res.setHeader('Accept-Ranges', 'none')
-        res.setHeader('X-Chan-Proxy-Mode', 'remux-progressive')
+        res.setHeader('X-Chan-Proxy-Mode', startTimeSec > 0.5 ? 'remux-seek' : 'remux-progressive')
+        if (startTimeSec > 0.5) {
+          res.setHeader('X-Chan-Remux-Start', String(Math.round(startTimeSec * 1000) / 1000))
+        }
+        if (durationSec != null) {
+          res.setHeader('X-Chan-Duration', String(Math.round(durationSec * 100) / 100))
+        }
         res.status(200)
 
         if (req.method === 'HEAD') {
-          await reader.cancel().catch(() => {})
+          await bodyRes?.body?.cancel?.().catch(() => {})
           res.end()
           return
         }
 
-        const remuxer = new MkvRemuxStream()
+        const remuxer = new MkvRemuxStream({ startTimeSec })
         const abortController = new AbortController()
-        let inputBytes = firstBytes.length
+        let inputBytes = 0
         const remuxDeadline = setTimeout(() => {
           console.error('Proxy: MKV remux Hobby deadline — ending early')
           abortController.abort()
@@ -783,27 +831,33 @@ export default async function handler(req, res) {
 
         const feedLoop = async () => {
           try {
-            if (queued) {
-              if (!remuxer.destroyed) remuxer.write(queued)
-              queued = null
+            // Always feed header first so Tracks/Info are present for mid-file seeks
+            if (!remuxer.destroyed) {
+              remuxer.write(headerBuf)
+              inputBytes += headerBuf.length
             }
-            while (!abortController.signal.aborted) {
-              const { done: d, value } = await reader.read()
-              if (d) break
-              const buf = Buffer.from(value)
-              inputBytes += buf.length
-              if (!remuxer.destroyed) remuxer.write(buf)
-              // Hard cap remux input so we never chew the whole Hobby budget
-              if (inputBytes >= REMUX_MAX_INPUT_BYTES) {
-                console.log('Proxy: remux input byte cap reached')
-                break
+            // If progressive from 0 and body starts after header, OK.
+            // If seek: body is cluster data; remuxer still needs EBML+Segment structure.
+            // Prepend is enough when header includes up through Tracks; clusters follow.
+            if (bodyRes?.body) {
+              const reader = bodyRes.body.getReader()
+              while (!abortController.signal.aborted) {
+                const { done: d, value } = await reader.read()
+                if (d) break
+                const buf = Buffer.from(value)
+                inputBytes += buf.length
+                if (!remuxer.destroyed) remuxer.write(buf)
+                if (inputBytes >= REMUX_MAX_INPUT_BYTES) {
+                  console.log('Proxy: remux input byte cap reached')
+                  break
+                }
               }
+              await reader.cancel().catch(() => {})
             }
           } catch {
             // interrupted
           } finally {
             if (!remuxer.destroyed) remuxer.end()
-            await reader.cancel().catch(() => {})
             clearTimeout(remuxDeadline)
           }
         }
@@ -813,8 +867,8 @@ export default async function handler(req, res) {
         clearTimeout(remuxDeadline)
         return
       } catch (peekErr) {
-        console.error('Proxy MKV peek error:', peekErr.message)
-        return fail(res, 502, 'MKV remux failed — could not read stream header')
+        console.error('Proxy MKV remux error:', peekErr.message)
+        return fail(res, 502, 'MKV remux failed — could not read stream')
       }
     }
 

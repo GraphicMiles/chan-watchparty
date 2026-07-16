@@ -15,7 +15,7 @@
  *   4. Browser's <video> plays the fMP4 stream natively
  *
  * Limitations:
- *   - No seeking support (progressive download only)
+ *   - Seek-by-time via startTimeSec (use with Cues + Range); no HTTP Range on fMP4
  *   - No H.265/HEVC support yet (can be added later)
  *   - Simple lacing only (no Xiph or EBML lacing)
  *   - Single video + single audio track
@@ -558,6 +558,10 @@ export class MkvRemuxStream extends Transform {
     this.videoDecodeTime = 0
     this.audioDecodeTime = 0
     this.headerDone = false
+    this.startTimeSec = Math.max(0, Number(options.startTimeSec) || 0)
+    this.startTimeNs = this.startTimeSec * 1e9
+    this.seekOriginNs = null
+    this.skippedClusters = 0
 
     // Parsing state — tracks our position in the MKV hierarchy
     // Level 0: top-level (EBML header, Segment)
@@ -1054,10 +1058,14 @@ export class MkvRemuxStream extends Transform {
 
   addFrame(track, frameData, blockTimecode, isKeyframe, hasReference) {
     const absoluteTimecode = this.clusterTimecode + blockTimecode
+    const originNs = this.seekOriginNs != null
+      ? this.seekOriginNs
+      : (this.startTimeSec > 0.25 ? this.startTimeNs : 0)
+    const relNs = Math.max(0, absoluteTimecode * this.timecodeScale - originNs)
 
     if (track.trackType === TRACK_TYPE_VIDEO && this.videoTrack) {
       const timescale = Math.round(1e9 / (track.defaultDuration || (this.timecodeScale * 24))) || 24000
-      const decodeTime = Math.round((absoluteTimecode * this.timecodeScale * timescale) / 1e9)
+      const decodeTime = Math.round((relNs * timescale) / 1e9)
       const duration = Math.max(1, Math.round((track.defaultDuration || (1e9 / timescale)) * timescale / 1e9))
 
       this.currentClusterSamples.video.push({
@@ -1068,7 +1076,7 @@ export class MkvRemuxStream extends Transform {
     } else if (track.trackType === TRACK_TYPE_AUDIO && this.audioTrack) {
       const timescale = track.sampleRate || 44100
       const duration = 1024 // AAC frames = 1024 samples
-      const decodeTime = Math.round((absoluteTimecode * this.timecodeScale * timescale) / 1e9)
+      const decodeTime = Math.round((relNs * timescale) / 1e9)
 
       this.currentClusterSamples.audio.push({
         duration, size: frameData.length,
@@ -1080,7 +1088,23 @@ export class MkvRemuxStream extends Transform {
 
   flushCluster() {
     if (!this.headerEmitted) return
-    if (this.currentClusterSamples.video.length === 0 && this.currentClusterSamples.audio.length === 0) return
+    if (this.currentClusterSamples.video.length === 0 && this.currentClusterSamples.audio.length === 0) {
+      this.currentClusterSamples = { video: [], audio: [] }
+      this.currentClusterData = { video: [], audio: [] }
+      return
+    }
+
+    // Seek-by-time: skip clusters before the requested absolute start time
+    const clusterAbsNs = this.clusterTimecode * this.timecodeScale
+    if (this.startTimeSec > 0.25 && clusterAbsNs + 1e6 < this.startTimeNs) {
+      this.skippedClusters += 1
+      this.currentClusterSamples = { video: [], audio: [] }
+      this.currentClusterData = { video: [], audio: [] }
+      return
+    }
+    if (this.seekOriginNs == null) {
+      this.seekOriginNs = this.startTimeSec > 0.25 ? clusterAbsNs : 0
+    }
 
     this.sequenceNumber++
     const fragmentTracks = []

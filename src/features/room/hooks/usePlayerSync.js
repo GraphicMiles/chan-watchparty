@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { doc, onSnapshot, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
+import { isRemuxProxyUrl, withRemuxSeekTime, getRemuxSeekTime } from '../../../shared/lib/youtube.js'
 
 const SYNC_THRESHOLD = 0.5 // 0.5s sync threshold as required
 const VIEWER_RESYNC_MS = 3000
@@ -46,6 +47,14 @@ export function usePlayerSync(roomId, room, playerRef) {
     lastWriteTimeRef.current = now
 
     const ref = doc(db, 'rooms', roomId, 'playerState', 'current')
+    const baseUrl = room.videoUrl || null
+    let patchOut = { ...patch }
+    // Persist remux seek offset for MKV so joiners open the same cue window
+    if (baseUrl && isRemuxProxyUrl(baseUrl) && typeof patchOut.currentTime === 'number') {
+      const t = Math.max(0, Number(patchOut.currentTime) || 0)
+      patchOut.remuxStartSec = t > 0.5 ? t : 0
+      // Keep room.videoUrl base without t; player applies t from remuxStartSec / currentTime
+    }
     await setDoc(ref, {
       videoId: room.videoId || '',
       videoUrl: room.videoUrl || null,
@@ -54,7 +63,7 @@ export function usePlayerSync(roomId, room, playerRef) {
       updatedAt: serverTimestamp(),
       clientTimeMs: now,
       updatedBy: user.uid,
-      ...patch,
+      ...patchOut,
     }, { merge: true })
   }, [roomId, canControl, room, user])
 
@@ -87,8 +96,10 @@ export function usePlayerSync(roomId, room, playerRef) {
     lastPlayingRef.current = state.isPlaying
 
     const isLiveStream = room?.isLive || room?.videoType === 'iptv' || room?.source === 'iptv' || player.isLive?.()
-    if (!isLiveStream && diff > SYNC_THRESHOLD) {
-      player.seekTo?.(expectedTime, true)
+    // MKV remux: any meaningful jump must remux-from-t (not only 0.5s drift)
+    const remuxJump = isRemuxProxyUrl(room?.videoUrl) && diff > 1.5
+    if (!isLiveStream && (diff > SYNC_THRESHOLD || remuxJump)) {
+      player.seekTo?.(expectedTime, 'seconds')
     }
     return true
   }, [playerRef, room?.isLive, room?.videoType, room?.source])
