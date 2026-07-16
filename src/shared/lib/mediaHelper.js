@@ -2,11 +2,16 @@ export function isSuitableThumbnail(url) {
   if (!url || typeof url !== 'string') return false
   const clean = url.trim().toLowerCase()
   if (!clean || clean.startsWith('data:') || clean === 'null' || clean === 'undefined') return false
+  // Always keep Nkiri / common poster CDNs (real show art)
+  if (/thenkiri|nkiri\.com|pbcdnw|aoneroom|omdbapi|img\.omdb|m\.media-amazon|ia\.media-imdb|archive\.org\/services\/img/i.test(clean)) {
+    return /^https?:\/\//i.test(url.trim())
+  }
   if (clean.includes('downloadwella.com') || clean.includes('downloadwella')) return false
   if (clean.includes('np-downloader.com') || clean.includes('wildshare.net')) return false
+  if (clean.includes('fsmc') || clean.includes('kissorgrab') || clean.includes('meetdownload')) return false
   if (/\b(arrow|download|logo|icon|placeholder|default|avatar|gravatar|spinner|loading|no-image|missing|blank|button|1x1|pixel)(\.|-|_|\b)/i.test(clean)) return false
   if (clean.endsWith('.svg') || clean.endsWith('.ico')) return false
-  return true
+  return /^https?:\/\//i.test(url.trim())
 }
 
 export function cleanTitleForMatching(str) {

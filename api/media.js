@@ -314,18 +314,42 @@ async function searchOMDb(query) {
 
 async function fetchBestOMDbPoster(searchKeyword, originalQuery = null) {
   if (!OMDB_API_KEY || !searchKeyword) return null
-  try {
-    const url = `https://www.omdbapi.com/?apikey=${OMDB_API_KEY}&s=${encodeURIComponent(searchKeyword)}`
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const data = await res.json()
-    if (data.Response === 'False' || !Array.isArray(data.Search)) return null
+  const tryKeys = [
+    String(searchKeyword).trim(),
+    // Strip season/episode noise for better poster match
+    String(searchKeyword).replace(/\b(season|episode|s\d+e\d+|s\d+|part\s*\d+)\b/gi, ' ').replace(/\s+/g, ' ').trim(),
+  ].filter((k, i, a) => k && k.length >= 2 && a.indexOf(k) === i)
 
-    for (const it of data.Search) {
-      if (!it.Poster || it.Poster === 'N/A' || !isSuitableThumbnail(it.Poster)) continue
-      if (isTitleMatch(it.Title, searchKeyword) || (originalQuery && isTitleMatch(it.Title, originalQuery))) {
-        return it.Poster
+  try {
+    for (const key of tryKeys) {
+      // Prefer exact title lookup first
+      const tUrl = `https://www.omdbapi.com/?apikey=${OMDB_API_KEY}&t=${encodeURIComponent(key)}`
+      try {
+        const tRes = await fetch(tUrl)
+        if (tRes.ok) {
+          const tData = await tRes.json()
+          if (tData?.Poster && tData.Poster !== 'N/A' && isSuitableThumbnail(tData.Poster)) {
+            return tData.Poster
+          }
+        }
+      } catch { /* try search */ }
+
+      const url = `https://www.omdbapi.com/?apikey=${OMDB_API_KEY}&s=${encodeURIComponent(key)}`
+      const res = await fetch(url)
+      if (!res.ok) continue
+      const data = await res.json()
+      if (data.Response === 'False' || !Array.isArray(data.Search)) continue
+
+      // Prefer posters that title-match; else first good poster
+      let fallback = null
+      for (const it of data.Search) {
+        if (!it.Poster || it.Poster === 'N/A' || !isSuitableThumbnail(it.Poster)) continue
+        if (!fallback) fallback = it.Poster
+        if (isTitleMatch(it.Title, key) || (originalQuery && isTitleMatch(it.Title, originalQuery))) {
+          return it.Poster
+        }
       }
+      if (fallback) return fallback
     }
   } catch (err) {
     console.error('OMDb poster fetch error:', err.message)
@@ -379,17 +403,30 @@ async function enrichWithOMDbPosters(items, query = null) {
       }
     }
 
-    // 2. Check if current thumbnail is already good (not from a scraped host)
-    let thumb = item.thumbnail || item.image || null
-    const isScrapedHost = typeof thumb === 'string' && /thenkiri|thenetnaija|mynetnaija|fzmovies|9jarocks|o2tv|naijaprey|np-downloader|wildshare|downloadwella|fztvseries|wideshares|archive\.org|meetdownload|waploaded|kissorgrab|maxcinema|koyeb/i.test(thumb)
-    const hasGoodThumbnail = isSuitableThumbnail(thumb) && !isScrapedHost
+    // 2. Prefer existing poster (including Nkiri thenkiri.com images)
+    let thumb = item.thumbnail || item.image || item.poster || null
+    const isProviderJunk = typeof thumb === 'string' && /downloadwella|np-downloader|wildshare|fsmc|kissorgrab|meetdownload|1x1|pixel|logo|spinner|placeholder/i.test(thumb)
+    const hasGoodThumbnail = isSuitableThumbnail(thumb) && !isProviderJunk
+    // Keep Nkiri/thenkiri/netnaija posters — they are real show art
+    const isNkiriStylePoster = typeof thumb === 'string' && /thenkiri|nkiri|thenetnaija|mynetnaija|pbcdnw|aoneroom/i.test(thumb)
 
-    if (hasGoodThumbnail) return item
+    if (hasGoodThumbnail || isNkiriStylePoster) {
+      return {
+        ...item,
+        thumbnail: thumb,
+        image: thumb,
+        title: formatMediaTitle(item.title) || item.title,
+      }
+    }
 
-    // 3. No good thumbnail — look up OMDb poster for this item's clean name
+    // 3. No usable thumbnail — OMDb by clean title
     if (!cleanItemName || cleanItemName.length < 2) {
-      // Can't look up OMDb without a name — clear the bad thumbnail
-      return { ...item, thumbnail: null, image: null }
+      return {
+        ...item,
+        thumbnail: isSuitableThumbnail(thumb) ? thumb : null,
+        image: isSuitableThumbnail(thumb) ? thumb : null,
+        title: formatMediaTitle(item.title) || item.title,
+      }
     }
 
     if (!posterCache.has(cleanItemName)) {
@@ -398,10 +435,12 @@ async function enrichWithOMDbPosters(items, query = null) {
     }
 
     const matchedPoster = posterCache.get(cleanItemName) || null
+    const finalThumb = matchedPoster || (isSuitableThumbnail(thumb) ? thumb : null)
     return {
       ...item,
-      thumbnail: matchedPoster,
-      image: matchedPoster,
+      title: formatMediaTitle(item.title) || item.title,
+      thumbnail: finalThumb,
+      image: finalThumb,
       posterSource: matchedPoster ? 'omdb' : item.posterSource,
     }
   })
@@ -483,56 +522,108 @@ function formatMediaTitle(rawTitle) {
   if (!rawTitle) return 'Untitled'
   let title = String(rawTitle).trim()
 
-  // Strip common provider prefixes/branding
+  // Strip provider / site branding completely (never show in UI)
   title = title
-    .replace(/^(download|watch|stream|get)\s+/i, '')
-    .replace(/\[(nkiri|thenkiri|netnaija|thenetnaija|mynetnaija|fzmovies|9jarocks|naijaprey|fztvseries|downloadwella|maxcinema|archive\.org|o2tv|custom)\]/gi, '')
-    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|mynetnaija|fzmovies|9jarocks|naijaprey|fztvseries|downloadwella|maxcinema|archive\.org|o2tv)\b/gi, '')
-    .replace(/\s*[-–|]\s*(nkiri|thenkiri|netnaija|downloadwella|maxcinema|free|hd|watch online)\s*$/gi, '')
+    .replace(/^(download|watch|stream|get|free)\s+/i, '')
+    .replace(/\[(nkiri|thenkiri|netnaija|thenetnaija|mynetnaija|fzmovies|9jarocks|naijaprey|fztvseries|downloadwella|maxcinema|archive\.org|o2tv|custom|omdb)\]/gi, '')
+    .replace(/\b(nkiri|thenkiri|netnaija|thenetnaija|mynetnaija|fzmovies|9jarocks|naijaprey|fztvseries|downloadwella|maxcinema|archive\.org|o2tvseries|o2tv|meetdownload|kissorgrab|tvshows4mobile)\b/gi, '')
+    .replace(/\s*[-–|]\s*(free|hd|watch online|download)\s*$/gi, '')
 
-  // Extract season/episode pattern: S01E03, Season 1 Episode 3, S1E3, etc.
-  let seasonEp = ''
-  const seMatch = title.match(/S(\d{1,2})\s*E(\d{1,3})/i)
-    || title.match(/Season\s*(\d{1,2})\s*(?:Episode\s*(\d{1,3}))?/i)
-    || title.match(/(\d{1,2})x(\d{1,3})/i)
+  // Capture season + episode in human form
+  let seasonNum = null
+  let episodeNum = null
+  let partNum = null
+
+  let seMatch = title.match(/\bS(\d{1,2})\s*E(\d{1,3})\b/i)
   if (seMatch) {
-    const s = String(parseInt(seMatch[1], 10)).padStart(2, '0')
-    const e = seMatch[2] ? String(parseInt(seMatch[2], 10)).padStart(2, '0') : ''
-    seasonEp = e ? `S${s}E${e}` : `S${s}`
-    // Remove the season/episode text from the title portion
-    title = title.replace(seMatch[0], '').trim()
+    seasonNum = parseInt(seMatch[1], 10)
+    episodeNum = parseInt(seMatch[2], 10)
+    title = title.replace(seMatch[0], ' ')
+  } else {
+    seMatch = title.match(/\bSeason\s*(\d{1,2})\s*(?:Episode\s*(\d{1,3}))?\b/i)
+    if (seMatch) {
+      seasonNum = parseInt(seMatch[1], 10)
+      if (seMatch[2]) episodeNum = parseInt(seMatch[2], 10)
+      title = title.replace(seMatch[0], ' ')
+    } else {
+      seMatch = title.match(/\b(\d{1,2})x(\d{1,3})\b/i)
+      if (seMatch) {
+        seasonNum = parseInt(seMatch[1], 10)
+        episodeNum = parseInt(seMatch[2], 10)
+        title = title.replace(seMatch[0], ' ')
+      }
+    }
   }
 
-  // Extract quality
-  const qualityMatch = title.match(/\b(4K|2160p|1440p|1080p|720p|480p|360p|HD|SD|HQ|FullHD|UHD)\b/i)
-  const quality = qualityMatch ? qualityMatch[1].toUpperCase() : ''
+  // Standalone season (S03 / Season 3) without episode
+  if (seasonNum == null) {
+    const sOnly = title.match(/\bS(\d{1,2})\b/i) || title.match(/\bSeason\s*(\d{1,2})\b/i)
+    if (sOnly) {
+      seasonNum = parseInt(sOnly[1], 10)
+      title = title.replace(sOnly[0], ' ')
+    }
+  }
 
-  // Extract source type
-  const sourceMatch = title.match(/\b(WEB-DL[P]?|BluRay|BRRip|HDRip|WEBRip|HDTV|DVDRip|CAMRip|TELECINE|WEB)\b/i)
-  const source = sourceMatch ? sourceMatch[1] : ''
+  // Standalone episode
+  if (episodeNum == null) {
+    const eOnly = title.match(/\bE(?:p(?:isode)?)?\s*(\d{1,3})\b/i)
+    if (eOnly) {
+      episodeNum = parseInt(eOnly[1], 10)
+      title = title.replace(eOnly[0], ' ')
+    }
+  }
 
-  // Remove file extensions, codec info, and remaining clutter
+  // Part N (Batman Part Two / Part 2)
+  const partMatch = title.match(/\bPart\s*([0-9]+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i)
+  if (partMatch) {
+    const raw = partMatch[1].toLowerCase()
+    const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 }
+    partNum = words[raw] || parseInt(raw, 10)
+    title = title.replace(partMatch[0], ' ')
+  }
+
+  // Drop quality / codec / container tags from display title (optional quiet strip)
   title = title
     .replace(/\.(mp4|mkv|m3u8|avi|mov|webm|ts)$/i, '')
-    .replace(/\b(x264|x265|h264|h265|hevc|aac|ac3|dts|5\.1|7\.1)\b/gi, '')
-    .replace(/\b(WEB-DL[P]?|BluRay|BRRip|HDRip|WEBRip|HDTV|DVDRip|CAMRip|TELECINE|WEB)\b/gi, '')
-    .replace(/\b(4K|2160p|1440p|1080p|720p|480p|360p|HD|SD|HQ|FullHD|UHD)\b/gi, '')
-    .replace(/\b(complete|full|movie|film|free|watch|online|episode|season)\b/gi, '')
-    .replace(/\(\d{4}\)/g, '') // Remove year in parens
-    .replace(/[^a-zA-Z0-9\s'-]/g, ' ') // Remove special chars
+    .replace(/\b(x264|x265|h\.?264|h\.?265|hevc|aac|ac3|dts|5\.1|7\.1)\b/gi, ' ')
+    .replace(/\b(WEB-?DLP?|BluRay|BRRip|HDRip|WEBRip|HDTV|DVDRip|CAMRip|TELECINE|WEB)\b/gi, ' ')
+    .replace(/\b(4K|2160p|1440p|1080p|720p|480p|360p|HD|SD|HQ|FullHD|UHD)\b/gi, ' ')
+    .replace(/\b(complete|full series|tv series|series|movie|film|free|watch|online|added)\b/gi, ' ')
+    .replace(/\(\d{4}\)/g, ' ')
+    .replace(/\[[^\]]*]/g, ' ')
+    .replace(/\|/g, ' ')
+    .replace(/[_]+/g, ' ')
+    .replace(/\s*[-–:]+\s*/g, ' ')
+    .replace(/[^a-zA-Z0-9\s'&.]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 
-  // Build clean display title
-  const parts = [title]
-  if (seasonEp) parts.push(seasonEp)
-  if (quality) {
-    const qualPart = source ? `${quality} ${source}` : quality
-    parts.push(qualPart)
+  // Title-case words
+  const titleCase = (s) => {
+    const words = s.split(/\s+/).filter(Boolean)
+    return words.map((w, i) => {
+      const lower = w.toLowerCase()
+      if (i > 0 && /^(a|an|the|and|or|of|in|on|to|for|with|at|by|from)$/.test(lower)) return lower
+      // Keep short all-caps tokens
+      if (/^[A-Z0-9]{2,4}$/.test(w) && w === w.toUpperCase()) return w
+      return lower.charAt(0).toUpperCase() + lower.slice(1)
+    }).join(' ')
   }
 
-  return parts.filter(Boolean).join(' - ') || 'Untitled'
+  let base = titleCase(title) || 'Untitled'
+
+  // Build: "Silo: Season 1 Episode 3" or "Batman: Part 2"
+  const bits = []
+  if (seasonNum != null) bits.push(`Season ${seasonNum}`)
+  if (episodeNum != null) bits.push(`Episode ${episodeNum}`)
+  if (partNum != null && seasonNum == null) bits.push(`Part ${partNum}`)
+
+  if (bits.length) {
+    return `${base}: ${bits.join(' ')}`
+  }
+  return base
 }
+
 
 /**
  * Resolve a Downloadwella page to a direct CDN video URL using Puppeteer.
@@ -816,19 +907,21 @@ async function searchDirectLinks(query, options = {}) {
   // Soft fallback: if filter wiped everything but we got pages, return top unfiltered
   if (filtered.length === 0 && scored.length > 0) {
     console.log('Nkiri softTitleMatch empty — falling back to unfiltered top results for:', baseQ)
-    filtered = scored.slice(0, 12).map((sp) => ({ ...sp, score: 1, meta: 'Weak title match — verify before playing' }))
+    filtered = scored.slice(0, 12).map((sp) => ({ ...sp, score: 1 }))
   }
 
   console.log('Nkiri after softTitleMatch:', filtered.length, 'of', allInitialPages.length)
 
-  const results = filtered.slice(0, 40).map((page) => {
+  let results = filtered.slice(0, 40).map((page) => {
     const isDw = /downloadwella\.com/i.test(page.url)
+    // Prefer Nkiri page poster; OMDb fills gaps below
+    const nkiriThumb = page.thumbnail || null
     return {
       title: formatMediaTitle(page.title) || page.title,
       url: page.url,
       link: page.url,
-      thumbnail: page.thumbnail || null,
-      image: page.thumbnail || null,
+      thumbnail: nkiriThumb,
+      image: nkiriThumb,
       source: isDw ? 'downloadwella' : 'nkiri',
       type: 'direct',
       isDirect: false,
@@ -836,9 +929,16 @@ async function searchDirectLinks(query, options = {}) {
       requiresResolve: true,
       quality: extractQuality(page.title),
       matchScore: page.score,
-      meta: page.meta || undefined,
+      meta: undefined, // no provider noise in UI
     }
   })
+
+  // OMDb posters when Nkiri thumb missing/unsuitable; keep Nkiri thumb as fallback
+  try {
+    results = await enrichWithOMDbPosters(results, baseQ)
+  } catch (err) {
+    console.error('OMDb enrich failed:', err.message)
+  }
 
   return { results, hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
 }
