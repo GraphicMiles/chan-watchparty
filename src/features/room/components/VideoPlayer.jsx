@@ -528,7 +528,13 @@ export default function VideoPlayer({
     // which the proxy rejects with a clear 502 message.
     // We use a tiny Range GET instead of HEAD because many CDNs (downloadwella,
     // phncdn) reject or mishandle HEAD.
-    if (!isHLS && currentUrl && videoType === 'direct' && currentUrl.includes('/api/proxy')) {
+    //
+    // Skip preflight for remux=1 URLs — the proxy now short-circuits tiny Range
+    // probes, but a full remux still can't finish inside maxDuration, so we let
+    // the player start progressive download immediately instead of burning a
+    // function invocation on a 2-byte probe that used to 504.
+    const isRemuxProxy = currentUrl.includes('/api/proxy') && /[?&]remux=1(?:&|$)/i.test(currentUrl)
+    if (!isHLS && currentUrl && videoType === 'direct' && currentUrl.includes('/api/proxy') && !isRemuxProxy) {
       const checkUrl = async () => {
         try {
           let checkRes
@@ -557,7 +563,7 @@ export default function VideoPlayer({
             const errorMsg = serverMessage
               ? serverMessage
               : checkRes.status === 504
-                ? 'Stream proxy timed out — the video server is too slow for Vercel Hobby tier (10s limit). Try a smaller file or upgrade to Vercel Pro.'
+                ? 'Stream proxy timed out — the video CDN is too slow for the server limit. Try again, a smaller file, or another source.'
                 : checkRes.status === 502
                   ? 'Stream server returned an error page instead of video. The channel may be offline or the link expired — re-resolve from search and try again.'
                   : `Stream returned ${contentType} instead of video data (HTTP ${checkRes.status}). Try a different source.`

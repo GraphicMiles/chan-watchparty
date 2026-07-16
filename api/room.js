@@ -74,6 +74,18 @@ async function joinRoom(db, body) {
   const roomRef = db.collection('rooms').doc(targetRoomId)
   const participantRef = roomRef.collection('participants').doc(uid)
 
+  // Read real seat count OUTSIDE the transaction — Firestore transactions
+  // only support document reads (not collection queries). Create-room seeds
+  // participantCount=1 before the host participant doc exists, so we must
+  // not blindly increment that seed.
+  let seatsBefore = 0
+  try {
+    const seatsSnap = await roomRef.collection('participants').limit(50).get()
+    seatsBefore = seatsSnap.size
+  } catch {
+    seatsBefore = 0
+  }
+
   await db.runTransaction(async (t) => {
     const roomSnap = await t.get(roomRef)
     if (!roomSnap.exists) throw new Error('Room not found')
@@ -81,7 +93,11 @@ async function joinRoom(db, body) {
     if (room.status !== 'live') throw new Error('Room has ended')
 
     const participantSnap = await t.get(participantRef)
-    if (participantSnap.exists) return
+    if (participantSnap.exists) {
+      // Re-join / refresh: keep seat, just refresh heartbeat.
+      t.update(roomRef, { lastHeartbeat: FieldValue.serverTimestamp() })
+      return
+    }
 
     if (room.locked === true && room.hostId !== uid) {
       throw new Error('Room is locked — the host is not accepting new joins')
@@ -94,14 +110,12 @@ async function joinRoom(db, body) {
       }
     }
 
-    let count = typeof room.participantCount === 'number' ? room.participantCount : null
-    if (count == null) {
-      const participantsSnap = await t.get(roomRef.collection('participants'))
-      count = participantsSnap.size
-    }
-    if (count >= (room.capacity || 12)) {
+    const capacity = room.capacity || 12
+    if (seatsBefore >= capacity) {
       throw new Error('Room is full — ask the host to raise capacity')
     }
+
+    const nextCount = seatsBefore + 1
 
     t.set(participantRef, {
       displayName,
@@ -109,10 +123,10 @@ async function joinRoom(db, body) {
       muted: false,
       joinedAt: FieldValue.serverTimestamp(),
     })
-    // Always refresh lastHeartbeat on join so landing-page "truly live" filter
-    // and stale-room cleanup both see recent activity.
+    // Absolute count from real docs so a create-time seed of 1 doesn't
+    // become 2 when the host's first join lands.
     t.update(roomRef, {
-      participantCount: FieldValue.increment(1),
+      participantCount: nextCount,
       lastHeartbeat: FieldValue.serverTimestamp(),
     })
   })
@@ -264,22 +278,14 @@ export default async function handler(req, res) {
 
     const db = getDb()
 
-    // Lightweight inline cleanup: on every room action, quickly delete
-    // stale rooms with 0 participants past the grace period.
-    // This ensures cleanup runs even without CRON_SECRET or cron jobs.
-    // Runs ~5% of the time (and always on leave) so ghost rooms don't linger.
-    const shouldCleanup = action === 'leave' || Math.random() < 0.05
-    if (shouldCleanup) {
-      try {
-        // Don't await on leave path beyond a short race — keep leave snappy.
-        if (action === 'leave') {
-          Promise.resolve(runCleanupStaleRooms(db)).catch(() => {})
-        } else {
-          await runCleanupStaleRooms(db)
-        }
-      } catch {
-        // Non-critical — don't block the main action
-      }
+    // Lightweight inline cleanup for ghost/stale rooms.
+    // IMPORTANT: Never run cleanup on `join` — create-room immediately joins the
+    // host, and awaiting a full-collection cleanup here races brand-new rooms
+    // (participantCount can still be 0 for a moment) and feels like "room
+    // creation crashed / auto-deleted".
+    // Run fire-and-forget on leave only; dedicated cron handles the rest.
+    if (action === 'leave') {
+      Promise.resolve(runCleanupStaleRooms(db)).catch(() => {})
     }
 
     let result

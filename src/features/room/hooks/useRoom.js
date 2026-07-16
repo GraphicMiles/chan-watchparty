@@ -343,19 +343,32 @@ export function useRoom(roomId, inviteCode = null) {
     return () => clearInterval(interval)
   }, [user, roomId, room?.hostId])
 
-  // Auto-leave (NOT end) when host/viewer closes tab / navigates away.
+  // Auto-leave (NOT end) only when the tab/window is actually going away.
   // Freeze player position first so rejoin continues from the same timestamp.
   // Room cleanup will end truly stale rooms (no heartbeat, 0 participants).
+  //
+  // IMPORTANT:
+  // - Do NOT leave on React unmount / in-app navigation alone. Soft SPA navigations
+  //   and StrictMode remounts previously fired leave, zeroed participantCount, and
+  //   let opportunistic cleanup delete brand-new rooms.
+  // - pagehide with event.persisted=true is bfcache — do not leave (user may come back).
+  // - beforeunload alone is also fired by some mobile browsers during soft reloads;
+  //   we prefer pagehide for the actual leave, and only use beforeunload as a fallback
+  //   when pagehide is unavailable.
   useEffect(() => {
     if (!user || !roomId) return
 
     let leaveToken = null
+    let leftOnUnload = false
     user.getIdToken().then(t => { leaveToken = t }).catch(() => {})
 
-    const handleUnload = () => {
+    const sendLeave = () => {
+      if (leftOnUnload || intentionalLeave.current) return
+      leftOnUnload = true
+      intentionalLeave.current = true
       const frozenTime = Math.max(0, Number(playerPositionRef.current.currentTime) || 0)
-      // Fire-and-forget LEAVE (not end) on tab close / navigation
-      // keepalive ensures the request is sent even during unload
+      // Fire-and-forget LEAVE (not end) on real tab close / hard navigation.
+      // keepalive ensures the request is sent even during unload.
       fetch('/api/room', {
         method: 'POST',
         headers: {
@@ -372,29 +385,34 @@ export function useRoom(roomId, inviteCode = null) {
       }).catch(() => {})
     }
 
-    window.addEventListener('beforeunload', handleUnload)
-    window.addEventListener('pagehide', handleUnload)
+    const handlePageHide = (event) => {
+      // bfcache: page is frozen, not destroyed — keep the participant seat warm.
+      if (event?.persisted) return
+      sendLeave()
+    }
+
+    // Some older browsers lack pagehide; fall back to beforeunload once.
+    const handleBeforeUnload = () => {
+      if (typeof window !== 'undefined' && 'onpagehide' in window) return
+      sendLeave()
+    }
+
+    window.addEventListener('pagehide', handlePageHide)
+    window.addEventListener('beforeunload', handleBeforeUnload)
     return () => {
-      window.removeEventListener('beforeunload', handleUnload)
-      window.removeEventListener('pagehide', handleUnload)
+      window.removeEventListener('pagehide', handlePageHide)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      // Do NOT leave on React cleanup — only real page lifecycle events should.
     }
   }, [user, roomId])
 
-  // Auto join; leave only on real unmount.
-  // Guard against React StrictMode double-mount: ignore leaves that fire
-  // within the first ~800ms of mount (synthetic remount), so we don't
-  // immediately leave + freeze position to 0 and break resume.
+  // Auto join on mount. Do NOT leave on unmount — that was deleting rooms after
+  // create → navigate, StrictMode remount, and soft SPA navigation away/back.
   useEffect(() => {
     if (!user || !roomId) return
     intentionalLeave.current = false
     wasParticipant.current = false
     let cancelled = false
-    let leaveToken = null
-    let joinedSuccessfully = false
-    const mountedAt = Date.now()
-
-    // Cache a token now for the keepalive leave fired on cleanup (can't await in cleanup)
-    user.getIdToken().then(t => { leaveToken = t }).catch(() => {})
 
     const check = async () => {
       try {
@@ -403,12 +421,10 @@ export function useRoom(roomId, inviteCode = null) {
         if (snap.exists()) {
           wasParticipant.current = true
           setJoined(true)
-          joinedSuccessfully = true
         } else {
           await join()
           if (!cancelled) {
             wasParticipant.current = true
-            joinedSuccessfully = true
           }
         }
       } catch (err) {
@@ -419,29 +435,6 @@ export function useRoom(roomId, inviteCode = null) {
 
     return () => {
       cancelled = true
-      // Skip leave if this was a StrictMode synthetic unmount (very short-lived mount)
-      // or if we never successfully joined.
-      const livedMs = Date.now() - mountedAt
-      if (livedMs < 800 || !joinedSuccessfully) {
-        return
-      }
-      intentionalLeave.current = true
-      const frozenTime = Math.max(0, Number(playerPositionRef.current.currentTime) || 0)
-      fetch('/api/room', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(leaveToken ? { Authorization: `Bearer ${leaveToken}` } : {}),
-        },
-        body: JSON.stringify({
-          action: 'leave',
-          roomId,
-          uid: user.uid,
-          // Only send freeze time if meaningful — avoid clobbering saved position with 0
-          ...(frozenTime > 0.5 ? { currentTime: frozenTime } : {}),
-        }),
-        keepalive: true,
-      }).catch(() => {})
     }
   }, [user, roomId, join])
 

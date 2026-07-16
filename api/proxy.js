@@ -201,9 +201,9 @@ export default async function handler(req, res) {
     const isM3u8ByPath = /\.m3u8(?:\?|#|$)/i.test(targetUrl.pathname)
 
     if (isM3u8ByPath) {
-      // Add timeout for playlist fetch (Hobby plan = 10s total, keep it fast)
+      // Playlist fetch timeout — keep under vercel.json maxDuration (30s).
       const playlistController = new AbortController()
-      const playlistTimer = setTimeout(() => playlistController.abort(), 5000)
+      const playlistTimer = setTimeout(() => playlistController.abort(), 12000)
       let response
       try {
         response = await fetch(targetUrl.href, {
@@ -258,9 +258,12 @@ export default async function handler(req, res) {
     if (isKeyHost) {
       console.log(`Proxy upstream fetch: ${targetUrl.hostname} ${targetUrl.pathname.slice(0, 80)} remux=${req.query?.remux || 'auto'}`)
     }
-    // Add timeout for upstream fetch (Hobby plan = 10s total, leave 2s buffer)
+    // Upstream header/connect timeout only. Once headers arrive we stream the body
+    // for the rest of the function lifetime (vercel.json maxDuration = 30s).
+    // The previous 8s abort killed slow CDNs mid-handshake and produced the
+    // 504s seen on /api/proxy during room create + first play.
     const upstreamController = new AbortController()
-    const upstreamTimer = setTimeout(() => upstreamController.abort(), 8000)
+    const upstreamTimer = setTimeout(() => upstreamController.abort(), 20000)
     let upstream
     try {
       upstream = await fetch(targetUrl.href, {
@@ -270,7 +273,7 @@ export default async function handler(req, res) {
       })
     } catch (err) {
       clearTimeout(upstreamTimer)
-      if (err.name === 'AbortError') return fail(res, 504, 'Upstream fetch timed out')
+      if (err.name === 'AbortError') return fail(res, 504, 'Upstream fetch timed out — video CDN is too slow. Try again or pick another source.')
       throw err
     }
     clearTimeout(upstreamTimer)
@@ -391,7 +394,47 @@ export default async function handler(req, res) {
     // Only trigger remuxing when EXPLICITLY requested via remux=1 query param,
     // or when the upstream Content-Type is definitively Matroska.
     // Do NOT auto-detect from URL patterns — that causes false positives on IPTV etc.
-    const needsRemux = req.query?.remux === '1' || isMkvContentType(contentType)
+    //
+    // CRITICAL for Vercel: full-file remux of multi-GB MKVs cannot finish inside
+    // maxDuration (30s). Client Range probes (bytes=0-1) used by VideoPlayer
+    // preflight must NEVER enter the remux path — remuxing a whole MKV for a
+    // 2-byte range is what produced the 504 Runtime Timeouts in production logs.
+    const rangeHeader = req.headers.range || ''
+    const isTinyRangeProbe = /^bytes=0-\d{1,4}$/i.test(rangeHeader)
+    const wantsRemux = req.query?.remux === '1' || isMkvContentType(contentType)
+    // Only remux progressive (no Range) requests. Seeking / preflight uses Range
+    // and must passthrough (or fail fast) so the function returns before timeout.
+    const needsRemux = wantsRemux && !rangeHeader
+
+    if (wantsRemux && isTinyRangeProbe) {
+      // Fast path for VideoPlayer preflight: validate magic / content-type without remux.
+      try {
+        const reader = upstream.body.getReader()
+        const { value: firstChunk, done } = await reader.read()
+        await reader.cancel().catch(() => {})
+        if (done || !firstChunk) {
+          return fail(res, 502, 'Empty response from upstream')
+        }
+        const firstBytes = Buffer.from(firstChunk)
+        const looksMkv = firstBytes[0] === 0x1A
+        // Respond with a tiny body so the client can inspect Content-Type quickly.
+        res.setHeader('Content-Type', looksMkv ? 'video/x-matroska' : (contentType || 'application/octet-stream'))
+        res.setHeader('Accept-Ranges', 'bytes')
+        res.setHeader('Cache-Control', cacheControlForType(contentType))
+        res.setHeader('Content-Length', String(Math.min(firstBytes.length, 2)))
+        res.status(206)
+        res.setHeader('Content-Range', `bytes 0-1/*`)
+        if (req.method === 'HEAD') {
+          res.end()
+          return
+        }
+        res.end(firstBytes.subarray(0, 2))
+        return
+      } catch (probeErr) {
+        console.error('Proxy range-probe error:', probeErr.message)
+        return fail(res, 502, 'Could not probe upstream video')
+      }
+    }
 
     if (needsRemux) {
       // For MKV files, we must fetch from the start (no Range header)
@@ -433,7 +476,6 @@ export default async function handler(req, res) {
 
         // Wrap the reader so the probe can consume from the start (including the
         // first chunk we already read), then continue into the remuxer.
-        let probeDone = false
         let queued = firstBytes
         const probingReader = {
           read: async () => {
@@ -449,7 +491,8 @@ export default async function handler(req, res) {
 
         let videoCodec = null
         try {
-          videoCodec = await probeMkvVideoCodec(probingReader, { maxBytes: 524288, timeoutMs: 5000 })
+          // Keep probe short — every ms here counts against maxDuration.
+          videoCodec = await probeMkvVideoCodec(probingReader, { maxBytes: 262144, timeoutMs: 3000 })
         } catch (probeErr) {
           console.error('MKV codec probe error:', probeErr.message)
         }
@@ -457,11 +500,20 @@ export default async function handler(req, res) {
         const isHevc = videoCodec && /HEVC|H\.265|V_MPEGH/i.test(videoCodec)
         if (isHevc) {
           console.log('Proxy: HEVC/H.265 MKV detected — passing through for browser to decode', targetUrl.hostname, videoCodec)
+          // Don't remux HEVC — pass through original bytes (fresh fetch).
+          await reader.cancel().catch(() => {})
+          const refetch = await fetch(targetUrl.href, { redirect: 'follow', headers: upstreamHeaders })
+          if (!refetch.ok && refetch.status !== 206) {
+            return fail(res, refetch.status, `Upstream returned HTTP ${refetch.status}`)
+          }
+          return streamDirectResponse(refetch, req, res)
         }
 
         // Commit to a 200 MP4 response now that we know the codec.
         res.setHeader('Content-Type', 'video/mp4')
         res.setHeader('Cache-Control', cacheControlForType('video/mp4'))
+        // Remux is progressive-only; seeking requires a full re-request.
+        res.setHeader('Accept-Ranges', 'none')
         res.status(200)
 
         if (req.method === 'HEAD') {
@@ -472,7 +524,19 @@ export default async function handler(req, res) {
 
         const remuxer = new MkvRemuxStream()
         const abortController = new AbortController()
-        const onClose = () => { abortController.abort(); remuxer.destroy() }
+        // Hard stop remux before Vercel kills the function so the client gets a
+        // clean end rather than a truncated body with no error.
+        const remuxDeadline = setTimeout(() => {
+          console.error('Proxy: MKV remux deadline reached — ending stream early to avoid 504')
+          abortController.abort()
+          try { remuxer.destroy() } catch { /* */ }
+          try { res.end() } catch { /* */ }
+        }, 25000)
+        const onClose = () => {
+          abortController.abort()
+          remuxer.destroy()
+          clearTimeout(remuxDeadline)
+        }
         req.on('close', onClose)
 
         remuxer.on('error', (err) => {
@@ -510,17 +574,25 @@ export default async function handler(req, res) {
           } finally {
             if (!remuxer.destroyed) remuxer.end()
             await reader.cancel().catch(() => {})
+            clearTimeout(remuxDeadline)
           }
         }
 
         await feedLoop()
         req.off('close', onClose)
+        clearTimeout(remuxDeadline)
         return
 
       } catch (peekErr) {
         console.error('Proxy MKV peek error:', peekErr.message)
         return fail(res, 502, 'MKV remux failed — could not read stream header')
       }
+    }
+
+    // remux requested but client sent Range (seek) — passthrough original MKV.
+    // Browser may fail to play; better than a 30s timeout.
+    if (wantsRemux && rangeHeader) {
+      console.log('Proxy: remux skipped for Range request — passthrough', targetUrl.hostname)
     }
 
     // ─── Stream the response directly to the client ───
