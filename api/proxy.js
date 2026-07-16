@@ -456,12 +456,10 @@ export default async function handler(req, res) {
 
         const isHevc = videoCodec && /HEVC|H\.265|V_MPEGH/i.test(videoCodec)
         if (isHevc) {
-          await reader.cancel().catch(() => {})
-          console.error('Proxy HEVC rejected:', targetUrl.hostname, videoCodec)
-          return fail(res, 502, 'This source uses HEVC/H.265 video, which most browsers cannot play. Try a different source or device.')
+          console.log('Proxy: HEVC/H.265 MKV detected — passing through for browser to decode', targetUrl.hostname, videoCodec)
         }
 
-        // Commit to a 200 MP4 response now that we know the codec is supported.
+        // Commit to a 200 MP4 response now that we know the codec.
         res.setHeader('Content-Type', 'video/mp4')
         res.setHeader('Cache-Control', cacheControlForType('video/mp4'))
         res.status(200)
