@@ -14,7 +14,10 @@ const UPSTREAM_CONNECT_MS = 3_500
 const SEEK_CONNECT_MS = 5_000
 const PLAYLIST_FETCH_MS = 4_000
 const SMALL_FILE_BYTES = 8 * 1024 * 1024 // ≤8 MiB → full progressive stream
-const CHUNK_BYTES = 1 * 1024 * 1024 // 1 MiB per large-file passthrough invocation
+// Larger chunks = fewer Hobby invocations per video. 5 MiB is a good balance:
+// ~5× fewer requests than 1 MiB, while still finishing well under the 10s limit
+// when streaming (not buffering the whole chunk in memory).
+const CHUNK_BYTES = 5 * 1024 * 1024 // 5 MiB per large-file passthrough invocation
 // Progressive MKV→fMP4 remux (the Chrome loophole): stream as many clusters as
 // fit in Hobby time. Browser plays fMP4 from the first fragments even if the
 // function ends early. Do NOT require the whole file to remux.
