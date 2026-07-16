@@ -563,7 +563,7 @@ export default function VideoPlayer({
               : checkRes.status === 504
                 ? 'Stream proxy timed out on Vercel Hobby (10s). Large files are chunked automatically — retry or pick a smaller / faster source.'
                 : checkRes.status === 502
-                  ? 'Stream server returned an error page instead of video. The channel may be offline or the link expired — re-resolve from search and try again.'
+                  ? 'Stream server returned an error page instead of video. The download token may have expired — go back to Nkiri, pick the episode again, and prefer an MP4 link (Chrome cannot play raw MKV).'
                   : `Stream returned ${contentType} instead of video data (HTTP ${checkRes.status}). Try a different source.`
             setError(errorMsg)
           } else {
@@ -928,17 +928,27 @@ export default function VideoPlayer({
   const seekbarValue = durationSec > 0 ? Math.round((currentSec / durationSec) * 1000) : 0
 
   if (error || isMixedContent) {
-    const isHevcError = /HEVC|H\.265/i.test(error || '')
+    const isHevcError = /HEVC|H\.265|x265/i.test(error || '')
+    const isMkvError = /matroska|video\/x-matroska|\.mkv|MKV container/i.test(error || '')
+      || (/demuxer|pipeline|format error|no supported/i.test(error || '') && /mkv|remux|matroska/i.test(`${error || ''} ${currentUrl || ''}`))
     return (
       <div className={styles.errorContainer}>
         <AlertTriangle size={32} strokeWidth={1.5} style={{ color: 'var(--ember)' }} />
-        <h3>{isMixedContent ? 'HTTP stream blocked' : isHevcError ? 'Unsupported Video Format' : 'Playback Error'}</h3>
+        <h3>
+          {isMixedContent
+            ? 'HTTP stream blocked'
+            : isHevcError || isMkvError
+              ? 'Unsupported in Chrome'
+              : 'Playback Error'}
+        </h3>
         <p>
           {isMixedContent
             ? 'This video server only provides HTTP. HTTPS deployments cannot load it in the browser. Use an HTTPS stream or another source.'
             : isHevcError
-            ? 'This video uses HEVC/H.265 encoding, which browsers cannot play. Try a different episode or source with MP4/H.264 encoding.'
-            : error}
+              ? 'This video uses HEVC/H.265 encoding. Chrome cannot decode HEVC in most builds. Pick an MP4/H.264 (x264) quality from Nkiri if available.'
+              : isMkvError
+                ? 'Chrome does not play MKV (Matroska) natively. We remux small MKVs to fMP4 on the server, but large files exceed Vercel Hobby (10s). Prefer an MP4 link, or use Safari (sometimes) / download + VLC.'
+                : error}
         </p>
         {!isHevcError && (
           <button type="button" onClick={() => { setError(null); retryCountRef.current = 0; setCurrentUrl(resolvedUrl) }}>

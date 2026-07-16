@@ -415,23 +415,60 @@ async function enrichWithOMDbPosters(items, query = null) {
 // African hosts, but never expand every season for every provider.
 const DIRECT_SEARCH_TIMEOUT_MS = 9000
 
-function softTitleMatch(title, query) {
-  if (!title || !query) return true
-  if (isTitleMatch(title, query)) return true
-  const baseQuery = String(query).replace(/\s+season\s*\d+$/i, '').trim()
-  if (baseQuery && isTitleMatch(title, baseQuery)) return true
+/**
+ * Lenient title match for Nkiri listings.
+ * Returns a score: 0 = no match, higher = better.
+ * Hard-zero only when nothing useful overlaps — avoids wiping all hits
+ * when Nkiri titles are noisy ("Download … Nkiri", SEO junk, etc.).
+ */
+function titleMatchScore(title, query) {
+  if (!title || !query) return 1
+  if (isTitleMatch(title, query)) return 100
+
+  const baseQuery = String(query)
+    .replace(/\s+season\s*\d+$/i, '')
+    .replace(/\s+s\d+\s*e\d+.*$/i, '')
+    .trim()
+  if (baseQuery && baseQuery !== query && isTitleMatch(title, baseQuery)) return 90
+
   const itemBase = String(title)
     .replace(/\s*[-–]\s*season\s*\d+.*$/i, '')
     .replace(/\s*s\d+\s*e\d+.*$/i, '')
+    .replace(/^(download|watch|stream|get)\s+/i, '')
     .trim()
-  if (baseQuery && isTitleMatch(itemBase, baseQuery)) return true
-  // Soft fallback: all meaningful query tokens appear somewhere in the title
+  if (baseQuery && isTitleMatch(itemBase, baseQuery)) return 85
+
   const qTokens = cleanTitleForMatching(baseQuery || query)
     .split(/\s+/)
-    .filter((t) => t.length >= 3)
-  if (qTokens.length === 0) return true
+    .filter((t) => t.length >= 2 && !['of', 'the', 'in', 'at', 'to', 'and', 'for', 'with', 'by', 'from', 'on', 'or', 'a', 'an'].includes(t))
+  if (qTokens.length === 0) return 1
+
   const tClean = cleanTitleForMatching(title)
-  return qTokens.every((t) => tClean.includes(t))
+  if (!tClean) return 0
+
+  // Exact cleaned phrase
+  const qClean = cleanTitleForMatching(baseQuery || query)
+  if (qClean && tClean.includes(qClean)) return 80
+
+  const hits = qTokens.filter((t) => tClean.includes(t))
+  if (hits.length === 0) {
+    // Last-chance: first significant token only (e.g. query "silo season 2" vs title "SILO")
+    const primary = qTokens[0]
+    if (primary && primary.length >= 3 && tClean.includes(primary)) return 25
+    return 0
+  }
+
+  // Majority of tokens is enough (was: every token — too strict)
+  const ratio = hits.length / qTokens.length
+  if (ratio >= 1) return 70
+  if (ratio >= 0.6) return 50
+  if (hits.length >= 2) return 35
+  if (hits[0] && hits[0].length >= 4) return 20
+  return 0
+}
+
+function softTitleMatch(title, query) {
+  return titleMatchScore(title, query) > 0
 }
 
 /**
@@ -586,118 +623,219 @@ async function resolveDownloadwellaWithBrowser(pageUrl) {
 }
 
 /**
- * Generate related search queries for movies/shows to find sequels, prequels, parts.
- * "batman" → ["batman", "batman 2", "batman part 2", "batman begins"]
- * "avatar" → ["avatar", "avatar 2", "avatar 3", "avatar part 2"]
+ * Related queries — kept SHORT for Vercel Hobby (10s).
+ * Old version fired 10+ sequential searches and often timed out → empty results.
  */
 function generateRelatedQueries(baseQ) {
-  const queries = [baseQ]
-  
-  // Add numbered sequels (2, 3, 4)
-  for (let i = 2; i <= 4; i++) {
-    queries.push(`${baseQ} ${i}`)
-    queries.push(`${baseQ} part ${i}`)
+  const clean = String(baseQ || '').trim()
+  if (!clean) return []
+  const queries = [clean]
+
+  // Only expand when query is a short title (not already "silo s02e01")
+  if (/\b(season\s*\d+|s\d+\s*e\d+|s\d+\b|episode\s*\d+)\b/i.test(clean)) {
+    return queries
   }
-  
-  // Add common sequel/prequel keywords
-  const keywords = ['begins', 'returns', 'reloaded', 'revolutions', 'eternal', 'forever', 'rises']
-  for (const keyword of keywords) {
-    queries.push(`${baseQ} ${keyword}`)
+
+  // One sequel hint is enough for discovery under Hobby budget
+  queries.push(`${clean} season 1`)
+  if (clean.split(/\s+/).length <= 3) {
+    queries.push(`${clean} 2`)
   }
-  
-  return queries
+  // Cap hard
+  return [...new Set(queries)].slice(0, 3)
+}
+
+function parseNkiriSearchHtml(searchHtml, baseUrl, seenUrls) {
+  const pages = []
+  if (!searchHtml) return pages
+  const $s = cheerio.load(searchHtml)
+  const baseHost = (() => {
+    try { return new URL(baseUrl).origin } catch { return 'https://thenkiri.com' }
+  })()
+
+  const push = (hrefRaw, titleRaw, thumbRaw) => {
+    if (!hrefRaw) return
+    let href = hrefRaw.trim()
+    try { href = new URL(href, baseUrl).href } catch { return }
+    if (!href.startsWith('http')) return
+    // Accept thenkiri / nkiri hosts
+    if (!/thenkiri\.com|nkiri\.com/i.test(href)) return
+    if (/\/(page|category|tag|search|author|wp-json|feed)\//i.test(href)) return
+    if (/[?&]s=/i.test(href) && !/\/\d{4}\//i.test(href)) return
+    if (seenUrls.has(href)) return
+    const title = String(titleRaw || '').replace(/\s+/g, ' ').trim()
+      || href.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ')
+      || 'Video'
+    let thumbnail = thumbRaw || null
+    if (thumbnail) {
+      try { thumbnail = new URL(thumbnail, baseUrl).href } catch { thumbnail = null }
+    }
+    seenUrls.add(href)
+    pages.push({ url: href, title, thumbnail })
+  }
+
+  // Broad selector set — Nkiri/WordPress themes change class names often
+  const selectors = [
+    '.search-entry-inner a[href]',
+    '.search-entry a[href]',
+    'article a[href]',
+    '.post-item a[href]',
+    '.post a[href]',
+    '.entry-title a[href]',
+    'h2.entry-title a[href]',
+    'h2 a[href]',
+    'h3 a[href]',
+    '.movie-item a[href]',
+    '.list-movies a[href]',
+    '.jetpack-search-filters-widget a[href]',
+    'a[rel="bookmark"]',
+    'main a[href]',
+  ]
+
+  for (const sel of selectors) {
+    $s(sel).each((_, el) => {
+      const href = $s(el).attr('href') || ''
+      const $el = $s(el)
+      const title = $el.find('img').attr('alt')
+        || $el.attr('title')
+        || $el.attr('aria-label')
+        || $el.text()
+        || $el.closest('article, .post, .search-entry, .post-item').find('h1,h2,h3,.entry-title').first().text()
+        || ''
+      const thumbnail = $el.find('img').attr('src')
+        || $el.find('img').attr('data-src')
+        || $el.find('img').attr('data-lazy-src')
+        || $el.closest('article, .post, .search-entry, .post-item').find('img').first().attr('src')
+        || null
+      push(href, title, thumbnail)
+    })
+  }
+
+  // Regex fallback for any thenkiri post links missed by DOM
+  if (pages.length < 3) {
+    const re = /href=["'](https?:\/\/(?:www\.)?(?:thenkiri|nkiri)\.com\/[^"']+)["']/gi
+    let m
+    while ((m = re.exec(searchHtml)) !== null) {
+      const href = m[1]
+      if (seenUrls.has(href)) continue
+      const ctx = searchHtml.slice(Math.max(0, m.index - 400), Math.min(searchHtml.length, m.index + 600))
+      const tm = ctx.match(/title=["']([^"']+)["']/) || ctx.match(/alt=["']([^"']+)["']/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i)
+      const thumbMatch = ctx.match(/(?:src|data-src|data-lazy-src)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/i)
+      push(href, tm?.[1], thumbMatch?.[1])
+    }
+  }
+
+  // Also surface bare downloadwella links if theme embeds them in search HTML
+  const dwRe = /href=["'](https?:\/\/(?:www\.)?downloadwella\.com\/[^"']+)["']/gi
+  let dw
+  while ((dw = dwRe.exec(searchHtml)) !== null) {
+    const href = dw[1].replace(/&amp;/g, '&')
+    if (seenUrls.has(href)) continue
+    if (/\/(login|register|premium)/i.test(href)) continue
+    const ctx = searchHtml.slice(Math.max(0, dw.index - 250), Math.min(searchHtml.length, dw.index + 400))
+    const tm = ctx.match(/title=["']([^"']+)["']/) || ctx.match(/alt=["']([^"']+)["']/)
+    const title = (tm?.[1] || href.split('/').filter(Boolean).pop()?.replace(/[-_.]/g, ' ') || 'Episode').trim()
+    seenUrls.add(href)
+    pages.push({ url: href, title, thumbnail: null })
+  }
+
+  return pages
 }
 
 /**
- * Nkiri Direct Link Search — searches with multiple query variations
- * to find related movies, sequels, prequels, and parts.
+ * Nkiri Direct Link Search — Hobby-safe (parallel, few queries, soft ranking).
  */
 async function searchDirectLinks(query, options = {}) {
   const baseQ = String(query || '').trim()
   if (!baseQ) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
-  const offset = Math.max(0, Number(options.offset) || 0)
-  const limit = 25
   const NKIRI_BASE = 'https://thenkiri.com'
-
-  // Generate related queries for sequels/prequels/parts
   const searchQueries = generateRelatedQueries(baseQ)
-  
-  // STEP 1: Search nkiri with multiple query variations
-  const allInitialPages = []
   const seenUrls = new Set()
-  
-  for (const searchQ of searchQueries) {
-    const searchUrl = NKIRI_BASE + '/?s=' + encodeURIComponent(searchQ)
-    let searchHtml = ''
-    try {
-      const c = new AbortController(), t = setTimeout(() => c.abort(), 4000) // Reduced timeout for multiple queries
-      const res = await fetch(searchUrl, { signal: c.signal, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', Accept: 'text/html', Referer: NKIRI_BASE + '/' }, redirect: 'follow' })
-      clearTimeout(t); if (res.ok) searchHtml = await res.text()
-    } catch (err) { console.error('Nkiri search failed for', searchQ, ':', err.message) }
-    if (!searchHtml) continue
+  const allInitialPages = []
+  const overallDeadline = Date.now() + 7500 // leave headroom under Hobby 10s
 
-    const $s = cheerio.load(searchHtml)
-    const initialPages = []
-    
-    // Nkiri uses .search-entry-inner for search results
-    // Title is in <img alt="..."> inside the <a> tag
-    for (const sel of ['.search-entry-inner a[href]', 'article a[href]', '.post-item a[href]', 'h2 a[href]', 'h3 a[href]']) {
-      $s(sel).each((_, el) => {
-        const href = $s(el).attr('href') || ''
-        // Extract title from alt attribute of img inside, or title attr, or text
-        const title = $s(el).find('img').attr('alt') || $s(el).attr('title') || $s(el).text().trim() || ''
-        // Extract thumbnail from img src or data-src
-        const thumbnail = $s(el).find('img').attr('src') || $s(el).find('img').attr('data-src') || null
-        if (!href || !href.startsWith(NKIRI_BASE) || /\/(page|category|tag|search)\//i.test(href) || seenUrls.has(href)) return
-        seenUrls.add(href); initialPages.push({ url: href, title, thumbnail })
-      })
-      if (initialPages.length > 0) break
-    }
-    
-    if (initialPages.length === 0) {
-      const re = new RegExp('href="(https://' + NKIRI_BASE.replace('https://', '') + '/[^"]+)"', 'gi'); let m
-      while ((m = re.exec(searchHtml)) !== null) {
-        const href = m[1]; if (/\/(page|category|tag|search)\//i.test(href) || seenUrls.has(href)) continue
-        seenUrls.add(href)
-        const ctx = searchHtml.slice(Math.max(0, m.index - 300), Math.min(searchHtml.length, m.index + 500))
-        const tm = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
-        const thumbMatch = ctx.match(/src="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i) || ctx.match(/data-src="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i)
-        initialPages.push({ url: href, title: tm?.[1] || href.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Video', thumbnail: thumbMatch?.[1] || null })
+  const fetchSearch = async (searchQ) => {
+    if (Date.now() > overallDeadline) return []
+    const urls = [
+      `${NKIRI_BASE}/?s=${encodeURIComponent(searchQ)}`,
+      `${NKIRI_BASE}/search/${encodeURIComponent(searchQ.replace(/\s+/g, '+'))}`,
+    ]
+    const pages = []
+    for (const searchUrl of urls) {
+      if (Date.now() > overallDeadline) break
+      let searchHtml = ''
+      try {
+        const c = new AbortController()
+        const t = setTimeout(() => c.abort(), 2800)
+        const res = await fetch(searchUrl, {
+          signal: c.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml',
+            'Accept-Language': 'en-US,en;q=0.9',
+            Referer: `${NKIRI_BASE}/`,
+          },
+          redirect: 'follow',
+        })
+        clearTimeout(t)
+        if (res.ok) searchHtml = await res.text()
+      } catch (err) {
+        console.error('Nkiri search failed for', searchQ, searchUrl, ':', err.message)
       }
+      if (!searchHtml) continue
+      const parsed = parseNkiriSearchHtml(searchHtml, NKIRI_BASE, seenUrls)
+      pages.push(...parsed)
+      if (pages.length >= 8) break
     }
-    
-    allInitialPages.push(...initialPages)
-    
-    // Stop if we have enough results
-    if (allInitialPages.length >= 50) break
-  }
-  
-  console.log('Nkiri search found', allInitialPages.length, 'pages across', searchQueries.length, 'queries')
-  
-  // Filter by title match
-  const filtered = allInitialPages.filter(sp => softTitleMatch(sp.title, baseQ))
-  console.log('Nkiri after softTitleMatch:', filtered.length, 'of', allInitialPages.length)
-  if (filtered.length === 0) {
-    console.log('Nkiri search: found', allInitialPages.length, 'pages but 0 passed softTitleMatch for query:', baseQ)
-    allInitialPages.slice(0, 3).forEach(p => console.log('  Sample:', p.title.slice(0, 80)))
-    return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
+    return pages
   }
 
-  // STEP 2: Return Nkiri page URLs directly (don't scrape for downloadwella yet)
-  // Create Room page will scrape on-demand when user clicks
-  const results = filtered.slice(0, 100).map(page => ({
-    title: page.title,
-    url: page.url,
-    link: page.url,
-    thumbnail: page.thumbnail || null,
-    image: page.thumbnail || null,
-    source: 'nkiri',
-    type: 'direct',
-    isDirect: false,
-    playableInRoom: false,
-    requiresResolve: true,
-    quality: extractQuality(page.title),
+  // Parallel base queries (max 3) instead of long sequential chain
+  const settled = await Promise.allSettled(searchQueries.map((q) => fetchSearch(q)))
+  for (const s of settled) {
+    if (s.status === 'fulfilled' && Array.isArray(s.value)) {
+      allInitialPages.push(...s.value)
+    }
+  }
+
+  // Direct downloadwella links that slipped into search HTML
+  // (parseNkiriSearchHtml only stores nkiri hosts in pages; re-scan first HTML batch if empty)
+  console.log('Nkiri search found', allInitialPages.length, 'pages across', searchQueries.length, 'queries')
+
+  // Score + rank (don't hard-drop everything)
+  const scored = allInitialPages.map((sp) => ({
+    ...sp,
+    score: titleMatchScore(sp.title, baseQ),
   }))
+  scored.sort((a, b) => b.score - a.score)
+
+  let filtered = scored.filter((sp) => sp.score > 0)
+  // Soft fallback: if filter wiped everything but we got pages, return top unfiltered
+  if (filtered.length === 0 && scored.length > 0) {
+    console.log('Nkiri softTitleMatch empty — falling back to unfiltered top results for:', baseQ)
+    filtered = scored.slice(0, 12).map((sp) => ({ ...sp, score: 1, meta: 'Weak title match — verify before playing' }))
+  }
+
+  console.log('Nkiri after softTitleMatch:', filtered.length, 'of', allInitialPages.length)
+
+  const results = filtered.slice(0, 40).map((page) => {
+    const isDw = /downloadwella\.com/i.test(page.url)
+    return {
+      title: formatMediaTitle(page.title) || page.title,
+      url: page.url,
+      link: page.url,
+      thumbnail: page.thumbnail || null,
+      image: page.thumbnail || null,
+      source: isDw ? 'downloadwella' : 'nkiri',
+      type: 'direct',
+      isDirect: false,
+      playableInRoom: false,
+      requiresResolve: true,
+      quality: extractQuality(page.title),
+      matchScore: page.score,
+      meta: page.meta || undefined,
+    }
+  })
 
   return { results, hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
 }
@@ -928,7 +1066,7 @@ function validateFetchTarget(rawUrl) {
 async function fetchHtml(targetUrl) {
   const controller = new AbortController()
   // 5s timeout to stay within Vercel Hobby 10s function limit
-  const timeout = setTimeout(() => controller.abort(), 5000)
+  const timeout = setTimeout(() => controller.abort(), 3500)
   let currentUrl = validateFetchTarget(targetUrl)
 
   try {
@@ -1783,63 +1921,134 @@ export default async function handler(req, res) {
           const pageHtml = await fetchHtml(url)
           const $page = cheerio.load(pageHtml)
           const pagePoster = $page('meta[property="og:image"]').attr('content')
+            || $page('meta[name="twitter:image"]').attr('content')
             || $page('img[src]').first().attr('src')
             || null
           const resolvedPoster = resolveUrl(pagePoster, url)
+          const pageTitle = ($page('meta[property="og:title"]').attr('content')
+            || $page('h1').first().text()
+            || $page('title').text()
+            || '').replace(/\s+/g, ' ').trim()
 
-          // Extract downloadwella links (episodes)
           const episodes = []
           const seenEp = new Set()
+          const addEp = (hrefRaw, textRaw) => {
+            if (!hrefRaw) return
+            let href = String(hrefRaw).replace(/&amp;/g, '&').trim()
+            try { href = new URL(href, url).href } catch { return }
+            // Accept downloadwella + common alternate hosts Nkiri may use
+            const hostOk = /downloadwella\.com|fsmc\.|dood\.(li|to|stream)|ds2play|d0000d|pixeldrain|gofile|mediafire|mega\.nz|drive\.google/i.test(href)
+            if (!hostOk) return
+            if (seenEp.has(href)) return
+            seenEp.add(href)
+            let text = String(textRaw || '').replace(/\s+/g, ' ').trim()
+            if (!text || /download.*episode|click here|get link/i.test(text) || text.length < 3) {
+              const urlMatch = href.match(/\/([^/]+)\.html?$/i) || href.match(/\/([^/?#]+)(?:\?|#|$)/i)
+              text = urlMatch
+                ? urlMatch[1].replace(/[-._+]/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
+                : (pageTitle || 'Episode')
+            }
+            episodes.push({ url: href, title: text, poster: resolvedPoster })
+          }
 
-          // Strategy 1: cheerio
-          $page('a[href*="downloadwella.com"]').each((_, el) => {
-            const href = $page(el).attr('href')
-            // Extract episode title from link text, or from URL filename
-            let text = $page(el).text().trim() || $page(el).attr('title') || ''
-            // If text is generic like "Download Episode", extract from URL
-            if (!text || /download.*episode/i.test(text) || text.length < 3) {
-              const urlMatch = href.match(/\/([^/]+)\.html$/i)
-              text = urlMatch ? urlMatch[1].replace(/[-._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Episode'
-            }
-            if (href && !seenEp.has(href)) {
-              seenEp.add(href)
-              episodes.push({ url: href, title: text, poster: resolvedPoster })
-            }
+          // Strategy 1: explicit downloadwella anchors
+          $page('a[href*="downloadwella.com"], a[href*="fsmc"]').each((_, el) => {
+            addEp($page(el).attr('href'), $page(el).text() || $page(el).attr('title'))
           })
 
-          // Strategy 2: regex fallback
+          // Strategy 2: download buttons / labeled links
           if (episodes.length === 0) {
-            const dlRe = /href="(https?:\/\/(?:www\.)?downloadwella\.com\/[^"]+)"/gi
-            let m
-            while ((m = dlRe.exec(pageHtml)) !== null) {
-              if (seenEp.has(m[1])) continue
-              seenEp.add(m[1])
-              const ctx = pageHtml.slice(Math.max(0, m.index - 200), Math.min(pageHtml.length, m.index + 500))
-              const titleMatch = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
-              // Extract episode name from URL if title is generic
-              let title = titleMatch?.[1] || ''
-              if (!title || /download.*episode/i.test(title) || title.length < 3) {
-                const urlMatch = m[1].match(/\/([^/]+)\.html$/i)
-                title = urlMatch ? urlMatch[1].replace(/[-._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Episode'
+            $page('a[href]').each((_, el) => {
+              const href = $page(el).attr('href') || ''
+              const text = ($page(el).text() || $page(el).attr('title') || '').trim()
+              if (/downloadwella|fsmc|download\s*(episode|link|file|now)|480p|720p|1080p|mkv|mp4/i.test(`${href} ${text}`)) {
+                addEp(href, text)
               }
-              episodes.push({ url: m[1], title, poster: resolvedPoster })
+            })
+          }
+
+          // Strategy 3: regex on full HTML (encoded entities, data attributes)
+          if (episodes.length === 0) {
+            const patterns = [
+              /href=["'](https?:\/\/(?:www\.)?downloadwella\.com\/[^"']+)["']/gi,
+              /href=["'](https?:\/\/[^"']*fsmc[^"']+)["']/gi,
+              /["'](https?:\/\/(?:www\.)?downloadwella\.com\/[^"'\s]+)["']/gi,
+            ]
+            for (const dlRe of patterns) {
+              let m
+              while ((m = dlRe.exec(pageHtml)) !== null) {
+                const href = m[1].replace(/&amp;/g, '&')
+                const ctx = pageHtml.slice(Math.max(0, m.index - 200), Math.min(pageHtml.length, m.index + 500))
+                const titleMatch = ctx.match(/title=["']([^"']+)["']/)
+                  || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i)
+                  || ctx.match(/alt=["']([^"']+)["']/)
+                addEp(href, titleMatch?.[1])
+              }
             }
           }
 
+          // Strategy 4: follow same-site "download" child pages (bounded, Hobby-safe)
+          if (episodes.length === 0) {
+            const childLinks = []
+            $page('a[href]').each((_, el) => {
+              const href = $page(el).attr('href') || ''
+              let abs
+              try { abs = new URL(href, url).href } catch { return }
+              if (!/thenkiri\.com|nkiri\.com/i.test(abs)) return
+              if (abs === url) return
+              if (/download|episode|part|link/i.test(abs + ($page(el).text() || ''))) {
+                childLinks.push(abs)
+              }
+            })
+            for (const child of [...new Set(childLinks)].slice(0, 3)) {
+              try {
+                const childHtml = await fetchHtml(child)
+                const $c = cheerio.load(childHtml)
+                $c('a[href*="downloadwella.com"], a[href*="fsmc"]').each((_, el) => {
+                  addEp($c(el).attr('href'), $c(el).text())
+                })
+                if (episodes.length > 0) break
+              } catch {
+                /* skip child */
+              }
+            }
+          }
+
+          // Prefer MP4-looking episode titles first (Chrome plays MP4; MKV needs remux)
+          episodes.sort((a, b) => {
+            const score = (t) => {
+              let s = 0
+              if (/\bmp4\b/i.test(t.title) || /\.mp4/i.test(t.url)) s += 10
+              if (/\b1080p\b/i.test(t.title)) s += 3
+              if (/\b720p\b/i.test(t.title)) s += 2
+              if (/\bmkv\b/i.test(t.title) || /\.mkv/i.test(t.url)) s -= 5
+              if (/\bhevc|x265|h\.?265\b/i.test(t.title)) s -= 8
+              return s
+            }
+            return score(b) - score(a)
+          })
+
           if (episodes.length > 0) {
             return ok(res, {
-              results: episodes.map(ep => ({
-                title: ep.title,
+              results: episodes.map((ep) => ({
+                title: formatMediaTitle(ep.title) || ep.title,
                 url: ep.url,
                 link: ep.url,
                 thumbnail: ep.poster,
                 image: ep.poster,
-                source: 'nkiri',
+                source: /downloadwella|fsmc/i.test(ep.url) ? 'downloadwella' : 'nkiri',
                 type: 'direct',
                 isDirect: false,
                 playableInRoom: false,
                 requiresResolve: true,
                 resolvedFrom: url,
+                preferMp4: /\bmp4\b/i.test(ep.title) || /\.mp4/i.test(ep.url),
+                codecHint: /\bhevc|x265|h\.?265\b/i.test(ep.title)
+                  ? 'hevc'
+                  : (/\bmkv\b/i.test(ep.title) || /\.mkv/i.test(ep.url) ? 'mkv' : null),
+                meta: (/\bmkv\b/i.test(ep.title) || /\.mkv/i.test(ep.url))
+                  ? 'MKV — Chrome cannot play MKV natively; we remux small files only on Hobby'
+                  : undefined,
               })),
               count: episodes.length,
               directCount: 0,
@@ -1849,10 +2058,9 @@ export default async function handler(req, res) {
             })
           }
 
-          // No episodes found
           return ok(res, {
             results: [{
-              title: 'No episodes found',
+              title: pageTitle || 'No episodes found',
               url,
               link: url,
               thumbnail: resolvedPoster,
@@ -1862,7 +2070,7 @@ export default async function handler(req, res) {
               isDirect: false,
               playableInRoom: false,
               requiresResolve: false,
-              meta: 'This page has no downloadable episodes.',
+              meta: 'This page has no downloadable episodes. Layout may have changed or links are behind another host.',
             }],
             count: 1,
             directCount: 0,
@@ -2004,6 +2212,8 @@ export default async function handler(req, res) {
               try {
                 title = decodeURIComponent(new URL(mediaUrl).pathname.split('/').pop() || 'Video')
               } catch { /* */ }
+              const isMkv = /\.mkv(\?|#|$)/i.test(mediaUrl)
+              const isMp4 = /\.mp4(\?|#|$)/i.test(mediaUrl)
               return {
                 title: title.replace(MEDIA_EXT_RE, ''),
                 url: proxied,
@@ -2016,6 +2226,10 @@ export default async function handler(req, res) {
                 playableInRoom: true,
                 resolvedFrom: url,
                 videoType: 'direct',
+                container: isMkv ? 'mkv' : (isMp4 ? 'mp4' : 'unknown'),
+                meta: isMkv
+                  ? 'MKV container — Chrome does not play MKV natively. Small files remux to fMP4 on the proxy; large files need an MP4 source or Safari/VLC.'
+                  : undefined,
               }
             })
           : [{
@@ -2027,13 +2241,23 @@ export default async function handler(req, res) {
               source: 'downloadwella',
               isDirect: false,
               requiresUserAction: true,
-              meta: 'Provider download action could not be resolved automatically. The link may have expired — open Nkiri/DownloadWella again and pick a fresh result.',
+              expired: Boolean(resolved.expired),
+              meta: resolved.error
+                || (resolved.expired
+                  ? 'Download token expired — go back to Nkiri, pick the episode again, and resolve a fresh link.'
+                  : 'Provider download action could not be resolved automatically. Prefer an MP4 quality if available, or re-open Nkiri for a fresh link.'),
             }]
+        // Prefer MP4 results first for Chrome playback
+        results.sort((a, b) => {
+          const score = (r) => (r.container === 'mp4' ? 2 : r.container === 'mkv' ? 0 : 1)
+          return score(b) - score(a)
+        })
         return ok(res, {
           results,
           count: results.length,
           directCount: resolved.directUrls.length,
           requiresUserAction: resolved.directUrls.length === 0,
+          expired: Boolean(resolved.expired),
           url,
           site: 'downloadwella',
         })
