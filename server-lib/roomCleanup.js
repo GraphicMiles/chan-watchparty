@@ -2,9 +2,11 @@ import { FieldValue, Timestamp } from './firebaseAdmin.js'
 
 const STALE_MINUTES = 15
 // How long a room with 0 participants stays alive (waiting for host/viewers to return)
-// Keep short enough that the landing page never shows "N rooms live" with nobody watching
-// for more than a few minutes, but long enough for a host to rejoin after a refresh.
-const ZERO_PARTICIPANT_GRACE_MINUTES = 3
+// Increased from 3 to 10 minutes to give users time to:
+// - Reload after browser crashes
+// - Reconnect after network issues
+// - Fix page errors and rejoin
+const ZERO_PARTICIPANT_GRACE_MINUTES = 10
 
 export async function deleteRoomAndSubcollections(db, roomRef) {
   const subcollections = [
