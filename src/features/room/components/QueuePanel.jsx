@@ -63,6 +63,10 @@ export default function QueuePanel({ roomId, room, user, isHost, canControl, onP
     if ((item.type || activeTab) === 'youtube' && (item.id || extractVideoId(item.url))) {
       videoId = item.id || extractVideoId(item.url)
       videoType = 'youtube'
+    } else if (/thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '')) {
+      // Nkiri season page - needs episode selection first
+      toast('Please select a specific episode from the Create Room page first', { variant: 'info', duration: 4000 })
+      return
     } else if (item.isDirect || isDirectVideoUrl(item.url || item.link)) {
       videoUrl = normalizePlaybackUrl(item.url || item.link)
       videoType = 'direct'

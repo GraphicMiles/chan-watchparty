@@ -646,8 +646,10 @@ async function searchDirectLinks(query, options = {}) {
         const href = $s(el).attr('href') || ''
         // Extract title from alt attribute of img inside, or title attr, or text
         const title = $s(el).find('img').attr('alt') || $s(el).attr('title') || $s(el).text().trim() || ''
+        // Extract thumbnail from img src or data-src
+        const thumbnail = $s(el).find('img').attr('src') || $s(el).find('img').attr('data-src') || null
         if (!href || !href.startsWith(NKIRI_BASE) || /\/(page|category|tag|search)\//i.test(href) || seenUrls.has(href)) return
-        seenUrls.add(href); initialPages.push({ url: href, title })
+        seenUrls.add(href); initialPages.push({ url: href, title, thumbnail })
       })
       if (initialPages.length > 0) break
     }
@@ -659,7 +661,8 @@ async function searchDirectLinks(query, options = {}) {
         seenUrls.add(href)
         const ctx = searchHtml.slice(Math.max(0, m.index - 300), Math.min(searchHtml.length, m.index + 500))
         const tm = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
-        initialPages.push({ url: href, title: tm?.[1] || href.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Video' })
+        const thumbMatch = ctx.match(/src="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i) || ctx.match(/data-src="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i)
+        initialPages.push({ url: href, title: tm?.[1] || href.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Video', thumbnail: thumbMatch?.[1] || null })
       }
     }
     
@@ -686,8 +689,8 @@ async function searchDirectLinks(query, options = {}) {
     title: page.title,
     url: page.url,
     link: page.url,
-    thumbnail: null, // Will be fetched by Create Room page
-    image: null,
+    thumbnail: page.thumbnail || null,
+    image: page.thumbnail || null,
     source: 'nkiri',
     type: 'direct',
     isDirect: false,
@@ -1791,10 +1794,16 @@ export default async function handler(req, res) {
           // Strategy 1: cheerio
           $page('a[href*="downloadwella.com"]').each((_, el) => {
             const href = $page(el).attr('href')
-            const text = $page(el).text().trim() || $page(el).attr('title') || ''
+            // Extract episode title from link text, or from URL filename
+            let text = $page(el).text().trim() || $page(el).attr('title') || ''
+            // If text is generic like "Download Episode", extract from URL
+            if (!text || /download.*episode/i.test(text) || text.length < 3) {
+              const urlMatch = href.match(/\/([^/]+)\.html$/i)
+              text = urlMatch ? urlMatch[1].replace(/[-._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Episode'
+            }
             if (href && !seenEp.has(href)) {
               seenEp.add(href)
-              episodes.push({ url: href, title: text || 'Episode', poster: resolvedPoster })
+              episodes.push({ url: href, title: text, poster: resolvedPoster })
             }
           })
 
@@ -1807,7 +1816,13 @@ export default async function handler(req, res) {
               seenEp.add(m[1])
               const ctx = pageHtml.slice(Math.max(0, m.index - 200), Math.min(pageHtml.length, m.index + 500))
               const titleMatch = ctx.match(/title="([^"]+)"/) || ctx.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i) || ctx.match(/alt="([^"]+)"/)
-              episodes.push({ url: m[1], title: titleMatch?.[1] || m[1].split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Episode', poster: resolvedPoster })
+              // Extract episode name from URL if title is generic
+              let title = titleMatch?.[1] || ''
+              if (!title || /download.*episode/i.test(title) || title.length < 3) {
+                const urlMatch = m[1].match(/\/([^/]+)\.html$/i)
+                title = urlMatch ? urlMatch[1].replace(/[-._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Episode'
+              }
+              episodes.push({ url: m[1], title, poster: resolvedPoster })
             }
           }
 

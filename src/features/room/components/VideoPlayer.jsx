@@ -574,7 +574,7 @@ export default function VideoPlayer({
     }
 
     if (!isHLS || !currentUrl || !videoRef.current) {
-      return () => clearTimeout(fallbackReadyTimer)
+      return () => {}
     }
 
     const video = videoRef.current
@@ -655,7 +655,6 @@ export default function VideoPlayer({
 
     video.addEventListener('error', onNativeError)
     return () => {
-      clearTimeout(fallbackReadyTimer)
       video.removeEventListener('loadedmetadata', onLoadedMetadata)
       video.removeEventListener('error', onNativeError)
       clearTimeout(retryTimeoutRef.current)
