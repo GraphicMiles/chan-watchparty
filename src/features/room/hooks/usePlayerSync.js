@@ -97,12 +97,16 @@ export function usePlayerSync(roomId, room, playerRef) {
 
     const isLiveStream = room?.isLive || room?.videoType === 'iptv' || room?.source === 'iptv' || player.isLive?.()
     // MKV remux: any meaningful jump must remux-from-t (not only 0.5s drift)
-    const remuxJump = isRemuxProxyUrl(room?.videoUrl) && diff > 1.5
+    const remuxJump = isRemuxProxyUrl(room?.videoUrl) && (
+      diff > 1.5
+      || (Number(state.remuxStartSec) > 0.5 && Math.abs(current - expectedTime) > 1.0)
+    )
     if (!isLiveStream && (diff > SYNC_THRESHOLD || remuxJump)) {
+      // Always pass absolute seconds — VideoPlayer remux path reloads ?t=
       player.seekTo?.(expectedTime, 'seconds')
     }
     return true
-  }, [playerRef, room?.isLive, room?.videoType, room?.source])
+  }, [playerRef, room?.isLive, room?.videoType, room?.source, room?.videoUrl])
 
   // HOST/CO-HOST INITIAL RECONCILIATION:
   // When the host leaves and returns (or refreshes), restore the saved playerState
@@ -224,16 +228,24 @@ export function usePlayerSync(roomId, room, playerRef) {
       if (!player || typeof player.getPlayerState !== 'function') return
       const state = player.getPlayerState()
       const isPlaying = state === 1
-      const current = player.getCurrentTime?.() || 0
+      let current = player.getCurrentTime?.() || 0
 
-      // Guard: do not overwrite an active room with 00:00 right after joining
-      if (current < 0.5 && !isPlaying) {
-        const saved = savedStateRef.current
-        const savedTime = Number(saved?.currentTime) || 0
-        if (savedTime > 0.5) return
-        if (room?.createdAt?.toMillis && Date.now() - room.createdAt.toMillis() > 15000) {
+      // Remux-from-t: getCurrentTime is ABSOLUTE (adapter adds remuxBaseTime).
+      // If adapter not ready and we still see ~0 while saved remuxStartSec is large, skip write.
+      const saved = savedStateRef.current
+      const savedTime = Number(saved?.currentTime) || 0
+      const savedRemux = Number(saved?.remuxStartSec) || 0
+
+      // Guard: do not overwrite an active room with 00:00 right after joining / mid remux reload
+      if (current < 0.5) {
+        if (savedTime > 0.5 || savedRemux > 0.5) return
+        if (!isPlaying && room?.createdAt?.toMillis && Date.now() - room.createdAt.toMillis() > 15000) {
           return
         }
+      }
+      // Also ignore transient 0 while remuxing a seek (current jumped down vs last saved)
+      if (savedTime > 5 && current < 1.5 && isRemuxProxyUrl(room?.videoUrl)) {
+        return
       }
 
       // Guard: after host reconciliation, don't write until the player has actually seeked

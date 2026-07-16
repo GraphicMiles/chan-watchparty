@@ -11,6 +11,7 @@ import { getCachedMkvCueIndex, clusterOffsetForTime } from '../server-lib/mkvCue
 // stream in one shot. MKV remux is only attempted for small files.
 const HOBBY_MAX_DURATION_MS = 9_000
 const UPSTREAM_CONNECT_MS = 3_500
+const SEEK_CONNECT_MS = 5_000
 const PLAYLIST_FETCH_MS = 4_000
 const SMALL_FILE_BYTES = 8 * 1024 * 1024 // ≤8 MiB → full progressive stream
 const CHUNK_BYTES = 1 * 1024 * 1024 // 1 MiB per large-file passthrough invocation
@@ -677,7 +678,10 @@ export default async function handler(req, res) {
         let headerEndOffset = 512 * 1024
         let durationSec = null
 
-        // Build / reuse cue index when seeking (or always for remux so player can seek later)
+        // Build / reuse cue index when seeking. Also warm cache on first play (async).
+        if (seekTimeSec <= 0.5 && req.query?.index !== '1') {
+          Promise.resolve(getCachedMkvCueIndex(targetUrl.href, upstreamHeaders)).catch(() => {})
+        }
         if (seekTimeSec > 0.5 || req.query?.index === '1') {
           try {
             const index = await getCachedMkvCueIndex(targetUrl.href, upstreamHeaders)
@@ -706,9 +710,12 @@ export default async function handler(req, res) {
           } catch (idxErr) {
             console.error('MKV cue index failed:', idxErr.message)
             if (seekTimeSec > 0.5) {
-              // Fall back to progressive from 0 — better than 502 on seek
-              startTimeSec = 0
-              clusterFileOffset = 0
+              // Do NOT fall back to t=0 — that looks like "seek rewound to start"
+              return fail(
+                res,
+                502,
+                `MKV seek index failed (${idxErr.message}). File may lack Cues or CDN blocked Range — try again or pick MP4.`,
+              )
             }
           }
         }
@@ -737,12 +744,14 @@ export default async function handler(req, res) {
           bodyRes = await fetchUpstream(targetUrl.href, {
             ...upstreamHeaders,
             Range: `bytes=${clusterFileOffset}-`,
-          }, UPSTREAM_CONNECT_MS)
+          }, SEEK_CONNECT_MS)
           if (!bodyRes.ok && bodyRes.status !== 206) {
-            console.error('Seek range failed, falling back to full progressive remux')
-            bodyRes = null
-            startTimeSec = 0
-            clusterFileOffset = 0
+            console.error('Seek range failed', bodyRes.status)
+            return fail(
+              res,
+              502,
+              `MKV seek Range failed (HTTP ${bodyRes.status}). CDN may not support mid-file Range.`,
+            )
           }
         }
         if (!bodyRes) {
@@ -788,8 +797,9 @@ export default async function handler(req, res) {
         res.setHeader('Cache-Control', 'private, max-age=60')
         res.setHeader('Accept-Ranges', 'none')
         res.setHeader('X-Chan-Proxy-Mode', startTimeSec > 0.5 ? 'remux-seek' : 'remux-progressive')
-        if (startTimeSec > 0.5) {
-          res.setHeader('X-Chan-Remux-Start', String(Math.round(startTimeSec * 1000) / 1000))
+        if (seekTimeSec > 0.5) {
+          res.setHeader('X-Chan-Remux-Start', String(Math.round(seekTimeSec * 1000) / 1000))
+          res.setHeader('X-Chan-Remux-Cue', String(Math.round(startTimeSec * 1000) / 1000))
         }
         if (durationSec != null) {
           res.setHeader('X-Chan-Duration', String(Math.round(durationSec * 100) / 100))

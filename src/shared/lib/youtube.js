@@ -202,8 +202,11 @@ export function withRemuxSeekTime(url, timeSec) {
     // Relative /api/proxy?... 
     if (url.startsWith('/api/proxy')) {
       const u = new URL(url, base)
+      u.searchParams.delete('_seek') // cache-buster only for ReactPlayer
       if (t < 0.5) u.searchParams.delete('t')
       else u.searchParams.set('t', String(Math.floor(t * 10) / 10))
+      // Ensure remux stays on for MKV seek path
+      if (!u.searchParams.get('remux')) u.searchParams.set('remux', '1')
       return `${u.pathname}?${u.searchParams.toString()}`
     }
     if (/\/api\/proxy\?/i.test(url)) {

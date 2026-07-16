@@ -289,7 +289,7 @@ function parseCues(data, timecodeScale, segmentDataStart) {
  * @returns {{ cues: Array<{timeSec:number,fileOffset:number}>, durationSec: number|null, segmentDataStart: number|null, headerEndOffset: number }}
  */
 export async function buildMkvCueIndex(url, headers = {}) {
-  const PREFIX = 2 * 1024 * 1024 // 2 MiB prefix
+  const PREFIX = 3 * 1024 * 1024 // 3 MiB prefix for SeekHead/Cues
   const prefix = await rangeGet(url, headers, 0, PREFIX - 1, 4500)
   if (!prefix.length || prefix[0] !== 0x1a) {
     throw new Error('Not an MKV file (missing EBML magic)')
@@ -363,7 +363,8 @@ export async function buildMkvCueIndex(url, headers = {}) {
     }
   }
 
-  // Fallback: if still no cues, invent coarse index from first cluster only
+  // Fallback: if still no cues, invent coarse index from first cluster only.
+  // Without Cues, mid-file seeks cannot jump accurately (will feel slow / wrong).
   if (!cues.length && firstCluster) {
     cues = [{ timeSec: 0, fileOffset: firstCluster.elementStart, cueTime: 0 }]
   }

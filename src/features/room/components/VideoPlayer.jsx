@@ -88,8 +88,22 @@ export default function VideoPlayer({
   // Logical timeline origin for MKV seek-by-time remux (player clock restarts at 0)
   const remuxBaseTimeRef = useRef(0)
   useEffect(() => {
-    setCurrentUrl(resolvedUrl)
-    remuxBaseTimeRef.current = getRemuxSeekTime(resolvedUrl)
+    // Room videoUrl is usually base (no t=). Don't clobber an in-progress remux seek
+    // when parent re-renders the same file without t=.
+    setCurrentUrl((prev) => {
+      try {
+        if (isRemuxProxyUrl(prev) && isRemuxProxyUrl(resolvedUrl)) {
+          const prevU = new URL(prev, window.location.origin)
+          const nextU = new URL(resolvedUrl, window.location.origin)
+          if (prevU.searchParams.get('url') === nextU.searchParams.get('url')) {
+            // Same media file — keep current seek URL (has t= / _seek=)
+            return prev
+          }
+        }
+      } catch { /* fall through */ }
+      remuxBaseTimeRef.current = getRemuxSeekTime(resolvedUrl)
+      return resolvedUrl
+    })
     proxyFallbackAttemptedRef.current = /^\/api\/proxy\?/i.test(resolvedUrl)
   }, [resolvedUrl])
 
@@ -342,6 +356,14 @@ export default function VideoPlayer({
     return local
   }, [isHLS, currentUrl])
 
+  // Keep scrubber/labels on absolute timeline for remux seeks
+  const toAbsoluteSec = useCallback((localSec) => {
+    if (isRemuxProxyUrl(currentUrl)) {
+      return (remuxBaseTimeRef.current || 0) + (Number(localSec) || 0)
+    }
+    return Number(localSec) || 0
+  }, [currentUrl])
+
   const playerState = useCallback(() => (playingRef.current ? 1 : 2), [])
 
   const adapter = useMemo(() => ({
@@ -375,21 +397,34 @@ export default function VideoPlayer({
       const targetSec = seekType === 'fraction' ? (value * (dur || 0)) : value
 
       // MKV remux: real seek = new remux-from-t URL (synced via playerState.currentTime)
+      // The remuxed fMP4 always starts at media time 0; we track absolute time via remuxBaseTimeRef.
       if (!isHLS && isRemuxProxyUrl(currentUrl) && !isLive && videoType !== 'iptv') {
         const t = Math.max(0, Number(targetSec) || 0)
-        const next = withRemuxSeekTime(currentUrl, t)
         const prevT = getRemuxSeekTime(currentUrl)
-        if (Math.abs(t - prevT) < 1.25 && Math.abs((currentTime() || 0) - t) < 2) {
-          // Small nudge within progressive buffer — try native seek first
-          try { playerRef.current?.seekTo?.(t, 'seconds') } catch { /* */ }
+        const absNow = currentTime() || 0
+        const localNow = playerRef.current?.getCurrentTime?.() || 0
+        // Only use native seek for tiny nudges INSIDE the current remux window (local clock)
+        const localTarget = t - (remuxBaseTimeRef.current || 0)
+        if (
+          Math.abs(t - prevT) < 0.75
+          && localTarget >= 0
+          && Math.abs(localNow - localTarget) < 8
+          && Math.abs(absNow - t) < 3
+        ) {
+          try { playerRef.current?.seekTo?.(Math.max(0, localTarget), 'seconds') } catch { /* */ }
           setCurrentSec(t)
+          onPlayerEventRef.current?.({ isPlaying: playingRef.current, currentTime: t, remuxStartSec: prevT || t })
           return
         }
+        const next = withRemuxSeekTime(currentUrl, t)
         remuxBaseTimeRef.current = t
         setCurrentSec(t)
-        setCurrentUrl(next)
-        // Notify room so viewers remux from the same t (absolute timeline)
-        onPlayerEventRef.current?.({ isPlaying: playingRef.current, currentTime: t, remuxStartSec: t })
+        setError(null)
+        setIsBuffering(true)
+        // Force ReactPlayer to reload even if only the t= query changed
+        setCurrentUrl(next + (next.includes('?') ? '&' : '?') + `_seek=${Date.now()}`)
+        // Notify room so viewers remux from the same absolute t
+        onPlayerEventRef.current?.({ isPlaying: true, currentTime: t, remuxStartSec: t })
         return
       }
 
@@ -702,12 +737,14 @@ export default function VideoPlayer({
 
   useEffect(() => {
     if (!playerRef.current || isHLS || played == null) return
+    // Never force native fraction seeks on remux streams — timeline is absolute via ?t=
+    if (isRemuxProxyUrl(currentUrl)) return
     const dur = playerRef.current.getDuration?.() || 0
     const cur = playerRef.current.getCurrentTime?.() || 0
     if (dur && Math.abs(cur - played * dur) > 2) {
       playerRef.current.seekTo(played, 'fraction')
     }
-  }, [isHLS, played])
+  }, [isHLS, played, currentUrl])
 
   // Track the active native <video> element for the WebGL upscaler overlay.
   useEffect(() => {
@@ -1019,7 +1056,7 @@ export default function VideoPlayer({
               const video = event.currentTarget
               const dur = video.duration || 0
               if (dur && dur !== durationSec) setDurationSec(dur)
-              setCurrentSec(video.currentTime || 0)
+              setCurrentSec(toAbsoluteSec(video.currentTime || 0))
               const loaded = video.buffered.length && dur ? (video.buffered.end(0) / dur) * 100 : 0
               setLoadedPercent(loaded)
               setBufferingPercent(Math.round(loaded))
@@ -1056,6 +1093,7 @@ export default function VideoPlayer({
         ) : (
           <div style={{ width: '100%', height: '100%', ...videoStyle }} onContextMenu={(e) => e.preventDefault()}>
             <ReactPlayer
+            key={currentUrl}
             ref={playerRef}
             url={currentUrl}
             playing={isPlayingState}
@@ -1067,14 +1105,20 @@ export default function VideoPlayer({
             onBufferEnd={() => setIsBuffering(false)}
             onProgress={(prog) => {
               if (!isReady) setIsReady(true)
-              setCurrentSec(prog.playedSeconds || 0)
+              const abs = toAbsoluteSec(prog.playedSeconds || 0)
+              setCurrentSec(abs)
               setLoadedPercent((prog.loaded || 0) * 100)
               setBufferingPercent(Math.round((prog.loaded || 0) * 100))
-              onProgress?.(prog)
+              onProgress?.(prog ? { ...prog, playedSeconds: abs, played: durationSec > 0 ? abs / durationSec : prog.played } : prog)
             }}
             onDuration={(dur) => {
-              setDurationSec(dur || 0)
-              onDuration?.(dur || 0)
+              const d = Number(dur) || 0
+              // Remux-from-t may report remaining duration; keep absolute full length when known
+              const absDur = isRemuxProxyUrl(currentUrl)
+                ? Math.max(d + (remuxBaseTimeRef.current || 0), d, durationSec || 0)
+                : d
+              setDurationSec(absDur || d)
+              onDuration?.(absDur || d)
             }}
             onPlay={() => { setIsReady(true); emitPlay() }}
             onPause={emitPause}
