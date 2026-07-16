@@ -50,7 +50,46 @@ export default function QueuePanel({ roomId, room, user, isHost, canControl, onP
     })
   }, [searchQuery, activeTab, search, toast])
 
-  const addToQueue = useCallback(async (item) => {
+  const [expandedSeasons, setExpandedSeasons] = useState({}) // { seasonUrl: episodes[] }
+  const [loadingEpisodes, setLoadingEpisodes] = useState({}) // { seasonUrl: boolean }
+
+  const fetchEpisodes = useCallback(async (seasonUrl) => {
+    if (expandedSeasons[seasonUrl]) {
+      // Already loaded, toggle off
+      setExpandedSeasons(prev => {
+        const next = { ...prev }
+        delete next[seasonUrl]
+        return next
+      })
+      return
+    }
+
+    setLoadingEpisodes(prev => ({ ...prev, [seasonUrl]: true }))
+    try {
+      const token = await user.getIdToken()
+      const res = await fetch('/api/media', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action: 'scrape', url: seasonUrl }),
+      })
+      const data = await res.json()
+      if (data.results && data.results.length > 0) {
+        setExpandedSeasons(prev => ({ ...prev, [seasonUrl]: data.results }))
+      } else {
+        toast('No episodes found on this season page', { variant: 'error' })
+      }
+    } catch (err) {
+      console.error('Failed to fetch episodes:', err)
+      toast('Failed to load episodes', { variant: 'error' })
+    } finally {
+      setLoadingEpisodes(prev => ({ ...prev, [seasonUrl]: false }))
+    }
+  }, [expandedSeasons, user, toast])
+
+  const addToQueue = useCallback(async (item, episode = null) => {
     if (queue.length >= 5) {
       toast('Queue is full! Users can only add up to 5 media items to the queue.', { variant: 'error' })
       return
@@ -63,9 +102,14 @@ export default function QueuePanel({ roomId, room, user, isHost, canControl, onP
     if ((item.type || activeTab) === 'youtube' && (item.id || extractVideoId(item.url))) {
       videoId = item.id || extractVideoId(item.url)
       videoType = 'youtube'
+    } else if (episode) {
+      // Episode from expanded Nkiri season - resolve downloadwella
+      videoUrl = episode.url
+      videoType = 'direct'
+      item = episode // Use episode data for title/thumbnail
     } else if (/thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '')) {
-      // Nkiri season page - needs episode selection first
-      toast('Please select a specific episode from the Create Room page first', { variant: 'info', duration: 4000 })
+      // Nkiri season page - fetch and show episodes
+      await fetchEpisodes(item.url || item.link)
       return
     } else if (item.isDirect || isDirectVideoUrl(item.url || item.link)) {
       videoUrl = normalizePlaybackUrl(item.url || item.link)
@@ -170,28 +214,67 @@ export default function QueuePanel({ roomId, room, user, isHost, canControl, onP
             {results.map((item, idx) => {
               const thumb = item.thumbnail || item.image || null
               const isFull = queue.length >= 5
+              const isNkiri = /thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '')
+              const isExpanded = expandedSeasons[item.url || item.link]
+              const isLoading = loadingEpisodes[item.url || item.link]
+              const episodes = isExpanded || []
+
               return (
-                <div key={idx} className={styles.resultCard}>
-                  <div className={styles.thumbWrap}>
-                    {thumb ? (
-                      <img src={thumb} alt="" loading="lazy" />
+                <div key={idx}>
+                  <div className={styles.resultCard}>
+                    <div className={styles.thumbWrap}>
+                      {thumb ? (
+                        <img src={thumb} alt="" loading="lazy" />
+                      ) : (
+                        <div className={styles.noThumb}><Film size={20} /></div>
+                      )}
+                    </div>
+                    <div className={styles.cardBody}>
+                      <h4 className={styles.cardTitle}>{item.title}</h4>
+                      <span className={styles.cardMeta}>{item.source || activeTab} · {item.duration || 'Video'}</span>
+                    </div>
+                    {isNkiri ? (
+                      <button
+                        type="button"
+                        className={styles.addBtn}
+                        onClick={() => fetchEpisodes(item.url || item.link)}
+                        disabled={isLoading}
+                      >
+                        {isLoading ? 'Loading...' : isExpanded ? 'Hide Episodes' : 'Show Episodes'}
+                      </button>
                     ) : (
-                      <div className={styles.noThumb}><Film size={20} /></div>
+                      <button
+                        type="button"
+                        className={`${styles.addBtn} ${isFull ? styles.disabledBtn : ''}`}
+                        onClick={() => addToQueue(item)}
+                        disabled={isFull}
+                        title={isFull ? 'Queue limit reached (max 5)' : 'Add to queue'}
+                      >
+                        <Plus size={14} /> Add
+                      </button>
                     )}
                   </div>
-                  <div className={styles.cardBody}>
-                    <h4 className={styles.cardTitle}>{item.title}</h4>
-                    <span className={styles.cardMeta}>{item.source || activeTab} · {item.duration || 'Video'}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={`${styles.addBtn} ${isFull ? styles.disabledBtn : ''}`}
-                    onClick={() => addToQueue(item)}
-                    disabled={isFull}
-                    title={isFull ? 'Queue limit reached (max 5)' : 'Add to queue'}
-                  >
-                    <Plus size={14} /> Add
-                  </button>
+
+                  {/* Expanded Episodes for Nkiri Seasons */}
+                  {isExpanded && (
+                    <div className={styles.episodesList}>
+                      {episodes.map((ep, epIdx) => (
+                        <div key={epIdx} className={styles.episodeCard}>
+                          <div className={styles.episodeInfo}>
+                            <span className={styles.episodeTitle}>{ep.title}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className={`${styles.addBtn} ${isFull ? styles.disabledBtn : ''}`}
+                            onClick={() => addToQueue(item, ep)}
+                            disabled={isFull}
+                          >
+                            <Plus size={14} /> Add
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )
             })}
