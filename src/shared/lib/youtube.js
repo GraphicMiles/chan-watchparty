@@ -166,6 +166,8 @@ export function normalizePlaybackUrl(url, opts = {}) {
         out += `&referer=${encodeURIComponent('https://www.maxcinema.name.ng/')}`
       } else if (hostname.includes('wildshare') || hostname.includes('silversurfer') || hostname.includes('np-downloader')) {
         out += `&referer=${encodeURIComponent('https://www.naijaprey.tv/')}`
+      } else if (hostname.includes('o2tv')) {
+        out += `&referer=${encodeURIComponent('http://d6.o2tv.org/')}`
       }
       return out
     }

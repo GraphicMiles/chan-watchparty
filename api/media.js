@@ -1386,26 +1386,33 @@ async function resolveO2TvPage(pageUrl) {
         const fallback = await resolveO2TvShow(showName, 1, 8)
         return (fallback || []).map((r) => ({
           ...r,
+          title: asPlainString(r.title, showName),
+          url: asPlainString(r.url || r.link),
+          link: asPlainString(r.link || r.url),
           showSlug,
           showName,
-          o2tvKind: 'episode',
-        }))
+          o2tvKind: r.isDirect ? 'direct' : 'episode',
+        })).filter((r) => r.url)
       }
-      return seasons.map((season) => ({
-        title: `${showName}: Season ${season.number}`,
-        label: season.label || `Season ${season.number}`,
-        url: season.url || `https://tvshows4mobile.org/${showSlug}/Season-${String(season.number).padStart(2, '0')}/`,
-        link: season.url || `https://tvshows4mobile.org/${showSlug}/Season-${String(season.number).padStart(2, '0')}/`,
-        source: 'o2tv',
-        type: 'direct',
-        isDirect: false,
-        playableInRoom: false,
-        requiresResolve: true,
-        o2tvKind: 'season',
-        showSlug,
-        showName,
-        seasonNum: season.number,
-      }))
+      return seasons.map((season) => {
+        const num = Number(season.number) || 0
+        const pageUrl = absO2TvUrl(season.url, showSlug, num)
+        return {
+          title: asPlainString(`${showName}: Season ${num}`, `Season ${num}`),
+          label: asPlainString(season.label, `Season ${num}`),
+          url: pageUrl,
+          link: pageUrl,
+          source: 'o2tv',
+          type: 'direct',
+          isDirect: false,
+          playableInRoom: false,
+          requiresResolve: true,
+          o2tvKind: 'season',
+          showSlug,
+          showName,
+          seasonNum: num,
+        }
+      }).filter((r) => r.seasonNum > 0)
     }
 
     // Season page: list episodes (do NOT CDN-probe each yet)
@@ -1416,18 +1423,32 @@ async function resolveO2TvPage(pageUrl) {
         const probed = []
         for (let ep = 1; ep <= 8; ep += 1) {
           const result = await resolveO2TvEpisode(showName, showSlug, seasonNum, ep)
-          if (result) probed.push({ ...result, showSlug, showName, seasonNum, episodeNum: ep, o2tvKind: 'episode' })
+          if (result?.url) {
+            probed.push({
+              ...result,
+              title: asPlainString(result.title),
+              url: asPlainString(result.url),
+              link: asPlainString(result.link || result.url),
+              showSlug,
+              showName,
+              seasonNum,
+              episodeNum: ep,
+              o2tvKind: 'direct',
+            })
+          }
         }
         return probed
       }
       const s = String(seasonNum).padStart(2, '0')
       return episodes.map((ep) => {
-        const e = String(ep.number).padStart(2, '0')
+        const num = Number(ep.number) || 0
+        const e = String(num).padStart(2, '0')
+        const pageUrl = absO2TvUrl(ep.url, showSlug, seasonNum, num)
         return {
-          title: `${showName} - S${s}E${e}`,
-          label: ep.title || `Episode ${ep.number}`,
-          url: ep.url || `https://tvshows4mobile.org/${showSlug}/Season-${s}/Episode-${e}/`,
-          link: ep.url || `https://tvshows4mobile.org/${showSlug}/Season-${s}/Episode-${e}/`,
+          title: asPlainString(`${showName} - S${s}E${e}`, `S${s}E${e}`),
+          label: asPlainString(ep.title, `Episode ${num}`),
+          url: pageUrl,
+          link: pageUrl,
           source: 'o2tv',
           type: 'direct',
           isDirect: false,
@@ -1437,9 +1458,9 @@ async function resolveO2TvPage(pageUrl) {
           showSlug,
           showName,
           seasonNum,
-          episodeNum: ep.number,
+          episodeNum: num,
         }
-      })
+      }).filter((r) => r.episodeNum > 0)
     }
 
     // Episode page: probe CDN (and captcha fallback)
@@ -1497,37 +1518,66 @@ async function resolveO2TvPage(pageUrl) {
 /**
  * Dedicated hierarchical O2TV handlers used by Create Room UI.
  */
+function absO2TvUrl(href, showSlug, seasonNum, episodeNum) {
+  const fallback = episodeNum != null
+    ? `https://tvshows4mobile.org/${showSlug}/Season-${String(seasonNum).padStart(2, '0')}/Episode-${String(episodeNum).padStart(2, '0')}/`
+    : seasonNum != null
+      ? `https://tvshows4mobile.org/${showSlug}/Season-${String(seasonNum).padStart(2, '0')}/`
+      : `https://tvshows4mobile.org/${showSlug}/`
+  if (!href || typeof href !== 'string') return fallback
+  if (/^https?:\/\//i.test(href)) return href
+  try {
+    return new URL(href, 'https://tvshows4mobile.org/').href
+  } catch {
+    return fallback
+  }
+}
+
+function asPlainString(value, fallback = '') {
+  if (value == null) return fallback
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  // Never leak "[object Object]" into titles / URLs / Firestore
+  return fallback
+}
+
 async function handleO2TvSeasons({ showSlug, showName, thumbnail }) {
-  if (!showSlug) throw Object.assign(new Error('showSlug is required'), { status: 400 })
-  const seasons = await getO2TvSeasons(showSlug)
-  const name = showName || showSlug.replace(/-otv[a-z0-9]+$/i, '').replace(/-/g, ' ').trim()
-  let poster = thumbnail || null
+  const slug = asPlainString(showSlug).trim()
+  if (!slug) throw Object.assign(new Error('showSlug is required'), { status: 400 })
+  const seasons = await getO2TvSeasons(slug)
+  const name = asPlainString(showName).trim()
+    || slug.replace(/-otv[a-z0-9]+$/i, '').replace(/-/g, ' ').trim()
+  let poster = asPlainString(thumbnail) || null
   if (!poster) {
     try {
       poster = await fetchBestOMDbPoster(name)
     } catch { /* ignore */ }
   }
-  const results = (seasons || []).map((season) => ({
-    title: `${name}: Season ${season.number}`,
-    label: season.label || `Season ${season.number}`,
-    url: season.url || `https://tvshows4mobile.org/${showSlug}/Season-${String(season.number).padStart(2, '0')}/`,
-    link: season.url || `https://tvshows4mobile.org/${showSlug}/Season-${String(season.number).padStart(2, '0')}/`,
-    thumbnail: poster,
-    image: poster,
-    source: 'o2tv',
-    type: 'direct',
-    isDirect: false,
-    playableInRoom: false,
-    requiresResolve: true,
-    o2tvKind: 'season',
-    showSlug,
-    showName: name,
-    seasonNum: season.number,
-  }))
+  const results = (seasons || []).map((season) => {
+    const num = Number(season.number) || 0
+    const pageUrl = absO2TvUrl(season.url, slug, num)
+    return {
+      title: asPlainString(`${name}: Season ${num}`, `Season ${num}`),
+      label: asPlainString(season.label, `Season ${num}`),
+      url: pageUrl,
+      link: pageUrl,
+      thumbnail: poster,
+      image: poster,
+      source: 'o2tv',
+      type: 'direct',
+      isDirect: false,
+      playableInRoom: false,
+      requiresResolve: true,
+      o2tvKind: 'season',
+      showSlug: slug,
+      showName: name,
+      seasonNum: num,
+    }
+  }).filter((r) => r.seasonNum > 0 && r.url)
   return {
     results,
     count: results.length,
-    showSlug,
+    showSlug: slug,
     showName: name,
     thumbnail: poster,
     stage: 'seasons',
@@ -1535,11 +1585,13 @@ async function handleO2TvSeasons({ showSlug, showName, thumbnail }) {
 }
 
 async function handleO2TvEpisodes({ showSlug, showName, seasonNum, thumbnail }) {
-  if (!showSlug) throw Object.assign(new Error('showSlug is required'), { status: 400 })
+  const slug = asPlainString(showSlug).trim()
+  if (!slug) throw Object.assign(new Error('showSlug is required'), { status: 400 })
   const season = Math.max(1, Number(seasonNum) || 1)
-  const name = showName || showSlug.replace(/-otv[a-z0-9]+$/i, '').replace(/-/g, ' ').trim()
-  const episodes = await getO2TvEpisodes(showSlug, season)
-  let poster = thumbnail || null
+  const name = asPlainString(showName).trim()
+    || slug.replace(/-otv[a-z0-9]+$/i, '').replace(/-/g, ' ').trim()
+  const episodes = await getO2TvEpisodes(slug, season)
+  let poster = asPlainString(thumbnail) || null
   if (!poster) {
     try {
       poster = await fetchBestOMDbPoster(name)
@@ -1547,12 +1599,14 @@ async function handleO2TvEpisodes({ showSlug, showName, seasonNum, thumbnail }) 
   }
   const s = String(season).padStart(2, '0')
   const results = (episodes || []).map((ep) => {
-    const e = String(ep.number).padStart(2, '0')
+    const num = Number(ep.number) || 0
+    const e = String(num).padStart(2, '0')
+    const pageUrl = absO2TvUrl(ep.url, slug, season, num)
     return {
-      title: `${name} - S${s}E${e}`,
-      label: ep.title || `Episode ${ep.number}`,
-      url: ep.url || `https://tvshows4mobile.org/${showSlug}/Season-${s}/Episode-${e}/`,
-      link: ep.url || `https://tvshows4mobile.org/${showSlug}/Season-${s}/Episode-${e}/`,
+      title: asPlainString(`${name} - S${s}E${e}`, `S${s}E${e}`),
+      label: asPlainString(ep.title, `Episode ${num}`),
+      url: pageUrl,
+      link: pageUrl,
       thumbnail: poster,
       image: poster,
       source: 'o2tv',
@@ -1561,16 +1615,16 @@ async function handleO2TvEpisodes({ showSlug, showName, seasonNum, thumbnail }) 
       playableInRoom: false,
       requiresResolve: true,
       o2tvKind: 'episode',
-      showSlug,
+      showSlug: slug,
       showName: name,
       seasonNum: season,
-      episodeNum: ep.number,
+      episodeNum: num,
     }
-  })
+  }).filter((r) => r.episodeNum > 0 && r.url)
   return {
     results,
     count: results.length,
-    showSlug,
+    showSlug: slug,
     showName: name,
     seasonNum: season,
     thumbnail: poster,
@@ -1579,18 +1633,20 @@ async function handleO2TvEpisodes({ showSlug, showName, seasonNum, thumbnail }) 
 }
 
 async function handleO2TvResolve({ showSlug, showName, seasonNum, episodeNum, thumbnail }) {
-  if (!showSlug) throw Object.assign(new Error('showSlug is required'), { status: 400 })
+  const slug = asPlainString(showSlug).trim()
+  if (!slug) throw Object.assign(new Error('showSlug is required'), { status: 400 })
   const season = Math.max(1, Number(seasonNum) || 1)
   const ep = Math.max(1, Number(episodeNum) || 1)
-  const name = showName || showSlug.replace(/-otv[a-z0-9]+$/i, '').replace(/-/g, ' ').trim()
+  const name = asPlainString(showName).trim()
+    || slug.replace(/-otv[a-z0-9]+$/i, '').replace(/-/g, ' ').trim()
   const s = String(season).padStart(2, '0')
   const e = String(ep).padStart(2, '0')
 
-  let resolved = await resolveO2TvEpisode(name, showSlug, season, ep)
-  if (!resolved?.url) {
+  let resolved = await resolveO2TvEpisode(name, slug, season, ep)
+  if (!resolved?.url || typeof resolved.url !== 'string') {
     try {
-      const captchaResults = await resolveO2TvEpisodeViaCaptcha(showSlug, season, ep)
-      if (captchaResults?.length && captchaResults[0]?.url) {
+      const captchaResults = await resolveO2TvEpisodeViaCaptcha(slug, season, ep)
+      if (captchaResults?.length && captchaResults[0]?.url && typeof captchaResults[0].url === 'string') {
         resolved = captchaResults[0]
       }
     } catch (err) {
@@ -1598,27 +1654,29 @@ async function handleO2TvResolve({ showSlug, showName, seasonNum, episodeNum, th
     }
   }
 
-  if (!resolved?.url) {
+  const rawPlay = asPlainString(resolved?.url)
+  if (!rawPlay) {
     throw Object.assign(
       new Error(`Could not resolve ${name} S${s}E${e}. Try another episode or quality.`),
       { status: 404 },
     )
   }
 
-  let playUrl = resolved.url
-  if (playUrl && !playUrl.startsWith('/api/proxy') && /^https?:\/\//i.test(playUrl)) {
+  let playUrl = rawPlay
+  if (!playUrl.startsWith('/api/proxy') && /^https?:\/\//i.test(playUrl)) {
     playUrl = `/api/proxy?url=${encodeURIComponent(playUrl)}&referer=${encodeURIComponent('http://d6.o2tv.org/')}`
   }
 
-  let poster = thumbnail || resolved.thumbnail || null
+  let poster = asPlainString(thumbnail) || asPlainString(resolved?.thumbnail) || null
   if (!poster) {
     try {
       poster = await fetchBestOMDbPoster(name)
     } catch { /* ignore */ }
   }
 
+  const title = asPlainString(resolved?.title, `${name} - S${s}E${e}`)
   const item = {
-    title: resolved.title || `${name} - S${s}E${e}`,
+    title,
     url: playUrl,
     link: playUrl,
     thumbnail: poster,
@@ -1628,11 +1686,11 @@ async function handleO2TvResolve({ showSlug, showName, seasonNum, episodeNum, th
     isDirect: true,
     playableInRoom: true,
     o2tvKind: 'direct',
-    showSlug,
+    showSlug: slug,
     showName: name,
     seasonNum: season,
     episodeNum: ep,
-    quality: resolved.quality || 'HD',
+    quality: asPlainString(resolved?.quality, 'HD') || 'HD',
     videoType: 'direct',
   }
 
@@ -1642,7 +1700,7 @@ async function handleO2TvResolve({ showSlug, showName, seasonNum, episodeNum, th
     directCount: 1,
     resolved: true,
     stage: 'resolved',
-    showSlug,
+    showSlug: slug,
     showName: name,
     seasonNum: season,
     episodeNum: ep,
@@ -2015,10 +2073,11 @@ export default async function handler(req, res) {
       query = cleanQuery
     }
 
-    // Validate scrape URL
+    // Validate scrape URL (must update local `url` — body.url alone is not used below)
     if (action === 'scrape' && url) {
       const cleanUrl = sanitizeUrl(url)
       if (!cleanUrl) return fail(res, 400, 'Invalid or unsafe URL')
+      url = cleanUrl
       body.url = cleanUrl
     }
     if (action === 'refreshCatalog') {

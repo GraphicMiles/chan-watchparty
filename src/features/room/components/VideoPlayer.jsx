@@ -502,6 +502,8 @@ export default function VideoPlayer({
 
     if (err instanceof Error) {
       message = err.message
+    } else if (typeof err === 'string') {
+      message = err
     } else if (err && typeof err === 'object') {
       // MediaError from <video>.error
       if (err.target?.error) {
@@ -515,17 +517,22 @@ export default function VideoPlayer({
       } else if (typeof err.toString === 'function' && err.toString() !== '[object Object]') {
         message = err.toString()
       } else {
-        // Last resort — try to extract anything useful
+        // Last resort — never surface raw "[object Object]"
         try {
-          message = JSON.stringify(err).slice(0, 200)
+          const serialized = JSON.stringify(err)
+          message = serialized && serialized !== '{}'
+            ? serialized.slice(0, 200)
+            : 'Video playback failed — unknown error'
         } catch {
           message = 'Video playback failed — unknown error'
         }
       }
-    } else if (typeof err === 'string') {
-      message = err
     } else {
       message = 'Video playback failed'
+    }
+
+    if (!message || message === '[object Object]' || message === '{}') {
+      message = 'Video playback failed — unknown error'
     }
 
     console.error('Video error:', message, err)
