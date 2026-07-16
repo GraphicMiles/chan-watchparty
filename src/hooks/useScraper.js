@@ -95,7 +95,7 @@ export function useScraper() {
       let filtered = rawResults.filter((item) => {
         if (!item) return false
         if (!isActualUrl && targetQuery) {
-          const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'omdb'].includes(item.source)
+          const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['o2tv', 'tvshows4mobile', 'omdb'].includes(item.source)
           // Soft match only — strict isTitleMatch was returning 0 for real Nkiri hits
           if (isDirectOrMovie && !softClientTitleMatch(item.title, targetQuery)) {
             return false

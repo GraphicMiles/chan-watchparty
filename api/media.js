@@ -10,7 +10,7 @@ import { resolveDownloadwellaPage } from '../server-lib/downloadwella.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
 import { resolveNsfwVideoUrl, isNsfwProviderUrl } from '../server-lib/nsfwResolver.js'
 import { resolveNaijapreyChain } from '../server-lib/naijapreyResolver.js'
-import { resolveO2TvShow, resolveO2TvEpisode, probeAndFixO2TvUrl } from '../server-lib/o2tvResolver.js'
+import { resolveO2TvShow, resolveO2TvEpisode, probeAndFixO2TvUrl, searchO2Tv } from '../server-lib/o2tvResolver.js'
 import { resolveNetNaijaChain } from '../server-lib/netnaijaResolver.js'
 import { resolveArchiveOrgPage, resolveArchiveOrgDirectUrl } from '../server-lib/archiveResolver.js'
 import { searchMaxCinema, resolveMaxCinemaChain } from '../server-lib/maxcinemaResolver.js'
@@ -841,106 +841,92 @@ function parseNkiriSearchHtml(searchHtml, baseUrl, seenUrls) {
  */
 async function searchDirectLinks(query, options = {}) {
   const baseQ = String(query || '').trim()
-  if (!baseQ) return { results: [], hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
-  const NKIRI_BASE = 'https://thenkiri.com'
-  const searchQueries = generateRelatedQueries(baseQ)
-  const seenUrls = new Set()
-  const allInitialPages = []
-  const overallDeadline = Date.now() + 7500 // leave headroom under Hobby 10s
-
-  const fetchSearch = async (searchQ) => {
-    if (Date.now() > overallDeadline) return []
-    const urls = [
-      `${NKIRI_BASE}/?s=${encodeURIComponent(searchQ)}`,
-      `${NKIRI_BASE}/search/${encodeURIComponent(searchQ.replace(/\s+/g, '+'))}`,
-    ]
-    const pages = []
-    for (const searchUrl of urls) {
-      if (Date.now() > overallDeadline) break
-      let searchHtml = ''
-      try {
-        const c = new AbortController()
-        const t = setTimeout(() => c.abort(), 2800)
-        const res = await fetch(searchUrl, {
-          signal: c.signal,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            Accept: 'text/html,application/xhtml+xml',
-            'Accept-Language': 'en-US,en;q=0.9',
-            Referer: `${NKIRI_BASE}/`,
-          },
-          redirect: 'follow',
-        })
-        clearTimeout(t)
-        if (res.ok) searchHtml = await res.text()
-      } catch (err) {
-        console.error('Nkiri search failed for', searchQ, searchUrl, ':', err.message)
-      }
-      if (!searchHtml) continue
-      const parsed = parseNkiriSearchHtml(searchHtml, NKIRI_BASE, seenUrls)
-      pages.push(...parsed)
-      if (pages.length >= 8) break
-    }
-    return pages
+  if (!baseQ) {
+    return { results: [], hasMore: false, searchedSites: ['o2tv'], multiLayerCascaded: false }
   }
 
-  // Parallel base queries (max 3) instead of long sequential chain
-  const settled = await Promise.allSettled(searchQueries.map((q) => fetchSearch(q)))
-  for (const s of settled) {
-    if (s.status === 'fulfilled' && Array.isArray(s.value)) {
-      allInitialPages.push(...s.value)
+  const maxSeasons = Math.min(6, Math.max(1, Number(options.maxSeasons) || 3))
+  const maxEpisodes = Math.min(20, Math.max(1, Number(options.maxEpisodes) || 12))
+  const limit = Math.min(40, Math.max(5, Number(options.limit) || 25))
+
+  // Direct layer = O2TV / tvshows4mobile only (progressive MP4, Range-seekable).
+  // Nkiri and other scrapers are intentionally disabled here.
+  let raw = []
+  try {
+    raw = await Promise.race([
+      resolveO2TvShow(baseQ, maxSeasons, maxEpisodes),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('O2TV search timed out')), DIRECT_SEARCH_TIMEOUT_MS),
+      ),
+    ])
+  } catch (err) {
+    console.error('O2TV direct search failed:', err.message)
+    // Fallback: show listing only (no CDN probe) so UI is not empty
+    try {
+      const shows = await searchO2Tv(baseQ, 12)
+      raw = (shows || []).map((s) => ({
+        title: formatMediaTitle(s.title || s.showName || baseQ),
+        url: s.url || `https://tvshows4mobile.org/${s.showSlug}/index.html`,
+        link: s.url || `https://tvshows4mobile.org/${s.showSlug}/index.html`,
+        source: 'o2tv',
+        type: 'direct',
+        isDirect: false,
+        playableInRoom: false,
+        requiresResolve: true,
+        showSlug: s.showSlug,
+        showName: s.showName || s.title,
+      }))
+    } catch (e2) {
+      console.error('O2TV show list fallback failed:', e2.message)
+      raw = []
     }
   }
 
-  // Direct downloadwella links that slipped into search HTML
-  // (parseNkiriSearchHtml only stores nkiri hosts in pages; re-scan first HTML batch if empty)
-  console.log('Nkiri search found', allInitialPages.length, 'pages across', searchQueries.length, 'queries')
+  if (!Array.isArray(raw)) raw = []
 
-  // Score + rank (don't hard-drop everything)
-  const scored = allInitialPages.map((sp) => ({
-    ...sp,
-    score: titleMatchScore(sp.title, baseQ),
-  }))
-  scored.sort((a, b) => b.score - a.score)
-
-  let filtered = scored.filter((sp) => sp.score > 0)
-  // Soft fallback: if filter wiped everything but we got pages, return top unfiltered
-  if (filtered.length === 0 && scored.length > 0) {
-    console.log('Nkiri softTitleMatch empty — falling back to unfiltered top results for:', baseQ)
-    filtered = scored.slice(0, 12).map((sp) => ({ ...sp, score: 1 }))
-  }
-
-  console.log('Nkiri after softTitleMatch:', filtered.length, 'of', allInitialPages.length)
-
-  let results = filtered.slice(0, 40).map((page) => {
-    const isDw = /downloadwella\.com/i.test(page.url)
-    // Prefer Nkiri page poster; OMDb fills gaps below
-    const nkiriThumb = page.thumbnail || null
+  let results = raw.slice(0, limit).map((item) => {
+    const title = formatMediaTitle(item.title || item.showName || baseQ)
+    let playUrl = item.url || item.link || ''
+    // Force progressive MP4 through proxy WITHOUT remux (Jul-14 Range seek path)
+    if (playUrl && item.isDirect && /^https?:\/\//i.test(playUrl) && !playUrl.startsWith('/api/proxy')) {
+      playUrl = `/api/proxy?url=${encodeURIComponent(playUrl)}&referer=${encodeURIComponent('http://d6.o2tv.org/')}`
+    }
     return {
-      title: formatMediaTitle(page.title) || page.title,
-      url: page.url,
-      link: page.url,
-      thumbnail: nkiriThumb,
-      image: nkiriThumb,
-      source: isDw ? 'downloadwella' : 'nkiri',
+      title,
+      url: playUrl,
+      link: playUrl,
+      thumbnail: item.thumbnail || item.image || null,
+      image: item.thumbnail || item.image || null,
+      source: 'o2tv',
       type: 'direct',
-      isDirect: false,
-      playableInRoom: false,
-      requiresResolve: true,
-      quality: extractQuality(page.title),
-      matchScore: page.score,
-      meta: undefined, // no provider noise in UI
+      isDirect: Boolean(item.isDirect || item.playableInRoom || /\.mp4(\?|#|$)/i.test(item.url || '') || /\/api\/proxy\?/i.test(playUrl)),
+      playableInRoom: Boolean(item.playableInRoom || item.isDirect || /\/api\/proxy\?/i.test(playUrl)),
+      requiresResolve: !item.isDirect && !item.playableInRoom,
+      quality: item.quality || extractQuality(item.title || '') || 'HD',
+      videoType: 'direct',
+      meta: undefined,
     }
   })
 
-  // OMDb posters when Nkiri thumb missing/unsuitable; keep Nkiri thumb as fallback
   try {
     results = await enrichWithOMDbPosters(results, baseQ)
   } catch (err) {
-    console.error('OMDb enrich failed:', err.message)
+    console.error('OMDb enrich (o2tv) failed:', err.message)
   }
 
-  return { results, hasMore: false, searchedSites: ['nkiri'], multiLayerCascaded: false }
+  // Final title polish after OMDb
+  results = results.map((r) => ({
+    ...r,
+    title: formatMediaTitle(r.title) || r.title,
+    source: 'o2tv',
+  }))
+
+  return {
+    results,
+    hasMore: false,
+    searchedSites: ['o2tv'],
+    multiLayerCascaded: false,
+  }
 }
 
 async function searchArchiveOrg(query, limit = 20) {

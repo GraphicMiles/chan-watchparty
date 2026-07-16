@@ -40,7 +40,7 @@ function deduplicateAndSyncThumbnails(items, query = null) {
     // Soft title filter only — strict isTitleMatch was wiping entire providers
     // (netnaija / maxcinema / fztvseries) when titles had quality tags.
     if (q) {
-      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['nkiri', 'netnaija', 'fzmovies', '9jarocks', 'animedrive', 'o2tv', 'downloadwella', 'naijaprey', 'fztvseries', 'archiveorg', 'meetdownload', 'waploaded', 'maxcinema', 'omdb'].includes(item.source)
+      const isDirectOrMovie = item.isDirect || item.type === 'direct' || item.type === 'movie' || item.type === 'anime' || ['o2tv', 'tvshows4mobile', 'omdb'].includes(item.source)
       if (isDirectOrMovie && !softClientTitleMatch(item.title, q)) {
         return false
       }
