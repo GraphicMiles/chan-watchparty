@@ -925,18 +925,23 @@ export default function VideoPlayer({
   const seekbarValue = durationSec > 0 ? Math.round((currentSec / durationSec) * 1000) : 0
 
   if (error || isMixedContent) {
+    const isHevcError = /HEVC|H\.265/i.test(error || '')
     return (
       <div className={styles.errorContainer}>
         <AlertTriangle size={32} strokeWidth={1.5} style={{ color: 'var(--ember)' }} />
-        <h3>{isMixedContent ? 'HTTP stream blocked' : 'Playback Error'}</h3>
+        <h3>{isMixedContent ? 'HTTP stream blocked' : isHevcError ? 'Unsupported Video Format' : 'Playback Error'}</h3>
         <p>
           {isMixedContent
             ? 'This video server only provides HTTP. HTTPS deployments cannot load it in the browser. Use an HTTPS stream or another source.'
+            : isHevcError
+            ? 'This video uses HEVC/H.265 encoding, which browsers cannot play. Try a different episode or source with MP4/H.264 encoding.'
             : error}
         </p>
-        <button type="button" onClick={() => { setError(null); retryCountRef.current = 0; window.location.reload() }}>
-          Retry
-        </button>
+        {!isHevcError && (
+          <button type="button" onClick={() => { setError(null); retryCountRef.current = 0; setCurrentUrl(resolvedUrl) }}>
+            Retry
+          </button>
+        )}
       </div>
     )
   }
