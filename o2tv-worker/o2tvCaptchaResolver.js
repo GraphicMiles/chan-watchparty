@@ -273,8 +273,30 @@ export async function resolveO2TvEpisodeViaCaptcha(showSlug, seasonNum, epNum) {
   const episodePath = `Episode-${String(epNum).padStart(2, '0')}`
   const episodeUrl = `${BASE}/${showSlug}/${seasonPath}/${episodePath}/`
 
-  const epRes = await fetchWithTimeout(episodeUrl, { headers: { 'User-Agent': USER_AGENT } }, 8000)
-  if (!epRes.ok) return []
+  // Fetch the episode page, retrying with backoff. tvshows4mobile rate-limits /
+  // temporarily 403s datacenter IPs after bursts of requests — a short wait
+  // usually clears it. Surface a clear error if it stays blocked.
+  let epRes = null
+  let lastErr = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      epRes = await fetchWithTimeout(episodeUrl, { headers: { 'User-Agent': USER_AGENT } }, 8000)
+      if (epRes.ok) break
+      lastErr = new Error(`Episode page returned HTTP ${epRes.status}`)
+      if (epRes.status === 403 || epRes.status === 429) {
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1))) // back off
+        continue
+      }
+      break // other status — no point retrying
+    } catch (err) {
+      lastErr = err
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)))
+    }
+  }
+  if (!epRes || !epRes.ok) {
+    console.error(`O2TV episode page unreachable for ${showSlug} S${seasonNum}E${epNum}:`, lastErr?.message || `HTTP ${epRes?.status}`)
+    return []
+  }
   const epHtml = await epRes.text()
   const options = parseO2TvDownloadOptions(epHtml)
   if (!options.length) return []
