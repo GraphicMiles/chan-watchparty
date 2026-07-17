@@ -70,7 +70,11 @@ function parseCatalogHtml(html) {
       const rawHref = m[1]
       const showSlug = m[2]
       if (!showSlug || seen.has(showSlug.toLowerCase())) continue
-      if (/^(search|css|images|download|enable-javascript|login|register|contact|about|privacy|dmca|faq|blog|page|tag|category|wp-|assets|static|js|fonts)/i.test(showSlug)) continue
+      // Exclude site chrome paths — but NOT show slugs like "Download-Westworld-otvcjyou"
+      // (many older shows use the Download-{Name}-otv{XXX} slug format). Only drop a
+      // slug that is EXACTLY a chrome path, not one that merely starts with the word.
+      if (/^(search|css|images|enable-javascript|login|register|contact|about|privacy|dmca|faq|blog|page|tag|category|wp-|assets|static|js|fonts)$/i.test(showSlug)) continue
+      if (/^download-\d+$/i.test(showSlug)) continue // numeric download-page IDs only
       if (/Season-|Episode-/i.test(showSlug)) continue
       let text = String(m[3] || '')
         .replace(/<[^>]+>/g, ' ')
@@ -81,7 +85,11 @@ function parseCatalogHtml(html) {
         .trim()
       // Prefer slug-derived name if anchor text is empty / junk
       if (!text || text.length < 1) {
-        text = showSlug.replace(/-otv[a-z0-9]+$/i, '').replace(/-/g, ' ').trim()
+        text = showSlug
+          .replace(/-otv[a-z0-9]+$/i, '')
+          .replace(/^download-/i, '')
+          .replace(/-/g, ' ')
+          .trim()
       }
       const url = /^https?:\/\//i.test(rawHref)
         ? rawHref
@@ -305,6 +313,7 @@ export async function searchO2Tv(query, maxResults = 10) {
       const titleNorm = normalize(show.showName || show.title)
       const slugNorm = normalize(
         String(show.showSlug || '')
+          .replace(/^download-/i, '')
           .replace(/-otv[a-z0-9]+$/i, '')
           .replace(/-/g, ' ')
       )
