@@ -54,6 +54,18 @@ function formatTime(seconds) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
+// MediaError code → human-readable message (module-level constant → stable identity,
+// so it never needs to be a hook dependency and cannot cause a stale closure)
+const MEDIA_ERROR_MESSAGES = {
+  1: 'Playback was aborted. Try again.',
+  2: 'Network error — the stream server may be down, slow, or the proxy timed out. Try again or use a different source.',
+  3: 'Decoding error — this stream format is not supported or the file is corrupt. Try a different source.',
+  4: 'Source not supported — the video URL may not return a playable video, the server may have returned an error page, or the stream timed out. Try a different source.',
+}
+
+// Detect demuxer/pipeline errors from error message (pure helper)
+const isDemuxerError = (msg) => /demuxer|pipeline|format error/i.test(msg || '')
+
 export default function VideoPlayer({
   videoId,
   videoUrl,
@@ -545,17 +557,6 @@ export default function VideoPlayer({
     onPlayerEventRef.current?.({ isPlaying: playingRef.current, currentTime: newTimeSec })
   }, [])
 
-  // MediaError code → human-readable message
-  const MEDIA_ERROR_MESSAGES = {
-    1: 'Playback was aborted. Try again.',
-    2: 'Network error — the stream server may be down, slow, or the proxy timed out. Try again or use a different source.',
-    3: 'Decoding error — this stream format is not supported or the file is corrupt. Try a different source.',
-    4: 'Source not supported — the video URL may not return a playable video, the server may have returned an error page, or the stream timed out. Try a different source.',
-  }
-
-  // Detect demuxer/pipeline errors from error message
-  const isDemuxerError = (msg) => /demuxer|pipeline|format error/i.test(msg || '')
-
   const handleError = useCallback((err) => {
     // ReactPlayer/FilePlayer passes MediaError objects or Events, NOT Error instances.
     // String(MediaError) = "[object Object]" — that's the "object entry" bug.
@@ -645,7 +646,7 @@ export default function VideoPlayer({
     } else {
       onError?.(new Error(message))
     }
-  }, [currentUrl, isHls, onError, played, toast, videoType])
+  }, [currentUrl, isHls, isLive, onError, played, toast, videoType])
 
   const destroyHls = useCallback(() => {
     if (hlsRef.current) {
@@ -821,7 +822,7 @@ export default function VideoPlayer({
       destroyHls()
       if (!Hls.isSupported()) video.removeAttribute('src')
     }
-  }, [destroyHls, handleError, isHls, isLive, notifyReady, onDuration, currentUrl])
+  }, [destroyHls, handleError, isHls, isLive, notifyReady, onDuration, toast, videoType, currentUrl])
 
   useEffect(() => () => {
     clearTimeout(retryTimeoutRef.current)
