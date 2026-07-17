@@ -1,0 +1,15 @@
+# Railway/Render/Fly build config — force the platform to build and run the
+# o2tv-worker, NOT the repo-root Vite frontend. PaaS auto-detection runs
+# 'npm run build' on the root package.json otherwise (serves dist/ = wrong app).
+#
+# This is read by Nixpacks on Railway and takes precedence over auto-detection.
+# (Vercel ignores nixpacks.toml and Dockerfiles — it uses vercel.json instead,
+#  so the frontend/SSR deploy there is unaffected.)
+
+[build]
+# No build step needed — the worker has zero npm dependencies (node:http + fetch).
+builder = "node"
+
+[start]
+# Run the worker server. PORT is injected by Railway at runtime.
+cmd = "node o2tv-worker/server.js"
