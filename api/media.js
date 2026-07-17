@@ -1706,6 +1706,46 @@ async function resolveO2TvViaWorker({ showSlug, showName, seasonNum, episodeNum 
   }
 }
 
+/**
+ * Offload the downloadwella "Create download link" form-walk to the worker
+ * when configured. The multi-step form (countdown + token chain) frequently
+ * exceeds Vercel Hobby's 10s cap; the worker has no cap, so it completes
+ * reliably. Falls back to the in-process resolver if absent/down.
+ *
+ * @param {string} episodeUrl - the downloadwella .html page URL (or direct media)
+ * @returns {Promise<{directUrls:string[], thumbnail?:string, expired?:boolean, error?:string}|null>}
+ */
+async function resolveDownloadwellaViaWorker(episodeUrl) {
+  if (!O2TV_WORKER_URL) return null
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 8500) // headroom under Vercel 10s
+  try {
+    const res = await fetch(`${O2TV_WORKER_URL.replace(/\/$/, '')}/nkiri-resolve`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(O2TV_WORKER_SECRET ? { 'X-Worker-Secret': O2TV_WORKER_SECRET } : {}),
+      },
+      body: JSON.stringify({ episodeUrl }),
+    })
+    clearTimeout(timer)
+    if (!res.ok) {
+      console.error(`downloadwella worker HTTP ${res.status}`)
+      return null
+    }
+    const data = await res.json()
+    if (data && data.success && data.result && data.result.url) {
+      return { directUrls: [data.result.url], thumbnail: null }
+    }
+    return { directUrls: [], error: data?.error || 'worker returned no URL' }
+  } catch (err) {
+    clearTimeout(timer)
+    console.error('downloadwella worker call failed (falling back to in-process):', err.message)
+    return null
+  }
+}
+
 async function handleO2TvResolve({ showSlug, showName, seasonNum, episodeNum, thumbnail }) {
   const slug = asPlainString(showSlug).trim()
   if (!slug) throw Object.assign(new Error('showSlug is required'), { status: 400 })
@@ -2808,7 +2848,15 @@ export default async function handler(req, res) {
       if (target.hostname.toLowerCase().includes('downloadwella') || target.hostname.toLowerCase().includes('fsmc')) {
         // Always resolve (and re-probe) downloadwella / fsmc CDN links — tokens expire
         // and the CDN requires a downloadwella.com Referer via the proxy.
-        const resolved = await resolveDownloadwellaPage(url)
+        //
+        // Try the offloaded worker first (no 10s cap → reliable form-walk),
+        // then fall back to the in-process resolver if it's absent/down.
+        let resolved = await resolveDownloadwellaViaWorker(url)
+        if (resolved && resolved.directUrls && resolved.directUrls.length) {
+          console.log(`downloadwella resolved via worker (${url.slice(0, 60)})`)
+        } else {
+          resolved = await resolveDownloadwellaPage(url)
+        }
         const results = resolved.directUrls.length
           ? resolved.directUrls.map((mediaUrl) => {
               const proxied = toProxiedPlaybackUrl(mediaUrl, { referer: 'https://downloadwella.com/' })
