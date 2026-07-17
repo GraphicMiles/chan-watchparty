@@ -1808,6 +1808,39 @@ async function nkiriSearchViaWorker(query) {
   }
 }
 
+/**
+ * Offload Nkiri episode extraction (thenkiri.com show page → downloadwella links)
+ * to the worker. Vercel's 3.5s fetchHtml timeout is too tight for thenkiri.com's
+ * ~150KB show pages; the worker has no cap and extracts episodes reliably.
+ *
+ * @param {string} showUrl - the thenkiri.com show page URL
+ * @returns {Promise<Array<{url,title,container}>|null>} null = worker absent/failed
+ */
+async function nkiriEpisodesViaWorker(showUrl) {
+  if (!O2TV_WORKER_URL) return null
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 8000)
+  try {
+    const res = await fetch(`${O2TV_WORKER_URL.replace(/\/$/, '')}/nkiri-episodes`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(O2TV_WORKER_SECRET ? { 'X-Worker-Secret': O2TV_WORKER_SECRET } : {}),
+      },
+      body: JSON.stringify({ showUrl }),
+    })
+    clearTimeout(timer)
+    if (!res.ok) return null
+    const data = await res.json()
+    return (data && data.success && Array.isArray(data.results)) ? data.results : null
+  } catch (err) {
+    clearTimeout(timer)
+    console.error('nkiri episodes via worker failed:', err.message)
+    return null
+  }
+}
+
 async function handleO2TvResolve({ showSlug, showName, seasonNum, episodeNum, thumbnail }) {
   const slug = asPlainString(showSlug).trim()
   if (!slug) throw Object.assign(new Error('showSlug is required'), { status: 400 })
@@ -2618,6 +2651,37 @@ export default async function handler(req, res) {
 
       // Nkiri URL resolution (show page → extract episode downloadwella links)
       if (target.hostname.toLowerCase().includes('thenkiri') || target.hostname.toLowerCase().includes('nkiri.com')) {
+        // Try the worker first (fast, no 3.5s timeout cap) for episode extraction.
+        // Fall back to in-process scraping if the worker is absent/down.
+        const workerEpisodes = await nkiriEpisodesViaWorker(url)
+        if (workerEpisodes && workerEpisodes.length) {
+          const poster = null
+          const pageTitle = workerEpisodes[0]?.title || 'Episodes'
+          return ok(res, {
+            results: workerEpisodes.map((ep) => ({
+              title: formatMediaTitle(ep.title) || ep.title,
+              url: ep.url,
+              link: ep.url,
+              thumbnail: null,
+              image: null,
+              source: 'downloadwella',
+              type: 'direct',
+              isDirect: false,
+              playableInRoom: false,
+              requiresResolve: true,
+              resolvedFrom: url,
+              preferMp4: /\.mp4/i.test(ep.url),
+              codecHint: /hevc|x265|h.?265/i.test(ep.title) ? 'hevc' : (/\.mkv/i.test(ep.url) ? 'mkv' : null),
+              meta: /\.mkv/i.test(ep.url) ? 'MKV — proxied + remuxed for browser playback' : undefined,
+            })),
+            count: workerEpisodes.length,
+            directCount: 0,
+            resolved: false,
+            url,
+            site: 'nkiri',
+          })
+        }
+        // In-process fallback (bounded by Vercel's 3.5s fetchHtml timeout)
         try {
           const pageHtml = await fetchHtml(url)
           const $page = cheerio.load(pageHtml)
