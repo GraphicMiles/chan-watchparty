@@ -144,6 +144,91 @@ function regexEscape(str) {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+// Split into lowercase word tokens, dropping non-alphanumeric noise.
+function toWords(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim().split(/\s+/).filter(Boolean)
+}
+
+// Strip a single leading article (the/a/an) — so "The Walking Dead" aligns
+// with a query of just "Walking Dead". Only strips ONE leading article.
+function stripLeadingArticle(words) {
+  if (Array.isArray(words) && words.length > 1 && /^(the|a|an)$/.test(words[0])) {
+    return words.slice(1)
+  }
+  return words
+}
+
+// Normalize a show slug for matching: drop the Download- prefix, the -otv{XXX}
+// suffix, and any trailing standalone version/season-count number (-8, -9).
+function normalizeSlug(slug) {
+  return String(slug || '')
+    .replace(/^download-/i, '')
+    .replace(/-otv[a-z0-9]+$/i, '')
+    .replace(/-\d+$/i, '')
+    .replace(/-/g, ' ')
+    .trim()
+}
+
+/**
+ * Score how well a catalog show matches the query (0 = no match, higher = better).
+ *
+ * Uses WORD-based, article-insensitive matching so:
+ *   - "walking dead"  -> "The Walking Dead" (98) beats "Fear the Walking Dead" (74)
+ *   - "flash"         -> "The Flash" (98)
+ *   - "arrow"         -> "Arrow" (100), NOT "Allen v Farrow" (low)
+ *
+ * The main show (exact word set, fewest extra words) always outranks spinoffs.
+ */
+function scoreShowMatch(queryRaw, showName, showSlug) {
+  const qNorm = normalize(queryRaw)
+  const titleNorm = normalize(showName)
+  const slugNorm = normalize(normalizeSlug(showSlug))
+  if (!qNorm) return 0
+
+  // 100: exact normalized title or slug
+  if (titleNorm === qNorm || slugNorm === qNorm) return 100
+
+  // Word-based, article-insensitive comparison (primary signal)
+  const qWords = stripLeadingArticle(toWords(queryRaw))
+  const tWords = stripLeadingArticle(toWords(showName))
+  const sWords = stripLeadingArticle(toWords(normalizeSlug(showSlug)))
+  const qJoined = qWords.join(' ')
+  const tJoined = tWords.join(' ')
+  const sJoined = sWords.join(' ')
+
+  // 98: exact word sequence after stripping leading articles
+  //   ("walking dead" == "The Walking Dead" -> [walking,dead] == [walking,dead])
+  if (qJoined && (qJoined === tJoined || qJoined === sJoined)) return 98
+
+  // 95: query words are a contiguous PREFIX of the title words (article-stripped)
+  if (qJoined && (tJoined.startsWith(qJoined) || sJoined.startsWith(qJoined))) return 95
+
+  // 90: concatenated startsWith (catches compound/spacing quirks)
+  if (titleNorm.startsWith(qNorm) || slugNorm.startsWith(qNorm)) return 90
+
+  // 85: query is a contiguous run of words INSIDE the title (same order)
+  //   ("walking dead" inside "Fear the Walking Dead" -> "...walking dead...")
+  if (qJoined && (tJoined.includes(qJoined) || sJoined.includes(qJoined))) {
+    // Penalize titles with MORE words than the query — likely a spinoff/sequel.
+    // Fewer extra words = closer to the main show.
+    const extra = Math.max(tWords.length, sWords.length) - qWords.length
+    return Math.max(70, 85 - extra * 4)   // 1 extra -> 81, 2 -> 77, 3 -> 73...
+  }
+
+  // 80: concatenated includes (fallback)
+  if (titleNorm.includes(qNorm) || slugNorm.includes(qNorm)) return 80
+
+  // 60: all significant query tokens (>=3 chars) present somewhere (loose)
+  const tokens = qNorm.match(/[a-z0-9]{3,}/g) || []
+  if (tokens.length >= 1) {
+    const hay = titleNorm + slugNorm
+    if (tokens.every((t) => hay.includes(t))) return 60
+  }
+
+  return 0
+}
+
+
 // ─── Build a CDN URL for a given show/season/episode/suffix ───
 function buildCdnUrl(cdnHost, showName, seasonNum, epNum, suffix) {
   const encoded = encodeURIComponent(showName)
@@ -310,25 +395,7 @@ export async function searchO2Tv(query, maxResults = 10) {
 
     const scored = []
     for (const show of catalog) {
-      const titleNorm = normalize(show.showName || show.title)
-      const slugNorm = normalize(
-        String(show.showSlug || '')
-          .replace(/^download-/i, '')
-          .replace(/-otv[a-z0-9]+$/i, '')
-          .replace(/-/g, ' ')
-      )
-      let matchScore = 0
-      if (titleNorm === qNorm || slugNorm === qNorm) matchScore = 100
-      else if (titleNorm.startsWith(qNorm) || slugNorm.startsWith(qNorm)) matchScore = 90
-      else if (titleNorm.includes(qNorm) || slugNorm.includes(qNorm)) matchScore = 80
-      else {
-        // Multi-word: all significant tokens present
-        const tokens = qNorm.match(/[a-z0-9]{2,}/g) || []
-        if (tokens.length >= 2) {
-          const hay = titleNorm + slugNorm
-          if (tokens.every((t) => hay.includes(t))) matchScore = 60
-        }
-      }
+      const matchScore = scoreShowMatch(qRaw, show.showName || show.title, show.showSlug)
       if (matchScore <= 0) continue
       scored.push({
         title: show.showName || show.title,

@@ -102,7 +102,7 @@ async function solveCaptchaWithGroq(imageBuffer) {
   throw lastError || new Error('All Groq vision models failed')
 }
 
-async function solveAndPost(jar, fileId) {
+async function solveAndPost(jar, fileId, maxAttempts = 6) {
   const BASE = 'https://tvshows4mobile.org'
   const dlRes = await fetchWithTimeout(`${BASE}/download/${fileId}`, {
     redirect: 'manual',
@@ -117,41 +117,67 @@ async function solveAndPost(jar, fileId) {
   jar.capture(capRes)
   await capRes.text()
 
-  const imgRes = await fetchWithTimeout(`${BASE}/simplecaptcha1/simple-php-captcha.php?_CAPTCHA&t=${Date.now()}`, {
-    headers: { 'User-Agent': USER_AGENT, Cookie: jar.header(), Referer: captchaPageUrl },
-  }, 8000)
-  jar.capture(imgRes)
-  const contentType = imgRes.headers.get('content-type') || ''
-  if (!contentType.includes('image')) throw new Error('Captcha image not received — got ' + contentType)
-  const imgBuffer = Buffer.from(await imgRes.arrayBuffer())
+  // Retry solving with a FRESH captcha image each attempt. The vision model
+  // misreads some images, so reusing one is pointless — fetch a new one each try.
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // A WRONG answer can briefly lock the endpoint (returns HTML instead of an
+    // image) — wait + retry the image fetch instead of failing the whole resolve.
+    let imgBuffer = null
+    for (let imgTry = 0; imgTry < 3 && !imgBuffer; imgTry++) {
+      const imgRes = await fetchWithTimeout(`${BASE}/simplecaptcha1/simple-php-captcha.php?_CAPTCHA&t=${Date.now()}`, {
+        headers: { 'User-Agent': USER_AGENT, Cookie: jar.header(), Referer: captchaPageUrl },
+      }, 8000)
+      jar.capture(imgRes)
+      const contentType = imgRes.headers.get('content-type') || ''
+      if (contentType.includes('image')) {
+        imgBuffer = Buffer.from(await imgRes.arrayBuffer())
+      } else {
+        await new Promise((r) => setTimeout(r, 1200)) // lockout / stale session — back off
+      }
+    }
+    if (!imgBuffer) {
+      console.error(`No captcha image after retries (attempt ${attempt + 1}/${maxAttempts})`)
+      continue
+    }
 
-  let captchaAnswer = ''
-  for (let attempt = 0; attempt < 4 && !(captchaAnswer && captchaAnswer.length >= 3); attempt++) {
+    let captchaAnswer = ''
     try { captchaAnswer = await solveCaptchaWithGroq(imgBuffer) }
-    catch (err) { console.error(`Captcha solve attempt ${attempt + 1} failed:`, err.message) }
-  }
-  if (!captchaAnswer || captchaAnswer.length < 3) throw new Error('Failed to solve captcha after multiple attempts')
+    catch (err) {
+      console.error(`Captcha solve error (attempt ${attempt + 1}/${maxAttempts}):`, err.message)
+      continue
+    }
+    // Reject wrong-length answers WITHOUT POSTing them (empirically these are
+    // exactly 5 chars). A wrong POST triggers an endpoint lockout.
+    if (!captchaAnswer || captchaAnswer.length < 4 || captchaAnswer.length > 6) {
+      console.error(`Captcha answer "${captchaAnswer}" odd length ${captchaAnswer.length} (attempt ${attempt + 1}/${maxAttempts}) — skipping, fresh image`)
+      continue
+    }
 
-  const postRes = await fetchWithTimeout(captchaPageUrl, {
-    method: 'POST',
-    headers: {
-      'User-Agent': USER_AGENT,
-      Cookie: jar.header(),
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Referer: captchaPageUrl,
-      Origin: BASE,
-    },
-    body: `captchainput=${encodeURIComponent(captchaAnswer)}&submit=Continue+Download`,
-    redirect: 'manual',
-  }, 8000)
-  jar.capture(postRes)
+    const postRes = await fetchWithTimeout(captchaPageUrl, {
+      method: 'POST',
+      headers: {
+        'User-Agent': USER_AGENT,
+        Cookie: jar.header(),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Referer: captchaPageUrl,
+        Origin: BASE,
+      },
+      body: `captchainput=${encodeURIComponent(captchaAnswer)}&submit=Continue+Download`,
+      redirect: 'manual',
+    }, 8000)
+    jar.capture(postRes)
 
-  const location = postRes.headers.get('location') || ''
-  if (!location) {
-    const body = await postRes.text().catch(() => '')
-    if (/does not match|incorrect|invalid captcha/i.test(body)) throw new Error('Captcha answer was incorrect')
+    const location = postRes.headers.get('location') || ''
+    if (!location) {
+      const body = await postRes.text().catch(() => '')
+      if (/does not match|incorrect|invalid captcha/i.test(body)) {
+        console.error(`Captcha answer "${captchaAnswer}" was incorrect (attempt ${attempt + 1}/${maxAttempts}) — retrying with fresh image`)
+        continue
+      }
+    }
+    return location
   }
-  return location
+  return '' // exhausted fresh-image retries
 }
 
 export async function resolveO2TvCaptcha(fileId) {
