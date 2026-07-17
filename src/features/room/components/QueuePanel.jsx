@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { collection, onSnapshot, query, orderBy, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
-import { Plus, Trash2, Play, Search, Film, Loader2 } from 'lucide-react'
+import { Plus, Trash2, Play, Search, Film } from 'lucide-react'
 import { db } from '../../../shared/lib/firebase.js'
 import { useUnifiedSearch } from '../../../hooks/useUnifiedSearch.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, extractVideoId, getThumbnail } from '../../../shared/lib/youtube.js'
 import { Button, Input } from '../../../shared/ui/index.js'
 import styles from './QueuePanel.module.scss'
 
-export default function QueuePanel({ roomId, room, user, isHost, canControl, onPlayNext, toast }) {
+export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast }) {
   const [queue, setQueue] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState('youtube') // 'youtube' or 'direct'

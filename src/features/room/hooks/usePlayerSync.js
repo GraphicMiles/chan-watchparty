@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { doc, onSnapshot, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
-import { isRemuxProxyUrl, withRemuxSeekTime, getRemuxSeekTime } from '../../../shared/lib/youtube.js'
+import { isRemuxProxyUrl } from '../../../shared/lib/youtube.js'
 
 const SYNC_THRESHOLD = 0.5 // 0.5s sync threshold as required
 const VIEWER_RESYNC_MS = 3000

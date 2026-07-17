@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { isDirectVideoUrl, normalizeDirectUrl, normalizePlaybackUrl } from '../shared/lib/youtube.js'
+import { isDirectVideoUrl, normalizePlaybackUrl } from '../shared/lib/youtube.js'
 import { useAuth } from '../shared/auth/hooks/useAuth.jsx'
 import { isSuitableThumbnail, isTitleMatch, cleanTitleForMatching } from '../shared/lib/mediaHelper.js'
 

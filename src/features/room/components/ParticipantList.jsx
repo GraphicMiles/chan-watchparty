@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MoreVertical, Shield, UserX, Mic, MicOff, ShieldAlert, Award, Clock } from 'lucide-react'
+import { MoreVertical, Shield, UserX, Mic, MicOff, Award, Clock } from 'lucide-react'
 import { Avatar, Badge, Modal, Button } from '../../../shared/ui/index.js'
 import styles from './ParticipantList.module.css'
 
@@ -22,7 +22,6 @@ export default function ParticipantList({
   coHosts = [],
   currentUserId,
   isHost,
-  canControl,
   onKick,
   onPromote,
   onMute,
