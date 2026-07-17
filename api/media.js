@@ -866,8 +866,10 @@ async function searchDirectLinks(query, options = {}) {
   }
 
   const limit = Math.min(40, Math.max(5, Number(options.limit) || 20))
-  // Catalog page is large; give searchO2Tv enough headroom (it caches after first hit).
-  const searchTimeout = Math.max(DIRECT_SEARCH_TIMEOUT_MS, 14000)
+  // Vercel Hobby hard-kills at 10s. Cap the search deadline at 8s so there is
+  // headroom for OMDb poster enrichment + serialization after searchO2Tv returns.
+  // (Was 14s — the function was killed before this ever fired.)
+  const searchTimeout = Math.min(DIRECT_SEARCH_TIMEOUT_MS, 8000)
 
   let shows = []
   let searchError = null
@@ -1657,6 +1659,53 @@ async function handleO2TvEpisodes({ showSlug, showName, seasonNum, thumbnail }) 
   }
 }
 
+/**
+ * Offload the heavy O2TV episode resolve to a long-lived worker (Railway /
+ * Render / Fly) when O2TV_WORKER_URL is configured. Vercel Hobby hard-kills at
+ * 10s; a single resolve needs two captcha solves + two Groq vision calls
+ * (~5-9s cold) which is right at the edge. The worker has no function cap.
+ *
+ * Falls back to the in-process resolver if the worker env var is absent or the
+ * call fails — so nothing breaks during the switch or if the worker is down.
+ *
+ * Vercel still must finish inside 10s, so this proxied call is raced against
+ * an 8s deadline; if the worker is slow, we fall back to the (faster) legacy
+ * probe path so Create Room never 504s.
+ */
+const O2TV_WORKER_URL = process.env.O2TV_WORKER_URL || ''
+const O2TV_WORKER_SECRET = process.env.O2TV_WORKER_SECRET || ''
+
+async function resolveO2TvViaWorker({ showSlug, showName, seasonNum, episodeNum }) {
+  if (!O2TV_WORKER_URL) return null
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 8500) // leave headroom under 10s
+  try {
+    const res = await fetch(`${O2TV_WORKER_URL.replace(/\/$/, '')}/resolve-episode`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(O2TV_WORKER_SECRET ? { 'X-Worker-Secret': O2TV_WORKER_SECRET } : {}),
+      },
+      body: JSON.stringify({ showSlug, showName, seasonNum, episodeNum }),
+    })
+    clearTimeout(timer)
+    if (!res.ok) {
+      console.error(`O2TV worker HTTP ${res.status}`)
+      return null
+    }
+    const data = await res.json()
+    if (data && data.success && data.result && data.result.url) {
+      return data.result
+    }
+    return null
+  } catch (err) {
+    clearTimeout(timer)
+    console.error('O2TV worker call failed (falling back to in-process):', err.message)
+    return null
+  }
+}
+
 async function handleO2TvResolve({ showSlug, showName, seasonNum, episodeNum, thumbnail }) {
   const slug = asPlainString(showSlug).trim()
   if (!slug) throw Object.assign(new Error('showSlug is required'), { status: 400 })
@@ -1667,16 +1716,24 @@ async function handleO2TvResolve({ showSlug, showName, seasonNum, episodeNum, th
   const s = String(season).padStart(2, '0')
   const e = String(ep).padStart(2, '0')
 
-  // Prefer captcha/download-page resolve first when GROQ is available — CDN
-  // suffix probing is slow and often 404s for newer shows. Fall back to probe.
+  // Prefer the offloaded worker (no 10s cap) when configured; it does the full
+  // double-captcha + Groq resolve. Fall back to in-process if it's not set or fails.
   let resolved = null
-  try {
-    const captchaResults = await resolveO2TvEpisodeViaCaptcha(slug, season, ep)
-    if (captchaResults?.length && captchaResults[0]?.url && typeof captchaResults[0].url === 'string') {
-      resolved = captchaResults[0]
+  resolved = await resolveO2TvViaWorker({ showSlug: slug, showName: name, seasonNum: season, episodeNum: ep })
+  if (resolved) {
+    console.log(`O2TV resolve via worker OK (${name} S${season}E${ep})`)
+  }
+
+  // In-process fallback (captive to Vercel's 10s — best-effort)
+  if (!resolved?.url || typeof resolved.url !== 'string') {
+    try {
+      const captchaResults = await resolveO2TvEpisodeViaCaptcha(slug, season, ep)
+      if (captchaResults?.length && captchaResults[0]?.url && typeof captchaResults[0].url === 'string') {
+        resolved = captchaResults[0]
+      }
+    } catch (err) {
+      console.error('O2TV resolve captcha failed:', err.message)
     }
-  } catch (err) {
-    console.error('O2TV resolve captcha failed:', err.message)
   }
 
   if (!resolved?.url || typeof resolved.url !== 'string') {
