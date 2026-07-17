@@ -128,32 +128,6 @@ export default function VideoPlayer({
     return false
   }, [currentUrl, videoType, isLive])
 
-  /**
-   * True live linear streams (IPTV/sports) vs VOD HLS (PornHub etc.).
-   * CRITICAL: must NOT treat every m3u8 as live — that disables seeking
-   * (seekTo early-return + isLive() blocks double-tap / scrub for NSFW VOD).
-   */
-  const isLivePlayback = useCallback(() => {
-    if (videoType === 'iptv' || videoType === 'sports') return true
-    if (isLive && videoType !== 'nsfw' && videoType !== 'direct') return true
-    // Explicit room live flag only when not a VOD type
-    if (isLive && (videoType === 'nsfw' || videoType === 'direct')) {
-      // nsfw/direct with isLive is rare; trust finite duration when known
-      const d = durationSec || videoRef.current?.duration || 0
-      if (d > 0 && Number.isFinite(d) && d < 86400) return false
-      return Boolean(isLive)
-    }
-    if (isHls) {
-      const d = durationSec || videoRef.current?.duration || 0
-      // VOD HLS playlists have a finite duration (seconds–hours)
-      if (d > 0 && Number.isFinite(d) && d < 86400) return false
-      // No duration yet: default live only for iptv/sports (handled above)
-      // For nsfw/direct assume VOD until proven otherwise so seek works
-      if (videoType === 'nsfw' || videoType === 'direct' || videoType === 'youtube') return false
-      return !Number.isFinite(d) || d <= 0 || d >= 86400
-    }
-    return false
-  }, [videoType, isLive, isHls, durationSec])
   const isMixedContent = useMemo(
     () => typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(currentUrl),
     [currentUrl]
@@ -393,14 +367,14 @@ export default function VideoPlayer({
   }, [roomId])
 
   const currentTime = useCallback(() => {
-    if (isHLS) return videoRef.current?.currentTime || 0
+    if (isHls) return videoRef.current?.currentTime || 0
     const local = playerRef.current?.getCurrentTime?.() || 0
     // Remux-from-t streams restart at 0; expose room-absolute time for sync
     if (isRemuxProxyUrl(currentUrl)) {
       return (remuxBaseTimeRef.current || 0) + local
     }
     return local
-  }, [isHLS, currentUrl])
+  }, [isHls, currentUrl])
 
   // Keep scrubber/labels on absolute timeline for remux seeks
   const toAbsoluteSec = useCallback((localSec) => {
@@ -412,10 +386,39 @@ export default function VideoPlayer({
 
   const playerState = useCallback(() => (playingRef.current ? 1 : 2), [])
 
+  /**
+   * True live linear streams (IPTV/sports) vs VOD HLS (PornHub etc.).
+   * CRITICAL: must NOT treat every m3u8 as live — that disables seeking
+   * (seekTo early-return + isLive() blocks double-tap / scrub for NSFW VOD).
+   * Declared here (below durationSec/videoRef/isHls) so its dependency array
+   * never references a not-yet-initialized binding — that was a TDZ ReferenceError.
+   */
+  const isLivePlayback = useCallback(() => {
+    if (videoType === 'iptv' || videoType === 'sports') return true
+    if (isLive && videoType !== 'nsfw' && videoType !== 'direct') return true
+    // Explicit room live flag only when not a VOD type
+    if (isLive && (videoType === 'nsfw' || videoType === 'direct')) {
+      // nsfw/direct with isLive is rare; trust finite duration when known
+      const d = durationSec || videoRef.current?.duration || 0
+      if (d > 0 && Number.isFinite(d) && d < 86400) return false
+      return Boolean(isLive)
+    }
+    if (isHls) {
+      const d = durationSec || videoRef.current?.duration || 0
+      // VOD HLS playlists have a finite duration (seconds–hours)
+      if (d > 0 && Number.isFinite(d) && d < 86400) return false
+      // No duration yet: default live only for iptv/sports (handled above)
+      // For nsfw/direct assume VOD until proven otherwise so seek works
+      if (videoType === 'nsfw' || videoType === 'direct' || videoType === 'youtube') return false
+      return !Number.isFinite(d) || d <= 0 || d >= 86400
+    }
+    return false
+  }, [videoType, isLive, isHls, durationSec])
+
   const adapter = useMemo(() => ({
     getCurrentTime: () => currentTime(),
     getDuration: () => {
-      if (isHLS) return videoRef.current?.duration || durationSec || 0
+      if (isHls) return videoRef.current?.duration || durationSec || 0
       // Remux-from-t: player reports remaining length; prefer absolute durationSec
       if (isRemuxProxyUrl(currentUrl) && durationSec > 0) return durationSec
       const local = playerRef.current?.getDuration?.() || 0
@@ -428,7 +431,7 @@ export default function VideoPlayer({
     playVideo: () => {
       // Show progress immediately while media catches up
       setIsBuffering(true)
-      if (isHLS) {
+      if (isHls) {
         const p = videoRef.current?.play?.()
         if (p && typeof p.catch === 'function') p.catch(() => {})
       } else {
@@ -440,7 +443,7 @@ export default function VideoPlayer({
       setIsPlayingState(true)
     },
     pauseVideo: () => {
-      if (isHLS) {
+      if (isHls) {
         videoRef.current?.pause()
       } else {
         playerRef.current?.getInternalPlayer?.()?.pauseVideo?.() || playerRef.current?.getInternalPlayer?.()?.pause?.()
@@ -449,13 +452,13 @@ export default function VideoPlayer({
       setIsPlayingState(false)
     },
     seekTo: (value, type = 'seconds') => {
-      const dur = (isHLS ? videoRef.current?.duration : playerRef.current?.getDuration?.()) || durationSec || 0
+      const dur = (isHls ? videoRef.current?.duration : playerRef.current?.getDuration?.()) || durationSec || 0
       const seekType = type === true ? 'seconds' : type
       const targetSec = seekType === 'fraction' ? (value * (dur || 0)) : value
 
       // MKV remux: real seek = new remux-from-t URL (synced via playerState.currentTime)
       // The remuxed fMP4 always starts at media time 0; we track absolute time via remuxBaseTimeRef.
-      if (!isHLS && isRemuxProxyUrl(currentUrl) && !isLive && videoType !== 'iptv') {
+      if (!isHls && isRemuxProxyUrl(currentUrl) && !isLive && videoType !== 'iptv') {
         const t = Math.max(0, Number(targetSec) || 0)
         const prevT = getRemuxSeekTime(currentUrl)
         const absNow = currentTime() || 0
@@ -485,7 +488,7 @@ export default function VideoPlayer({
         return
       }
 
-      if (isHLS) {
+      if (isHls) {
         if (videoRef.current) {
           // Only block seek on true live linear streams — NOT VOD m3u8 (PornHub)
           if (isLivePlayback()) return
@@ -516,7 +519,7 @@ export default function VideoPlayer({
     // Never treat VOD HLS (nsfw/direct) as live — that freezes the seek bar UX
     isLive: () => isLivePlayback(),
     loadVideoById: () => {},
-  }), [currentTime, durationSec, isHLS, isLive, playerState, currentUrl, videoType, isLivePlayback])
+  }), [currentTime, durationSec, isHls, isLive, playerState, currentUrl, videoType, isLivePlayback])
 
   const notifyReady = useCallback(() => {
     setIsReady(true)
@@ -632,7 +635,7 @@ export default function VideoPlayer({
     if (retryCountRef.current < RETRY_ATTEMPTS) {
       retryCountRef.current += 1
       retryTimeoutRef.current = setTimeout(() => {
-        if (isHLS && hlsRef.current) {
+        if (isHls && hlsRef.current) {
           hlsRef.current.startLoad()
         } else {
           playerRef.current?.seekTo?.(played || 0, 'fraction')
@@ -641,7 +644,7 @@ export default function VideoPlayer({
     } else {
       onError?.(new Error(message))
     }
-  }, [currentUrl, isHLS, onError, played, toast, videoType])
+  }, [currentUrl, isHls, onError, played, toast, videoType])
 
   const destroyHls = useCallback(() => {
     if (hlsRef.current) {
@@ -664,7 +667,7 @@ export default function VideoPlayer({
     // error if the probe clearly returns HTML/JSON error (expired link, 502/504).
     // Skip for remux=1 — player must start progressive remux immediately.
     const isRemux = /[?&]remux=1(?:&|$)/i.test(currentUrl || '')
-    if (!isHLS && currentUrl && videoType === 'direct' && currentUrl.includes('/api/proxy') && !isRemux) {
+    if (!isHls && currentUrl && videoType === 'direct' && currentUrl.includes('/api/proxy') && !isRemux) {
       const checkUrl = async () => {
         try {
           let checkRes
@@ -709,7 +712,7 @@ export default function VideoPlayer({
       checkUrl()
     }
 
-    if (!isHLS || !currentUrl || !videoRef.current) {
+    if (!isHls || !currentUrl || !videoRef.current) {
       return () => {}
     }
 
@@ -817,7 +820,7 @@ export default function VideoPlayer({
       destroyHls()
       if (!Hls.isSupported()) video.removeAttribute('src')
     }
-  }, [destroyHls, handleError, isHLS, isLive, notifyReady, onDuration, currentUrl])
+  }, [destroyHls, handleError, isHls, isLive, notifyReady, onDuration, currentUrl])
 
   useEffect(() => () => {
     clearTimeout(retryTimeoutRef.current)
@@ -825,7 +828,7 @@ export default function VideoPlayer({
   }, [destroyHls])
 
   useEffect(() => {
-    if (!playerRef.current || isHLS || played == null) return
+    if (!playerRef.current || isHls || played == null) return
     // Never force native fraction seeks on remux streams — timeline is absolute via ?t=
     if (isRemuxProxyUrl(currentUrl)) return
     const dur = playerRef.current.getDuration?.() || 0
@@ -833,19 +836,19 @@ export default function VideoPlayer({
     if (dur && Math.abs(cur - played * dur) > 2) {
       playerRef.current.seekTo(played, 'fraction')
     }
-  }, [isHLS, played, currentUrl])
+  }, [isHls, played, currentUrl])
 
   // Track the active native <video> element for the WebGL upscaler overlay.
   useEffect(() => {
     let el = null
-    if (isHLS) {
+    if (isHls) {
       el = videoRef.current
     } else if (playerRef.current?.getInternalPlayer) {
       const internal = playerRef.current.getInternalPlayer()
       if (internal instanceof HTMLVideoElement) el = internal
     }
     setTargetVideoElement(el)
-  }, [isHLS, currentUrl, isReady])
+  }, [isHls, currentUrl, isReady])
 
   const handleMouseMove = useCallback(() => {
     setShowControls(true)
@@ -1126,7 +1129,7 @@ export default function VideoPlayer({
         onPointerDown={handlePointerTouch}
         onContextMenu={(e) => e.preventDefault()}
       >
-        {isHLS ? (
+        {isHls ? (
           <video
             ref={videoRef}
             className={styles.videoElement}
@@ -1407,7 +1410,7 @@ export default function VideoPlayer({
                   )}
                 </div>
 
-                {isHLS && hlsLevels.length > 1 && (
+                {isHls && hlsLevels.length > 1 && (
                   <div className={styles.popupContainer}>
                     <button
                       type="button"
@@ -1723,7 +1726,7 @@ export default function VideoPlayer({
             </div>
 
             {/* HLS Quality Selector Menu */}
-            {isHLS && hlsLevels.length > 1 && (
+            {isHls && hlsLevels.length > 1 && (
               <div className={styles.popupContainer}>
                 <button
                   type="button"

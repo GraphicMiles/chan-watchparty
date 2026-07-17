@@ -1,0 +1,32 @@
+{
+  "root": true,
+  "env": { "browser": true, "es2022": true, "node": true },
+  "parser": "@babel/eslint-parser",
+  "parserOptions": { "ecmaVersion": 2022, "sourceType": "module", "ecmaFeatures": { "jsx": true }, "requireConfigFile": false, "babelOptions": { "presets": ["@babel/preset-react"] } },
+  "settings": {
+    "react": { "version": "18" },
+    "import/resolver": { "node": { "extensions": [".js", ".jsx"] } }
+  },
+  "plugins": ["react", "react-hooks", "import"],
+  "extends": [
+    "eslint:recommended",
+    "plugin:react/recommended",
+    "plugin:react/jsx-runtime",
+    "plugin:react-hooks/recommended",
+    "plugin:import/recommended"
+  ],
+  "rules": {
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
+    "react/prop-types": "off",
+    "react/display-name": "off",
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^(_|RETRY_)" }],
+    "no-undef": "error",
+    "no-redeclare": "error",
+    "no-use-before-define": ["error", { "functions": false, "variables": true }],
+    "import/no-unresolved": "off",
+    "import/named": "off",
+    "no-empty": ["error", { "allowEmptyCatch": true }]
+  },
+  "ignorePatterns": ["dist", "node_modules", "server-lib", "api", "src/**/*.module.scss", "src/**/*.module.css", "*.config.js", "test-captcha.js", "fix_hevc.py"]
+}
