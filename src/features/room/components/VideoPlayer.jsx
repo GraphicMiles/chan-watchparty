@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactPlayer from 'react-player'
-import Hls from 'hls.js'
+import { Hls, Events, ErrorTypes, isSupported } from 'hls.js'
 import {
   AlertTriangle, Radio, Play, Pause, RotateCcw, RotateCw,
   Volume2, VolumeX, Maximize, Palette, PictureInPicture2, Bookmark, Settings, Sun, Eye, EyeOff, Cpu, FileText
@@ -739,7 +739,7 @@ export default function VideoPlayer({
     if (canPlayNativeHls && video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = currentUrl
       video.addEventListener('loadedmetadata', onLoadedMetadata)
-    } else if (Hls.isSupported()) {
+    } else if (isSupported()) {
       // Live IPTV needs low-latency HLS settings; VOD m3u8 (e.g. PornHub) must NOT
       // use live mode — live mode breaks seeking / duration reporting.
       const isLiveHls = Boolean(
@@ -766,7 +766,7 @@ export default function VideoPlayer({
       hlsRef.current = hls
       hls.loadSource(currentUrl)
       hls.attachMedia(video)
-      hls.on(Hls.Events.MANIFEST_PARSED, (_ev, data) => {
+      hls.on(Events.MANIFEST_PARSED, (_ev, data) => {
         setHlsLevels(hls.levels || [])
         // Seed duration early so VOD seek bar enables before first timeupdate
         try {
@@ -780,14 +780,14 @@ export default function VideoPlayer({
         } catch { /* */ }
         notifyReady()
       })
-      hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+      hls.on(Events.LEVEL_SWITCHED, (_event, data) => {
         setCurrentLevel(data.level)
       })
-      hls.on(Hls.Events.ERROR, (_event, data) => {
+      hls.on(Events.ERROR, (_event, data) => {
         console.log('HLS error:', data.type, data.details, 'fatal:', data.fatal)
         if (!data.fatal) {
           // Non-fatal: retry network errors, recover media errors
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          if (data.type === ErrorTypes.NETWORK_ERROR) {
             console.log('HLS network error, retrying load...')
             // Show temporary warning after 3 retries
             hlsErrorCountRef.current = (hlsErrorCountRef.current || 0) + 1
@@ -795,16 +795,16 @@ export default function VideoPlayer({
               toast('Stream is having trouble loading — the IPTV server may be slow or blocking requests', { variant: 'warning', duration: 5000 })
             }
             hls.startLoad()
-          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          } else if (data.type === ErrorTypes.MEDIA_ERROR) {
             console.log('HLS media error, recovering...')
             hls.recoverMediaError()
           }
           return
         }
         // Fatal errors: show meaningful message to user
-        const errorMsg = data.type === Hls.ErrorTypes.NETWORK_ERROR
+        const errorMsg = data.type === ErrorTypes.NETWORK_ERROR
           ? 'Stream network error — the IPTV server may be blocking this request, the channel is offline, or the stream timed out. Try another channel.'
-          : data.type === Hls.ErrorTypes.MEDIA_ERROR
+          : data.type === ErrorTypes.MEDIA_ERROR
           ? 'Stream format error — this stream codec is not supported by your browser. Try another channel.'
           : `Stream error: ${data.details}. The channel may be offline or the link expired.`
         console.error('HLS fatal error:', errorMsg, data)
@@ -820,7 +820,7 @@ export default function VideoPlayer({
       video.removeEventListener('error', onNativeError)
       clearTimeout(retryTimeoutRef.current)
       destroyHls()
-      if (!Hls.isSupported()) video.removeAttribute('src')
+      if (!isSupported()) video.removeAttribute('src')
     }
   }, [destroyHls, handleError, isHls, isLive, notifyReady, onDuration, toast, videoType, currentUrl])
 
