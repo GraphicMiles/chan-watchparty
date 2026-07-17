@@ -1,15 +1,15 @@
 /**
  * O2TV Resolver Engine
  *
- * Resolves o2tv/tvshows4mobile CDN URLs by:
+ * Resolves o2tv/tvshows4mobile URLs by:
  * 1. Searching tvshows4mobile.org for the show
  * 2. Scraping season → episode pages
- * 3. Probing CDN servers to find the actual file suffix (otv-XXXXX)
+ * 3. Resolving the /download/{id} → captcha → CDN MP4 chain (via Groq vision)
  *
- * The CDN URL pattern is:
- *   http://d{N}.o2tv.org/{Show}/Season%20{SS}/{Show}%20-%20S{SS}E{EE}%20(TvShows4Mobile.Com)%20{suffix}.mp4
- *
- * The suffix is unpredictable (e.g., otv-w9l56), so we probe multiple candidates.
+ * NOTE on CDN suffix probing: the historical `d{N}.o2tv.org/.../otv-XXXXX.mp4`
+ * guessing path no longer resolves (every probe 404s as of 2026). The only
+ * working MP4 path is the image-captcha resolver in o2tvCaptchaResolver.js,
+ * which follows the real /download/{id} links and requires GROQ_API_KEY.
  */
 
 import * as cheerio from 'cheerio'
@@ -132,20 +132,8 @@ function normalize(str) {
   return String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim()
 }
 
-// ─── Simple deterministic hash → 5-char alphanumeric ───
-function simpleHash(str) {
-  let h = 0
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) - h + str.charCodeAt(i)) | 0
-  }
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
-  let result = ''
-  let v = Math.abs(h)
-  for (let i = 0; i < 5; i++) {
-    result += chars[v % chars.length]
-    v = Math.floor(v / chars.length)
-  }
-  return result
+function regexEscape(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 // ─── Build a CDN URL for a given show/season/episode/suffix ───
@@ -194,20 +182,20 @@ function generateSuffixCandidates(showSlug) {
   // 3. Try without any suffix
   candidates.push('')
 
-  // 4. 3-char systematic suffixes (first 730 = a-z + a0-z9)
+  // 4. 2-char systematic suffixes
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
   for (let i = 0; i < chars.length; i++) {
     for (let j = 0; j < chars.length; j++) {
       candidates.push(`otv-${chars[i]}${chars[j]}`)
-      if (candidates.length > 1000) break
+      if (candidates.length > 600) break
     }
-    if (candidates.length > 1000) break
+    if (candidates.length > 600) break
   }
 
   return candidates
 }
 
-// ─── Probe CDN for a working URL ───
+// ─── Probe CDN for a working URL (legacy; largely inert post-2026) ───
 async function probeCdnForEpisode(showName, seasonNum, epNum, showSlug, maxConcurrency = 20) {
   const cacheKey = `${showName}|S${String(seasonNum).padStart(2, '0')}E${String(epNum).padStart(2, '0')}`
 
@@ -240,6 +228,59 @@ async function probeCdnForEpisode(showName, seasonNum, epNum, showSlug, maxConcu
   return null
 }
 
+/**
+ * Direct show-page probe.
+ * The full catalog is ~625KB and can exceed the serverless (Vercel Hobby 10s)
+ * wall-clock on cold egress. For a typed show name (e.g. "silo") this tiny
+ * ~20KB probe of /{slug}/ is fast and reliable, so searchO2Tv runs it in
+ * parallel with the catalog — a valid show never returns zero results.
+ */
+async function probeShowPage(query) {
+  const qRaw = String(query || '').trim()
+  const guessSlug = qRaw
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+  if (!guessSlug || guessSlug.length < 2) return null
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 6000)
+    const res = await fetch(`${BASE_URL}/${guessSlug}/`, {
+      signal: controller.signal,
+      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' },
+      redirect: 'follow',
+    })
+    clearTimeout(timer)
+    const finalUrl = res.url || ''
+    const probe = await res.text()
+    const esc = regexEscape(guessSlug)
+    const slugInPath = new RegExp(`/${esc}/`, 'i').test(finalUrl)
+    const slugInHtml = new RegExp(esc, 'i').test(probe)
+    // A real show page has Season-N links, is not a 404, and didn't soft-redirect
+    // back to the master catalog list.
+    const isShowPage = slugInPath
+      && slugInHtml
+      && /Season-\d+/i.test(probe)
+      && !/404 Page Not Found/i.test(probe)
+      && !/list_all_tv_series/i.test(finalUrl)
+    if (isShowPage) {
+      return {
+        title: qRaw,
+        showSlug: guessSlug,
+        showName: qRaw,
+        url: `${BASE_URL}/${guessSlug}/index.html`,
+        source: 'o2tv',
+        matchScore: 95,
+        guessed: true,
+      }
+    }
+  } catch {
+    /* no guess */
+  }
+  return null
+}
+
 // ─── Search tvshows4mobile.org for a show ───
 export async function searchO2Tv(query, maxResults = 10) {
   const qRaw = String(query || '').trim()
@@ -248,27 +289,16 @@ export async function searchO2Tv(query, maxResults = 10) {
   if (!qNorm) return []
 
   try {
-    // Prefer full catalog (cached) — ?s= is Google CSE and unreliable server-side.
-    let catalog = []
-    try {
-      catalog = await getCatalogShows()
-    } catch (err) {
-      console.error('O2TV catalog fetch failed:', err.message)
-      catalog = []
-    }
-
-    // Fallback: homepage / search page if catalog empty
-    if (!catalog.length) {
-      for (const path of ['/', `/search/?s=${encodeURIComponent(qRaw)}`]) {
-        try {
-          const html = await fetchPage(`${BASE_URL}${path}`, TIMEOUT_MS)
-          catalog = parseCatalogHtml(html)
-          if (catalog.length) break
-        } catch (e) {
-          console.error('O2TV fallback search failed:', path, e.message)
-        }
-      }
-    }
+    // Run the (cached) catalog search and the fast direct show-page probe
+    // CONCURRENTLY. The probe guarantees an exact-name match returns even when
+    // the large catalog fetch is slow or times out on serverless.
+    const [catalog, probed] = await Promise.all([
+      getCatalogShows().catch((err) => {
+        console.error('O2TV catalog fetch failed:', err.message)
+        return []
+      }),
+      probeShowPage(qRaw),
+    ])
 
     const scored = []
     for (const show of catalog) {
@@ -301,53 +331,13 @@ export async function searchO2Tv(query, maxResults = 10) {
       })
     }
 
-    scored.sort((a, b) => b.matchScore - a.matchScore || a.title.localeCompare(b.title))
-
-    // Last resort: only if a guessed show page actually exists (avoid fake results).
-    // Invalid slugs soft-redirect to the homepage (still 200 + Season- links), so
-    // we require the show slug to appear in the HTML title / canonical path.
-    if (!scored.length && qNorm.length >= 3) {
-      const guessSlug = qRaw
-        .trim()
-        .replace(/[^\w\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '')
-      if (guessSlug && guessSlug.length >= 2) {
-        try {
-          const controller = new AbortController()
-          const timer = setTimeout(() => controller.abort(), 5000)
-          const res = await fetch(`${BASE_URL}/${guessSlug}/`, {
-            signal: controller.signal,
-            headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' },
-            redirect: 'follow',
-          })
-          clearTimeout(timer)
-          const finalUrl = res.url || ''
-          const probe = await res.text()
-          const slugInPath = new RegExp(`/${guessSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`, 'i').test(finalUrl)
-          const slugInHtml = new RegExp(guessSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(probe)
-          const isShowPage = slugInPath
-            && slugInHtml
-            && /Season-\d+/i.test(probe)
-            && !/404 Page Not Found/i.test(probe)
-            && !/list_all_tv_series/i.test(finalUrl)
-          if (isShowPage) {
-            scored.push({
-              title: qRaw,
-              showSlug: guessSlug,
-              showName: qRaw,
-              url: `${BASE_URL}/${guessSlug}/index.html`,
-              source: 'o2tv',
-              matchScore: 10,
-              guessed: true,
-            })
-          }
-        } catch {
-          /* no guess */
-        }
-      }
+    // Merge the direct probe result if the catalog didn't already surface it.
+    // This is what makes a query like "silo" resolve even on a catalog timeout.
+    if (probed && !scored.some((s) => normalize(s.showSlug) === normalize(probed.showSlug))) {
+      scored.push(probed)
     }
+
+    scored.sort((a, b) => b.matchScore - a.matchScore || a.title.localeCompare(b.title))
 
     return scored.slice(0, Math.max(1, Number(maxResults) || 10))
   } catch (err) {
@@ -422,8 +412,34 @@ export async function getO2TvEpisodes(showSlug, seasonNum) {
   }
 }
 
-// ─── Resolve a single episode to a direct CDN URL ───
+/**
+ * Resolve a single episode to a playable CDN URL.
+ * Order: captcha (the only working MP4 path — follows /download/{id}) first,
+ * then legacy CDN suffix probing as a no-GROQ fallback.
+ */
 export async function resolveO2TvEpisode(showName, showSlug, seasonNum, epNum) {
+  // 1. Captcha/download-page path first (requires GROQ_API_KEY)
+  try {
+    const captchaResults = await resolveO2TvEpisodeViaCaptcha(showSlug || showName, seasonNum, epNum)
+    if (captchaResults && captchaResults.length && captchaResults[0] && captchaResults[0].url) {
+      const r = captchaResults[0]
+      const s = String(seasonNum).padStart(2, '0')
+      const e = String(epNum).padStart(2, '0')
+      return {
+        title: r.title || `${showName} - S${s}E${e}`,
+        url: r.url,
+        link: r.link || r.url,
+        source: 'o2tv',
+        isDirect: true,
+        playableInRoom: r.playableInRoom !== false,
+        quality: r.quality || 'MP4',
+      }
+    }
+  } catch (err) {
+    console.error('O2TV captcha resolve failed:', err.message)
+  }
+
+  // 2. Legacy CDN suffix probing (inert post-2026, kept as a no-GROQ fallback)
   const result = await probeCdnForEpisode(showName, seasonNum, epNum, showSlug)
   if (result) {
     const s = String(seasonNum).padStart(2, '0')
@@ -461,103 +477,11 @@ export async function resolveO2TvShow(query, maxSeasons = 4, maxEpisodes = 10) {
       return await resolveO2TvByName(show.showName, show.showSlug, maxSeasons, maxEpisodes)
     }
 
-    // Step 3: Probe CDN for the first episode of the first season to warm cache
-    // Then verify each subsequent episode — suffixes are per-episode, not per-show
-    const firstSeason = seasons[0]
-    const firstEpResult = await probeCdnForEpisode(show.showName, firstSeason.number, 1, show.showSlug)
-
-    if (firstEpResult) {
-      // Use the first episode's suffix as a seed for others (same suffix sometimes works)
-      // but VERIFY each URL before marking it playable
-      const seedSuffix = firstEpResult.suffix
-      const results = []
-      const verifyQueue = []
-
-      for (const season of seasons.slice(0, maxSeasons)) {
-        const episodes = await getO2TvEpisodes(show.showSlug, season.number)
-        for (const ep of episodes.slice(0, maxEpisodes)) {
-          const s = String(season.number).padStart(2, '0')
-          const e = String(ep.number).padStart(2, '0')
-          const seedUrl = buildCdnUrl(CDN_HOSTS[0], show.showName, season.number, ep.number, seedSuffix)
-          const cacheKey = `${show.showName}|S${s}E${e}`
-          verifyQueue.push({ season, ep, s, e, seedUrl, cacheKey })
-        }
-      }
-
-      // Verify all seed URLs concurrently (20 at a time)
-      for (let i = 0; i < verifyQueue.length; i += 20) {
-        const batch = verifyQueue.slice(i, i + 20)
-        const checks = await Promise.all(batch.map(async (item) => {
-          const works = await probeUrl(item.seedUrl)
-          return { ...item, works }
-        }))
-
-        for (const item of checks) {
-          if (item.works) {
-            suffixCache.set(item.cacheKey, { suffix: seedSuffix, ts: Date.now() })
-            results.push({
-              title: `${show.showName} - S${item.s}E${item.e}`,
-              url: item.seedUrl,
-              link: item.seedUrl,
-              source: 'o2tv',
-              isDirect: true,
-              playableInRoom: true,
-              quality: 'HD',
-            })
-          } else {
-            // Seed suffix didn't work — probe this episode individually
-            const probed = await probeCdnForEpisode(show.showName, item.season.number, item.ep.number, show.showSlug)
-            if (probed) {
-              results.push({
-                title: `${show.showName} - S${item.s}E${item.e}`,
-                url: probed.url,
-                link: probed.url,
-                source: 'o2tv',
-                isDirect: true,
-                playableInRoom: true,
-                quality: 'HD',
-              })
-            } else {
-              // Try captcha-based resolution (Groq vision + download page)
-              try {
-                const captchaResults = await resolveO2TvEpisodeViaCaptcha(show.showSlug, item.season.number, item.ep.number)
-                if (captchaResults.length && captchaResults[0].playableInRoom) {
-                  results.push(captchaResults[0])
-                  continue // skip the fallback below
-                }
-              } catch (err) {
-                console.error('Captcha resolution failed for', item.cacheKey, err.message)
-              }
-              // Last resort: fallback URL (may 404 at playback)
-              const slugSuffix = show.showSlug.match(/-otv([a-z0-9]+)$/i)?.[1] || '1awrk'
-              const fallbackUrl = buildCdnUrl(CDN_HOSTS[0], show.showName, item.season.number, item.ep.number, `otv-${slugSuffix}`)
-              results.push({
-                title: `${show.showName} - S${item.s}E${item.e}`,
-                url: fallbackUrl,
-                link: fallbackUrl,
-                source: 'o2tv',
-                isDirect: true,
-                playableInRoom: false,
-                quality: 'HD',
-                probeFailed: true,
-              })
-            }
-          }
-        }
-      }
-
-      return results
-    }
-
-    // Step 4: If first-episode probe failed, probe each episode individually
     const results = []
-    const seasonsToProcess = seasons.slice(0, maxSeasons)
-
-    for (const season of seasonsToProcess) {
+    for (const season of seasons.slice(0, maxSeasons)) {
       const episodes = await getO2TvEpisodes(show.showSlug, season.number)
       const epsToProcess = episodes.slice(0, maxEpisodes)
 
-      // Probe concurrently within a season
       const resolved = await Promise.all(epsToProcess.map(async (ep) => {
         const result = await resolveO2TvEpisode(show.showName, show.showSlug, season.number, ep.number)
         if (!result) {
@@ -600,15 +524,6 @@ async function resolveO2TvByName(showName, slugHint, maxSeasons, maxEpisodes) {
       if (result) {
         results.push(result)
       } else {
-        // Try captcha-based resolution
-        try {
-          const captchaResults = await resolveO2TvEpisodeViaCaptcha(slugSuffix, season, ep)
-          if (captchaResults.length && captchaResults[0].playableInRoom) {
-            results.push(captchaResults[0])
-            continue
-          }
-        } catch { /* fallback */ }
-        
         const s = String(season).padStart(2, '0')
         const e = String(ep).padStart(2, '0')
         const suffix = slugSuffix.match(/otv([a-z0-9]+)$/i)?.[1] || '1awrk'
@@ -649,19 +564,19 @@ export async function probeAndFixO2TvUrl(originalUrl) {
     const epMatch = filename.match(/S\d+E(\d+)/i)
     const epNum = epMatch ? parseInt(epMatch[1], 10) : 1
 
-    const result = await probeCdnForEpisode(showName, seasonNum, epNum, '')
-    if (result) return result.url
-
-    // Try captcha-based resolution if probing fails
+    // Captcha resolution first (the only reliable path)
     try {
-      // Search for the show slug on tvshows4mobile
       const shows = await searchO2Tv(showName, 3)
       const match = shows.find(s => s.showName.toLowerCase() === showName.toLowerCase()) || shows[0]
       if (match) {
         const captchaResults = await resolveO2TvEpisodeViaCaptcha(match.showSlug, seasonNum, epNum)
         if (captchaResults.length && captchaResults[0].url) return captchaResults[0].url
       }
-    } catch { /* keep original */ }
+    } catch { /* keep trying */ }
+
+    // Legacy CDN probe fallback
+    const result = await probeCdnForEpisode(showName, seasonNum, epNum, '')
+    if (result) return result.url
 
     return originalUrl
   } catch {
