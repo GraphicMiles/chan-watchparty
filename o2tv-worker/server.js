@@ -16,6 +16,7 @@
 
 import http from 'node:http'
 import { resolveO2TvEpisodeViaCaptcha } from './o2tvCaptchaResolver.js'
+import { searchNkiri, getNkiriEpisodes, resolveDownloadwellaPage } from './nkiriResolver.js'
 
 const PORT = Number(process.env.PORT) || 3001
 const WORKER_SECRET = process.env.WORKER_SECRET
@@ -143,6 +144,78 @@ const server = http.createServer(async (req, res) => {
         elapsedMs: elapsed,
         error: err.message,
       })
+    }
+  }
+
+  // ─── Nkiri endpoints ──────────────────────────────────────────────
+  // Search thenkiri.com for a show → [{ title, url }]
+  if (req.method === 'POST' && req.url === '/nkiri-search') {
+    if (!authorized(req)) return send(res, 401, { error: 'Unauthorized' })
+    let body
+    try { body = await readJson(req) } catch (e) { return send(res, 400, { error: e.message }) }
+    const query = String(body.query || '').trim()
+    if (!query) return send(res, 400, { error: 'query is required' })
+    const t0 = Date.now()
+    console.log(`[nkiri-search] "${query}"`)
+    try {
+      const shows = await withDeadline(searchNkiri(query), MAX_RESOLVE_MS, 'searchNkiri')
+      console.log(`[nkiri-search] "${query}" -> ${shows.length} (${Date.now() - t0}ms)`)
+      return send(res, 200, { success: true, elapsedMs: Date.now() - t0, results: shows })
+    } catch (err) {
+      console.error(`[nkiri-search] "${query}" failed:`, err.message)
+      return send(res, 200, { success: false, elapsedMs: Date.now() - t0, results: [], error: err.message })
+    }
+  }
+
+  // List downloadwella episode links for a Nkiri show page → [{ url, title, container }]
+  if (req.method === 'POST' && req.url === '/nkiri-episodes') {
+    if (!authorized(req)) return send(res, 401, { error: 'Unauthorized' })
+    let body
+    try { body = await readJson(req) } catch (e) { return send(res, 400, { error: e.message }) }
+    const showUrl = String(body.showUrl || body.url || '').trim()
+    if (!showUrl) return send(res, 400, { error: 'showUrl is required' })
+    const t0 = Date.now()
+    console.log(`[nkiri-episodes] ${showUrl}`)
+    try {
+      const episodes = await withDeadline(getNkiriEpisodes(showUrl), MAX_RESOLVE_MS, 'getNkiriEpisodes')
+      console.log(`[nkiri-episodes] ${showUrl} -> ${episodes.length} (${Date.now() - t0}ms)`)
+      return send(res, 200, { success: true, elapsedMs: Date.now() - t0, results: episodes })
+    } catch (err) {
+      console.error(`[nkiri-episodes] ${showUrl} failed:`, err.message)
+      return send(res, 200, { success: false, elapsedMs: Date.now() - t0, results: [], error: err.message })
+    }
+  }
+
+  // Resolve a downloadwella episode page → direct CDN MKV URL (form-walk).
+  // No 10s cap, so the multi-step "Create download link" form always completes.
+  if (req.method === 'POST' && req.url === '/nkiri-resolve') {
+    if (!authorized(req)) return send(res, 401, { error: 'Unauthorized' })
+    let body
+    try { body = await readJson(req) } catch (e) { return send(res, 400, { error: e.message }) }
+    const episodeUrl = String(body.episodeUrl || body.url || '').trim()
+    if (!episodeUrl) return send(res, 400, { error: 'episodeUrl is required' })
+    const t0 = Date.now()
+    console.log(`[nkiri-resolve] ${episodeUrl}`)
+    try {
+      const resolved = await withDeadline(resolveDownloadwellaPage(episodeUrl), MAX_RESOLVE_MS, 'resolveDownloadwellaPage')
+      const elapsed = Date.now() - t0
+      if (resolved.directUrls && resolved.directUrls.length) {
+        const url = resolved.directUrls[0]
+        console.log(`[nkiri-resolve] ✅ ${episodeUrl.slice(0, 70)} -> ${url.slice(0, 80)} (${elapsed}ms)`)
+        const container = /\.mkv(\?|#|$)/i.test(url) ? 'mkv' : (/\.mp4(\?|#|$)/i.test(url) ? 'mp4' : 'unknown')
+        return send(res, 200, {
+          success: true, resolved: true, elapsedMs: elapsed,
+          result: { url, link: url, container, isDirect: true, playableInRoom: true, source: 'downloadwella' },
+        })
+      }
+      console.log(`[nkiri-resolve] ❌ ${episodeUrl.slice(0, 70)} no URL (${elapsed}ms): ${resolved.error || ''}`)
+      return send(res, 200, {
+        success: false, resolved: false, elapsedMs: elapsed,
+        error: resolved.error || 'Could not resolve this episode. Try another quality (prefer MP4).',
+      })
+    } catch (err) {
+      console.error(`[nkiri-resolve] ❌ ${episodeUrl.slice(0, 70)} error (${Date.now() - t0}ms):`, err.message)
+      return send(res, 200, { success: false, resolved: false, elapsedMs: Date.now() - t0, error: err.message })
     }
   }
 
