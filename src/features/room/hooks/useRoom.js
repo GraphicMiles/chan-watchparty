@@ -183,6 +183,7 @@ export function useRoom(roomId, inviteCode = null) {
     // This is defense-in-depth in case text is ever rendered in non-JSX context.
     const sanitized = text.trim()
       .replace(/<[^>]*>/g, '')                              // strip HTML tags
+      // eslint-disable-next-line no-control-regex -- intentional: we STRIP control chars
       .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')   // strip control chars (keep \n, \t, \r)
       .replace(/\u200B|\uFEFF/g, '')                        // strip zero-width spaces / BOM
       .replace(/[ \t]+/g, ' ')                              // collapse whitespace

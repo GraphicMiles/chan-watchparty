@@ -22,34 +22,6 @@ export default function QueuePanel({ roomId, room, user, isHost, canControl, onP
     return unsub
   }, [roomId])
 
-  const handleSearch = useCallback(async (e) => {
-    e?.preventDefault()
-    if (!searchQuery.trim()) {
-      toast('Enter keywords or paste a video link', { variant: 'warning' })
-      return
-    }
-
-    const trimmed = searchQuery.trim()
-    if (isDirectVideoUrl(trimmed)) {
-      const normalized = normalizePlaybackUrl(trimmed)
-      const title = normalized.split('/').pop()?.replace(/\.(mp4|m3u8|mkv|avi|mov|webm|ogg|flv)$/i, '') || 'Direct Video'
-      await addToQueue({
-        title,
-        videoUrl: normalized,
-        videoType: 'direct',
-        thumbnail: '',
-      })
-      setSearchQuery('')
-      return
-    }
-
-    await search({
-      layer: activeTab,
-      query: trimmed,
-      options: { resolve: activeTab === 'direct' },
-    })
-  }, [searchQuery, activeTab, search, toast])
-
   const [expandedSeasons, setExpandedSeasons] = useState({}) // { seasonUrl: episodes[] }
   const [loadingEpisodes, setLoadingEpisodes] = useState({}) // { seasonUrl: boolean }
 
@@ -137,7 +109,37 @@ export default function QueuePanel({ roomId, room, user, isHost, canControl, onP
     } catch (err) {
       toast(err.message || 'Could not add to queue', { variant: 'error' })
     }
-  }, [queue.length, activeTab, user, roomId, toast])
+  }, [queue.length, activeTab, user, roomId, toast, fetchEpisodes])
+
+  // Declared AFTER addToQueue/fetchEpisodes so it closes over already-defined
+  // callbacks — fixes 'used before defined' + makes the dependency array exhaustive.
+  const handleSearch = useCallback(async (e) => {
+    e?.preventDefault()
+    if (!searchQuery.trim()) {
+      toast('Enter keywords or paste a video link', { variant: 'warning' })
+      return
+    }
+
+    const trimmed = searchQuery.trim()
+    if (isDirectVideoUrl(trimmed)) {
+      const normalized = normalizePlaybackUrl(trimmed)
+      const title = normalized.split('/').pop()?.replace(/\.(mp4|m3u8|mkv|avi|mov|webm|ogg|flv)$/i, '') || 'Direct Video'
+      await addToQueue({
+        title,
+        videoUrl: normalized,
+        videoType: 'direct',
+        thumbnail: '',
+      })
+      setSearchQuery('')
+      return
+    }
+
+    await search({
+      layer: activeTab,
+      query: trimmed,
+      options: { resolve: activeTab === 'direct' },
+    })
+  }, [searchQuery, activeTab, search, toast, addToQueue])
 
   const removeFromQueue = useCallback(async (item) => {
     if (!canControl && item.addedByUid !== user?.uid) {

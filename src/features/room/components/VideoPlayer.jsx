@@ -298,38 +298,6 @@ export default function VideoPlayer({
     )
   }, [aiUpscaleMode, toast])
 
-  const handleAiSubtitlesToggle = useCallback(async (e) => {
-    e?.stopPropagation()
-    if (subtitleBlobUrl) {
-      setSubtitlesEnabled((prev) => !prev)
-      toast(subtitlesEnabled ? 'AI Scene Descriptions turned OFF' : 'AI Scene Descriptions turned ON', { variant: 'info' })
-      return
-    }
-    if (!user || !roomId) {
-      toast('Sign in to generate AI closed captions for this room', { variant: 'warning' })
-      return
-    }
-    try {
-      setSubtitlesLoading(true)
-      const token = await user.getIdToken()
-      const res = await fetch('/api/room', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'subtitles', roomId, uid: user.uid, currentTimeSec: Math.floor(currentTime()) }),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to generate AI subtitles')
-      }
-      setSubtitlesEnabled(true)
-      toast('AI subtitles generated — scene descriptions & sound cues based on room context', { variant: 'success' })
-    } catch (err) {
-      toast(err.message || 'Could not generate subtitles', { variant: 'error' })
-    } finally {
-      setSubtitlesLoading(false)
-    }
-  }, [subtitleBlobUrl, subtitlesEnabled, user, roomId, toast])
-
   const handleBrightnessCycle = useCallback((e) => {
     e.stopPropagation()
     setBrightnessMultiplier((prev) => {
@@ -414,6 +382,39 @@ export default function VideoPlayer({
     }
     return false
   }, [videoType, isLive, isHls, durationSec])
+
+  // Declared after currentTime() so the dependency is safe (was 'used before defined').
+  const handleAiSubtitlesToggle = useCallback(async (e) => {
+    e?.stopPropagation()
+    if (subtitleBlobUrl) {
+      setSubtitlesEnabled((prev) => !prev)
+      toast(subtitlesEnabled ? 'AI Scene Descriptions turned OFF' : 'AI Scene Descriptions turned ON', { variant: 'info' })
+      return
+    }
+    if (!user || !roomId) {
+      toast('Sign in to generate AI closed captions for this room', { variant: 'warning' })
+      return
+    }
+    try {
+      setSubtitlesLoading(true)
+      const token = await user.getIdToken()
+      const res = await fetch('/api/room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'subtitles', roomId, uid: user.uid, currentTimeSec: Math.floor(currentTime()) }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to generate AI subtitles')
+      }
+      setSubtitlesEnabled(true)
+      toast('AI subtitles generated — scene descriptions & sound cues based on room context', { variant: 'success' })
+    } catch (err) {
+      toast(err.message || 'Could not generate subtitles', { variant: 'error' })
+    } finally {
+      setSubtitlesLoading(false)
+    }
+  }, [subtitleBlobUrl, subtitlesEnabled, user, roomId, toast, currentTime])
 
   const adapter = useMemo(() => ({
     getCurrentTime: () => currentTime(),
@@ -1174,14 +1175,6 @@ export default function VideoPlayer({
                 src={subtitleBlobUrl}
                 srcLang="en"
                 default={subtitlesEnabled}
-                onLoad={() => {
-                  const tracks = videoRef.current?.textTracks || []
-                  for (let i = 0; i < tracks.length; i++) {
-                    if (tracks[i].kind === 'subtitles') {
-                      tracks[i].mode = subtitlesEnabled ? 'showing' : 'hidden'
-                    }
-                  }
-                }}
               />
             )}
           </video>
