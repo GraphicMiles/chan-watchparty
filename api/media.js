@@ -891,6 +891,11 @@ async function searchDirectLinks(query, options = {}) {
   // Do NOT invent fake show slugs here — searchO2Tv already probes guesses.
   // Returning bogus /Show/ links breaks Create Room season loading.
 
+  // ALSO search Nkiri (thenkiri.com) via the worker — it is NOT IP-blocked
+  // like tvshows4mobile, so it returns results even when O2TV is throttled.
+  // The "direct" layer now shows O2TV + Nkiri combined.
+  const nkiriResults = await nkiriSearchViaWorker(baseQ).catch(() => null)
+
   let results = shows.slice(0, limit).map((s) => {
     const showName = String(s.showName || s.title || baseQ).trim() || baseQ
     const showSlug = String(s.showSlug || '').trim()
@@ -926,6 +931,30 @@ async function searchDirectLinks(query, options = {}) {
     console.error('OMDb enrich (o2tv) failed:', err.message)
   }
 
+  // Merge Nkiri results (from the worker) into the O2TV results. Nkiri links
+  // are thenkiri.com show pages — they get resolved via the scrape action
+  // (which delegates to the worker's /nkiri-resolve too).
+  const searchedSites = ['o2tv']
+  if (nkiriResults && nkiriResults.length) {
+    searchedSites.push('nkiri')
+    const nkiriItems = nkiriResults.slice(0, limit).map((s) => ({
+      title: String(s.title || 'Untitled').slice(0, 150),
+      url: s.url,
+      link: s.url,
+      thumbnail: s.thumbnail || null,
+      image: s.thumbnail || null,
+      source: 'nkiri',
+      type: 'direct',
+      isDirect: false,
+      playableInRoom: false,
+      requiresResolve: true,
+      quality: 'HD',
+      videoType: 'direct',
+      meta: 'Nkiri — open to load episodes',
+    })).filter((r) => r.url)
+    results = [...results, ...nkiriItems]
+  }
+
   results = results.map((r) => ({
     ...r,
     title: String(r.title || r.showName || baseQ),
@@ -941,7 +970,7 @@ async function searchDirectLinks(query, options = {}) {
   return {
     results,
     hasMore: false,
-    searchedSites: ['o2tv'],
+    searchedSites,
     multiLayerCascaded: false,
     error: results.length ? undefined : (searchError || undefined),
   }
@@ -1742,6 +1771,39 @@ async function resolveDownloadwellaViaWorker(episodeUrl) {
   } catch (err) {
     clearTimeout(timer)
     console.error('downloadwella worker call failed (falling back to in-process):', err.message)
+    return null
+  }
+}
+
+/**
+ * Offload Nkiri search (thenkiri.com) to the worker. thenkiri.com is NOT
+ * IP-blocked like tvshows4mobile, so this returns results even when O2TV is
+ * down. The worker's /nkiri-search endpoint is proven to work live.
+ *
+ * @param {string} query
+ * @returns {Promise<Array<{title,url,thumbnail}>|null>} null = worker absent/failed
+ */
+async function nkiriSearchViaWorker(query) {
+  if (!O2TV_WORKER_URL) return null
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 7000)
+  try {
+    const res = await fetch(`${O2TV_WORKER_URL.replace(/\/$/, '')}/nkiri-search`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(O2TV_WORKER_SECRET ? { 'X-Worker-Secret': O2TV_WORKER_SECRET } : {}),
+      },
+      body: JSON.stringify({ query }),
+    })
+    clearTimeout(timer)
+    if (!res.ok) return null
+    const data = await res.json()
+    return (data && data.success && Array.isArray(data.results)) ? data.results : []
+  } catch (err) {
+    clearTimeout(timer)
+    console.error('nkiri search via worker failed:', err.message)
     return null
   }
 }

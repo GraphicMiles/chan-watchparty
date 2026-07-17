@@ -158,6 +158,12 @@ function stripLeadingArticle(words) {
   return words
 }
 
+// Remove ALL articles (the/a/an) from a word list — so "House of the Dragon"
+// aligns with "house of dragon" (the user drops the middle "the").
+function withoutArticles(words) {
+  return (Array.isArray(words) ? words : []).filter((w) => !/^(the|a|an)$/.test(w))
+}
+
 // Normalize a show slug for matching: drop the Download- prefix, the -otv{XXX}
 // suffix, and any trailing standalone version/season-count number (-8, -9).
 function normalizeSlug(slug) {
@@ -206,13 +212,17 @@ function scoreShowMatch(queryRaw, showName, showSlug) {
   // 90: concatenated startsWith (catches compound/spacing quirks)
   if (titleNorm.startsWith(qNorm) || slugNorm.startsWith(qNorm)) return 90
 
-  // 85: query is a contiguous run of words INSIDE the title (same order)
-  //   ("walking dead" inside "Fear the Walking Dead" -> "...walking dead...")
-  if (qJoined && (tJoined.includes(qJoined) || sJoined.includes(qJoined))) {
-    // Penalize titles with MORE words than the query — likely a spinoff/sequel.
-    // Fewer extra words = closer to the main show.
-    const extra = Math.max(tWords.length, sWords.length) - qWords.length
-    return Math.max(70, 85 - extra * 4)   // 1 extra -> 81, 2 -> 77, 3 -> 73...
+  // 85: query is a contiguous run of words INSIDE the title (same order),
+  // article-insensitive (so "house of dragon" matches "House of the Dragon").
+  if (qJoined) {
+    const qNoArticles = withoutArticles(qWords).join(' ')
+    const tNoArticles = withoutArticles(tWords).join(' ')
+    const sNoArticles = withoutArticles(sWords).join(' ')
+    if (qNoArticles && (tNoArticles.includes(qNoArticles) || sNoArticles.includes(qNoArticles)
+      || tJoined.includes(qJoined) || sJoined.includes(qJoined))) {
+      const extra = Math.max(tWords.length, sWords.length) - qWords.length
+      return Math.max(70, 85 - extra * 4)
+    }
   }
 
   // 80: concatenated includes (fallback)
