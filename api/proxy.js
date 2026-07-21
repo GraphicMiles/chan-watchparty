@@ -821,13 +821,13 @@ export default async function handler(req, res) {
           console.error('MKV codec probe error:', probeErr.message)
         }
         const isHevc = videoCodec && /HEVC|H\.265|V_MPEGH/i.test(videoCodec)
-        if (isHevc) {
-          console.log('Proxy: HEVC MKV — passthrough', hostname, videoCodec)
-          const refetch = await fetchUpstream(targetUrl.href, requestHeaders, UPSTREAM_CONNECT_MS)
-          if (!refetch.ok && refetch.status !== 206) {
-            return fail(res, refetch.status, `Upstream returned HTTP ${refetch.status}`)
-          }
-          return streamDirectResponse(refetch, req, res, { window })
+        const isVp9 = videoCodec && /V_VP9/i.test(videoCodec)
+        const isAv1 = videoCodec && /V_AV1/i.test(videoCodec)
+        // HEVC/VP9/AV1 are now remuxed by the improved VLC-compatible mkvRemux engine.
+        // Only fall through to passthrough for truly unsupported codecs.
+        if (isHevc || isVp9 || isAv1) {
+          console.log('Proxy: ' + (isHevc ? 'HEVC' : isVp9 ? 'VP9' : 'AV1') + ' MKV — remuxing (VLC-compatible)', hostname, videoCodec)
+          // Continue to remux path below — do NOT return early
         }
 
         res.setHeader('Content-Type', 'video/mp4')

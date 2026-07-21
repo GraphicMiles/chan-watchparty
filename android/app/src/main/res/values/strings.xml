@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Chan</string>
+    <string name="title_activity_main">Chan</string>
+    <string name="package_name">com.chan.watchparty</string>
+    <string name="custom_url_scheme">com.chan.watchparty</string>
+</resources>

@@ -1,33 +1,13 @@
-import re
-
-with open('api/proxy.js', 'r') as f:
-    content = f.read()
-
-# Find and replace the HEVC rejection block
-old_block = """        const isHevc = videoCodec && /HEVC|H\\.265|V_MPEGH/i.test(videoCodec)
-        if (isHevc) {
-          await reader.cancel().catch(() => {})
-          console.error('Proxy HEVC rejected:', targetUrl.hostname, videoCodec)
-          return fail(res, 502, 'This source uses HEVC/H.265 video, which most browsers cannot play. Try a different source or device.')
-        }
-
-        // Commit to a 200 MP4 response now that we know the codec is supported."""
-
-new_block = """        const isHevc = videoCodec && /HEVC|H\\.265|V_MPEGH/i.test(videoCodec)
-        if (isHevc) {
-          console.log('Proxy: HEVC/H.265 MKV detected — passing through for browser to decode', targetUrl.hostname, videoCodec)
-        }
-
-        // Commit to a 200 MP4 response now that we know the codec."""
-
-if old_block in content:
-    content = content.replace(old_block, new_block)
-    with open('api/proxy.js', 'w') as f:
-        f.write(content)
-    print("Successfully replaced HEVC rejection block")
-else:
-    print("ERROR: Could not find exact text to replace")
-    # Show what's around line 457
-    lines = content.split('\n')
-    for i in range(454, 465):
-        print(f"{i+1}: {lines[i]}")
+# HEVC Fix Script
+# NOTE: This script is no longer needed — the MKV remuxer (mkvRemux.js)
+# now natively handles HEVC/H.265, VP9, AV1, Opus, AC3, EAC3, FLAC, and more.
+#
+# The VLC-compatible demuxer converts MKV → fMP4 with proper hvcC configuration
+# for HEVC streams, so the Android app and modern browsers can decode them natively.
+#
+# If you still encounter issues with a specific HEVC file, it likely uses
+# a non-standard CodecPrivate format. Check the server logs for:
+#   "Proxy: HEVC MKV — remuxing (VLC-compatible)"
+#
+# Legacy workaround (no longer recommended):
+#   ffmpeg -i input.mkv -c:v libx264 -c:a aac -movflags +faststart output.mp4

@@ -1107,9 +1107,9 @@ export default function VideoPlayer({
           {isMixedContent
             ? 'This video server only provides HTTP. HTTPS deployments cannot load it in the browser. Use an HTTPS stream or another source.'
             : isHevcError
-              ? 'This video uses HEVC/H.265 encoding. Chrome cannot decode HEVC in most builds. Pick an MP4/H.264 (x264) quality from Nkiri if available.'
+              ? 'This video uses HEVC/H.265 encoding. Your browser may not support HEVC decoding natively. Try a different source with H.264/AVC encoding, or use the app on Android where HEVC hardware decoding is available.'
               : isMkvError
-                ? 'Chrome does not play MKV (Matroska) natively. We remux small MKVs to fMP4 on the server, but large files exceed Vercel Hobby (10s). Prefer an MP4 link, or use Safari (sometimes) / download + VLC.'
+                ? 'We remux MKV to fMP4 for browser playback (like VLC does). If playback fails, the file may use an unsupported codec. Try an MP4 link or another source.'
                 : error}
         </p>
         {!isHevcError && (
