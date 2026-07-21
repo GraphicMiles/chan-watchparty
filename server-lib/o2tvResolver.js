@@ -19,8 +19,10 @@ const BASE_URL = 'https://tvshows4mobile.org'
 const CDN_HOSTS = ['d6', 'd2', 'd4', 'd8', 'd1']
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 const TIMEOUT_MS = 8000
-// Full catalog page is ~600KB+; allow more time on cold Vercel / slow egress.
-const LIST_TIMEOUT_MS = 14000
+// Full catalog page is ~600KB+; must settle BEFORE the outer 8s race in
+// searchDirectLinks, otherwise the fast probeShowPage result gets held hostage
+// by Promise.all waiting on the slow catalog → 0 results for the user.
+const LIST_TIMEOUT_MS = 6500
 
 // ─── In-memory CDN suffix cache: showKey → { suffix, ts } ───
 const suffixCache = captchaSuffixCache  // Shared with o2tvCaptchaResolver
@@ -395,13 +397,34 @@ export async function searchO2Tv(query, maxResults = 10) {
     // Run the (cached) catalog search and the fast direct show-page probe
     // CONCURRENTLY. The probe guarantees an exact-name match returns even when
     // the large catalog fetch is slow or times out on serverless.
-    const [catalog, probed] = await Promise.all([
-      getCatalogShows().catch((err) => {
-        console.error('O2TV catalog fetch failed:', err.message)
-        return []
-      }),
-      probeShowPage(qRaw),
+    //
+    // CRITICAL: Do NOT use Promise.all here — if the catalog is slow (6s+) but
+    // the probe is fast (<1s), Promise.all holds the probe hostage until the
+    // catalog settles. Instead, race them: use whichever resolves first, then
+    // merge the other if it arrives within a short grace period.
+    const catalogPromise = getCatalogShows().catch((err) => {
+      console.error('O2TV catalog fetch failed:', err.message)
+      return []
+    })
+    const probePromise = probeShowPage(qRaw)
+
+    // Wait up to 2s for the probe (it should be fast — small page fetch)
+    const probed = await Promise.race([
+      probePromise,
+      new Promise((resolve) => setTimeout(() => resolve(null), 2000)),
     ])
+
+    // Score whatever catalog results we have so far (may still be pending)
+    let catalog = []
+    try {
+      // Give the catalog a short grace period if it hasn't resolved yet
+      catalog = await Promise.race([
+        catalogPromise,
+        new Promise((resolve) => setTimeout(() => resolve([]), 3000)),
+      ])
+    } catch {
+      catalog = []
+    }
 
     const scored = []
     for (const show of catalog) {
@@ -421,6 +444,28 @@ export async function searchO2Tv(query, maxResults = 10) {
     // This is what makes a query like "silo" resolve even on a catalog timeout.
     if (probed && !scored.some((s) => normalize(s.showSlug) === normalize(probed.showSlug))) {
       scored.push(probed)
+    }
+
+    // If catalog was still pending and we have zero results, wait a bit more
+    if (scored.length === 0) {
+      try {
+        const lateCatalog = await Promise.race([
+          catalogPromise,
+          new Promise((resolve) => setTimeout(() => resolve([]), 2000)),
+        ])
+        for (const show of lateCatalog) {
+          const matchScore = scoreShowMatch(qRaw, show.showName || show.title, show.showSlug)
+          if (matchScore <= 0) continue
+          scored.push({
+            title: show.showName || show.title,
+            showSlug: show.showSlug,
+            showName: show.showName || show.title,
+            url: show.url || `${BASE_URL}/${show.showSlug}/index.html`,
+            source: 'o2tv',
+            matchScore,
+          })
+        }
+      } catch { /* */ }
     }
 
     scored.sort((a, b) => b.matchScore - a.matchScore || a.title.localeCompare(b.title))

@@ -958,13 +958,14 @@ async function searchDirectLinks(query, options = {}) {
   results = results.map((r) => ({
     ...r,
     title: String(r.title || r.showName || baseQ),
-    source: 'o2tv',
-    o2tvKind: 'show',
-    showSlug: r.showSlug,
+    // Preserve original source — nkiri items keep 'nkiri', o2tv items keep 'o2tv'
+    source: r.source || 'o2tv',
+    o2tvKind: r.source === 'nkiri' ? undefined : 'show',
+    showSlug: r.showSlug || '',
     showName: r.showName || r.title,
-    isDirect: false,
-    playableInRoom: false,
-    requiresResolve: true,
+    isDirect: r.isDirect ?? false,
+    playableInRoom: r.playableInRoom ?? false,
+    requiresResolve: r.requiresResolve ?? true,
   }))
 
   return {
