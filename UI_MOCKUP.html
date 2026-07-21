@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chan — Media Page</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #14130F;
+    --surface: #1D1B16;
+    --surface-2: #26231C;
+    --surface-3: #2E2A20;
+    --line: #38352B;
+    --text: #F2EFE6;
+    --text-dim: #A8A296;
+    --text-faint: #6E695C;
+    --lime: #C6FF33;
+    --lime-glow: rgba(198,255,51,0.18);
+    --purple: #7D39EB;
+    --purple-soft: #B79CF2;
+    --purple-glow: rgba(125,57,235,0.18);
+    --danger: #FF5C3E;
+    --danger-glow: rgba(255,92,62,0.14);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { background: #0A0908; color: var(--text); font-family: 'Inter', sans-serif; line-height: 1.5; min-height: 100vh; }
+
+  /* ─── Buttons ─── */
+  .btn { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; font-weight: 600; padding: 10px 18px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; transition: box-shadow .15s, border-color .15s, color .15s; white-space: nowrap; }
+  .btn-lime { background: var(--lime); color: #14130F; }
+  .btn-lime:hover { box-shadow: 0 0 0 4px var(--lime-glow); }
+  .btn-light { background: var(--text); color: var(--bg); }
+  .btn-outline { background: transparent; border-color: var(--line); color: var(--text-dim); }
+  .btn-outline:hover { border-color: var(--text-faint); color: var(--text); }
+  .btn-ghost { background: transparent; border-color: transparent; color: var(--text-faint); padding-left: 4px; padding-right: 4px; }
+  .btn-sm { padding: 7px 12px; font-size: 9px; }
+  .btn-block { width: 100%; justify-content: center; }
+
+  /* ─── Badges ─── */
+  .badge { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 3px 9px; border-radius: 20px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid transparent; }
+  .badge-lime { background: rgba(198,255,51,0.10); color: var(--lime); border-color: rgba(198,255,51,0.3); }
+  .badge-purple { background: var(--purple-glow); color: var(--purple-soft); border-color: rgba(125,57,235,0.4); }
+  .badge-faint { background: var(--surface-2); color: var(--text-faint); border-color: var(--line); }
+  .badge-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .badge-pulse .badge-dot { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+  /* ─── Cards ─── */
+  .card { background: var(--surface); border: 1px solid var(--line); padding: 16px; border-radius: 8px; transition: border-color .15s, transform .15s; cursor: pointer; position: relative; }
+  .card:hover { border-color: var(--text-faint); transform: translateY(-1px); }
+
+  /* ─── Layout ─── */
+  .app { display: flex; min-height: 100vh; }
+  .sidebar { width: 220px; background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar-brand { padding: 16px; border-bottom: 1px solid var(--line); font-family: 'Space Grotesk'; font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; color: var(--text); }
+  .sidebar-brand .dot { width: 10px; height: 10px; background: var(--lime); border-radius: 3px; }
+  .sidebar nav { flex: 1; padding: 10px 6px; display: flex; flex-direction: column; gap: 1px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 6px; font-size: 13px; color: var(--text-dim); cursor: pointer; border-left: 2px solid transparent; transition: all .15s; }
+  .nav-item:hover { background: var(--surface-2); color: var(--text); }
+  .nav-item.active { background: var(--lime-glow); color: var(--text); border-left-color: var(--lime); font-weight: 500; }
+  .sidebar-foot { padding: 12px; border-top: 1px solid var(--line); font-family: 'IBM Plex Mono'; font-size: 10px; color: var(--text-faint); }
+
+  .main { flex: 1; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
+  .top-bar { padding: 12px 24px; border-bottom: 1px solid var(--line); background: var(--surface); display: flex; align-items: center; justify-content: space-between; }
+  .top-bar-title { font-family: 'Space Grotesk'; font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 10px; }
+
+  .content { flex: 1; overflow-y: auto; padding: 28px; }
+
+  /* ─── Section Labels ─── */
+  .section-label { display: flex; align-items: baseline; gap: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .section-label .num { color: var(--lime); }
+
+  /* ─── Media Type Selector ─── */
+  .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 32px; }
+  .media-card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 20px 16px; text-align: center; cursor: pointer; transition: all .15s; }
+  .media-card:hover { border-color: var(--text-faint); transform: translateY(-2px); }
+  .media-card.active { border-color: var(--lime); background: var(--lime-glow); }
+  .media-card .icon { font-size: 28px; margin-bottom: 8px; }
+  .media-card .title { font-family: 'Space Grotesk'; font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+  .media-card .desc { font-family: 'IBM Plex Mono'; font-size: 9px; color: var(--text-faint); letter-spacing: 0.5px; }
+
+  /* ─── Search ─── */
+  .search-bar { display: flex; gap: 8px; margin-bottom: 28px; }
+  .search-input { flex: 1; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; color: var(--text); font-family: 'Inter'; font-size: 14px; outline: none; transition: border-color .15s; }
+  .search-input:focus { border-color: var(--lime); }
+  .search-input::placeholder { color: var(--text-faint); }
+
+  /* ─── Seasons Grid ─── */
+  .seasons-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .season-card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 20px; cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 14px; }
+  .season-card:hover { border-color: var(--lime); transform: translateY(-2px); box-shadow: 0 0 0 3px var(--lime-glow); }
+  .season-poster { width: 52px; height: 72px; background: var(--surface-3); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-family: 'Space Grotesk'; font-weight: 700; font-size: 18px; color: var(--lime); flex-shrink: 0; }
+  .season-info { min-width: 0; }
+  .season-title { font-family: 'Space Grotesk'; font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+  .season-meta { font-family: 'IBM Plex Mono'; font-size: 10px; color: var(--text-faint); }
+
+  /* ─── Modal ─── */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(10,9,8,0.85); backdrop-filter: blur(12px); display: none; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; width: 90%; max-width: 860px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 32px 64px rgba(0,0,0,0.6); }
+  .modal-header { padding: 18px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .modal-title { font-family: 'Space Grotesk'; font-weight: 700; font-size: 18px; display: flex; align-items: center; gap: 10px; }
+  .modal-close { width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text-faint); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; }
+  .modal-close:hover { border-color: var(--danger); color: var(--danger); }
+  .modal-body { padding: 24px; overflow-y: auto; flex: 1; }
+
+  /* ─── Episodes Grid (4x4 flex wrap) ─── */
+  .episodes-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+  .episode-card { width: calc(25% - 9px); min-width: 160px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; cursor: pointer; transition: all .15s; }
+  .episode-card:hover { border-color: var(--lime); transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+  .episode-thumb { aspect-ratio: 16/9; background: linear-gradient(135deg, var(--surface-2), var(--surface-3)); display: flex; align-items: center; justify-content: center; position: relative; }
+  .episode-thumb .play-icon { width: 36px; height: 36px; background: rgba(198,255,51,0.15); border: 1px solid rgba(198,255,51,0.4); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; transition: all .15s; }
+  .episode-card:hover .play-icon { background: var(--lime); color: var(--bg); transform: scale(1.1); }
+  .episode-thumb .ep-num { position: absolute; top: 8px; left: 8px; font-family: 'IBM Plex Mono'; font-size: 9px; background: rgba(20,19,15,0.8); padding: 2px 6px; border-radius: 4px; color: var(--text-dim); letter-spacing: 1px; }
+  .episode-thumb .ep-dur { position: absolute; bottom: 8px; right: 8px; font-family: 'IBM Plex Mono'; font-size: 9px; background: rgba(20,19,15,0.8); padding: 2px 6px; border-radius: 4px; color: var(--text-dim); }
+  .episode-info { padding: 12px; }
+  .episode-title { font-family: 'Space Grotesk'; font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+  .episode-meta { font-family: 'IBM Plex Mono'; font-size: 10px; color: var(--text-faint); }
+
+  /* ─── Create Room Section ─── */
+  .create-room { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 24px; margin-top: 28px; }
+  .room-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .room-title { font-family: 'Space Grotesk'; font-weight: 700; font-size: 16px; }
+  .video-summary { display: flex; gap: 20px; margin-bottom: 20px; }
+  .video-poster { width: 140px; height: 200px; background: linear-gradient(135deg, var(--surface-2), var(--surface-3)); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 36px; flex-shrink: 0; border: 1px solid var(--line); }
+  .video-details { flex: 1; }
+  .video-details .title { font-family: 'Space Grotesk'; font-weight: 700; font-size: 20px; margin-bottom: 8px; }
+  .video-details .row { font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-dim); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .video-details .row .label { color: var(--text-faint); min-width: 60px; }
+
+  /* ─── Video Player ─── */
+  .player { background: #000; border-radius: 10px; overflow: hidden; position: relative; aspect-ratio: 16/9; margin-top: 16px; border: 1px solid var(--line); }
+  .player-screen { width: 100%; height: 100%; background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%); display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; }
+  .player-screen .show-title { font-family: 'Space Grotesk'; font-weight: 700; font-size: 22px; color: var(--text); }
+  .player-screen .show-sub { font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-faint); letter-spacing: 1px; }
+  .player-screen .big-play { width: 64px; height: 64px; border-radius: 50%; background: var(--lime); color: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; transition: transform .15s, box-shadow .15s; margin-top: 12px; }
+  .player-screen .big-play:hover { transform: scale(1.1); box-shadow: 0 0 0 8px var(--lime-glow); }
+  .player-controls { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 70%, transparent 100%); padding: 40px 16px 12px; }
+  .progress-bar { width: 100%; height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; margin-bottom: 10px; cursor: pointer; position: relative; }
+  .progress-bar:hover { height: 6px; }
+  .progress-fill { height: 100%; background: var(--lime); border-radius: 2px; width: 0%; transition: width 0.1s linear; position: relative; }
+  .progress-handle { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); width: 12px; height: 12px; background: var(--lime); border-radius: 50%; opacity: 0; transition: opacity .15s; }
+  .progress-bar:hover .progress-handle { opacity: 1; }
+  .controls-row { display: flex; justify-content: space-between; align-items: center; }
+  .controls-left, .controls-right { display: flex; align-items: center; gap: 10px; }
+  .ctrl-btn { background: none; border: none; color: var(--text); font-size: 16px; cursor: pointer; padding: 4px; opacity: 0.85; transition: opacity .15s, color .15s; }
+  .ctrl-btn:hover { opacity: 1; color: var(--lime); }
+  .ctrl-btn.play-btn { font-size: 20px; }
+  .time-display { font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-dim); }
+
+  /* ─── Flow Arrow ─── */
+  .flow-arrow { display: flex; flex-direction: column; align-items: center; padding: 24px 0; text-align: center; }
+  .flow-arrow .line { width: 1px; height: 24px; background: linear-gradient(var(--line), var(--text-faint)); margin-bottom: 8px; }
+  .flow-arrow .action { font-family: 'Space Grotesk'; font-weight: 600; font-size: 13px; margin-bottom: 3px; }
+  .flow-arrow .why { font-family: 'IBM Plex Mono'; font-size: 10px; color: var(--text-faint); }
+
+  /* ─── Loading Spinner ─── */
+  .spinner { width: 20px; height: 20px; border: 2px solid var(--line); border-top-color: var(--lime); border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── Toast ─── */
+  .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 8px; }
+  .toast { background: var(--surface-3); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; display: flex; align-items: center; gap: 8px; font-size: 12px; box-shadow: 0 12px 24px rgba(0,0,0,0.4); animation: slideIn 0.3s ease; }
+  .toast.success { border-color: rgba(198,255,51,0.3); }
+  .toast.success .dot { color: var(--lime); }
+  @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ─── Chip ─── */
+  .chip { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 5px 12px; border-radius: 5px; cursor: pointer; border: 1px solid transparent; color: var(--text-faint); background: transparent; transition: all .15s; }
+  .chip:hover { color: var(--text-dim); }
+  .chip.active { background: var(--surface-3); border-color: var(--line); color: var(--text); }
+
+  /* ─── Responsive ─── */
+  @media (max-width: 900px) {
+    .sidebar { width: 60px; }
+    .sidebar-brand span, .nav-item span, .sidebar-foot { display: none; }
+    .nav-item { justify-content: center; padding: 10px; }
+    .episode-card { width: calc(50% - 6px); }
+    .video-summary { flex-direction: column; }
+    .video-poster { width: 100%; height: 160px; }
+  }
+
+  @media (max-width: 600px) {
+    .episode-card { width: 100%; }
+    .media-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ─── States ─── */
+  .hidden { display: none !important; }
+
+  .icon { flex-shrink: 0; }
+  .icon * { vector-effect: non-scaling-stroke; }
+  .nav-item .icon { color: var(--text-faint); width: 16px; height: 16px; }
+  .nav-item.active .icon { color: var(--lime); }
+
+  .loading-state { display: flex; align-items: center; justify-content: center; padding: 60px; flex-direction: column; gap: 12px; }
+  .loading-state .label { font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-faint); }
+</style>
+</head>
+<body>
+<!-- SVG Icon Sprite -->
+<svg style="position:absolute;width:0;height:0;overflow:hidden;" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24" fill="none"><path d="M3 12l9-9 9 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 10v10a1 1 0 001 1h3v-6h6v6h3a1 1 0 001-1V10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="2" stroke="currentColor" stroke-width="1.5"/><line x1="7" y1="2" x2="7" y2="22" stroke="currentColor" stroke-width="1.5"/><line x1="17" y1="2" x2="17" y2="22" stroke="currentColor" stroke-width="1.5"/><line x1="2" y1="12" x2="22" y2="12" stroke="currentColor" stroke-width="1.5"/><line x1="2" y1="7" x2="7" y2="7" stroke="currentColor" stroke-width="1.5"/><line x1="2" y1="17" x2="7" y2="17" stroke="currentColor" stroke-width="1.5"/><line x1="17" y1="7" x2="22" y2="7" stroke="currentColor" stroke-width="1.5"/><line x1="17" y1="17" x2="22" y2="17" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M2 21v-2a4 4 0 014-4h6a4 4 0 014 4v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="17" cy="7" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M22 21v-1a3 3 0 00-2-2.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.5"/><line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-play-circle" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/><polygon points="10,8 16,12 10,16" fill="currentColor"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24" fill="none"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-tv" viewBox="0 0 24 24" fill="none"><rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="21" x2="16" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="12" y1="17" x2="12" y2="21" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24" fill="none"><path d="M6 2h12v6a6 6 0 01-12 0V2z" stroke="currentColor" stroke-width="1.5"/><path d="M6 4H3a1 1 0 00-1 1v1a4 4 0 004 4" stroke="currentColor" stroke-width="1.5"/><path d="M18 4h3a1 1 0 011 1v1a4 4 0 01-4 4" stroke="currentColor" stroke-width="1.5"/><line x1="12" y1="14" x2="12" y2="18" stroke="currentColor" stroke-width="1.5"/><path d="M8 22h8l-1-4h-6l-1 4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24" fill="none"><polygon points="6,4 20,12 6,20" fill="currentColor"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24" fill="none"><rect x="5" y="4" width="5" height="16" rx="1" fill="currentColor"/><rect x="14" y="4" width="5" height="16" rx="1" fill="currentColor"/></symbol>
+  <symbol id="i-skip-back" viewBox="0 0 24 24" fill="none"><polygon points="11,5 3,12 11,19" fill="currentColor"/><polygon points="21,5 13,12 21,19" fill="currentColor"/></symbol>
+  <symbol id="i-skip-forward" viewBox="0 0 24 24" fill="none"><polygon points="13,5 21,12 13,19" fill="currentColor"/><polygon points="3,5 11,12 3,19" fill="currentColor"/></symbol>
+  <symbol id="i-volume" viewBox="0 0 24 24" fill="none"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19" fill="currentColor"/><path d="M15.54 8.46a5 5 0 010 7.07" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M19.07 4.93a10 10 0 010 14.14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-volume-mute" viewBox="0 0 24 24" fill="none"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19" fill="currentColor"/><line x1="22" y1="9" x2="16" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="16" y1="9" x2="22" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-message" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="i-maximize" viewBox="0 0 24 24" fill="none"><polyline points="15,3 21,3 21,9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="9,21 3,21 3,15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="21" y1="3" x2="14" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="3" y1="21" x2="10" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24" fill="none"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 21a6.5 6.5 0 0113 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24" fill="none"><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><polyline points="12 5 19 12 12 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-film-card" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="2.18" stroke="currentColor" stroke-width="1.5"/><line x1="7" y1="2" x2="7" y2="22" stroke="currentColor" stroke-width="1.5"/><line x1="17" y1="2" x2="17" y2="22" stroke="currentColor" stroke-width="1.5"/><line x1="2" y1="12" x2="22" y2="12" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-logo" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="2" stroke="currentColor" stroke-width="2"/><polyline points="2,8 2,2 8,2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><polyline points="16,22 22,22 22,16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
+  <div class="app">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-brand"><div class="dot"></div><span>CHAN</span></div>
+      <nav>
+        <div class="nav-item" onclick="navigate('home')"><svg class="icon" style="width:16px;height:16px;"><use href="#i-home"/></svg><span>Home</span></div>
+        <div class="nav-item active" onclick="navigate('media')"><svg class="icon" style="width:16px;height:16px;"><use href="#i-film"/></svg><span>Media</span></div>
+        <div class="nav-item" onclick="navigate('rooms')"><svg class="icon" style="width:16px;height:16px;"><use href="#i-users"/></svg><span>Rooms</span></div>
+        <div class="nav-item" onclick="navigate('search')"><svg class="icon" style="width:16px;height:16px;"><use href="#i-search"/></svg><span>Search</span></div>
+      </nav>
+      <div class="sidebar-foot">Viewer_2847</div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+      <div class="top-bar">
+        <span class="top-bar-title"><svg class="icon" style="width:18px;height:18px;"><use href="#i-film"/></svg> Media Browser</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="badge badge-lime badge-pulse"><span class="badge-dot"></span>Online</span>
+          <span class="btn btn-outline btn-sm"><svg class="" style="width:12px;height:12px;"><use href="#i-user"/></svg> Profile</span>
+        </div>
+      </div>
+
+      <div class="content" id="content">
+        <!-- Media Type Selector -->
+        <div class="section-label"><span class="num">01</span> / Select Media Source</div>
+        <div class="media-grid">
+          <div class="media-card" onclick="selectMedia('youtube')">
+            <div style="color:var(--text-dim);"><svg class="" style="width:32px;height:32px;"><use href="#i-play-circle"/></svg></div>
+            <div class="title">YouTube</div>
+            <div class="desc">Videos & livestreams</div>
+          </div>
+          <div class="media-card active" onclick="selectMedia('direct')">
+            <div style="color:var(--lime);"><svg class="" style="width:32px;height:32px;"><use href="#i-link"/></svg></div>
+            <div class="title">Direct Links</div>
+            <div class="desc">O2TV · Nkiri · MP4</div>
+          </div>
+          <div class="media-card" onclick="selectMedia('iptv')">
+            <div style="color:var(--text-dim);"><svg class="" style="width:32px;height:32px;"><use href="#i-tv"/></svg></div>
+            <div class="title">IPTV</div>
+            <div class="desc">Live TV channels</div>
+          </div>
+          <div class="media-card" onclick="selectMedia('sports')">
+            <div style="color:var(--text-dim);"><svg class="" style="width:32px;height:32px;"><use href="#i-trophy"/></svg></div>
+            <div class="title">Sports</div>
+            <div class="desc">Live matches</div>
+          </div>
+        </div>
+
+        <!-- Direct Links Search -->
+        <div id="direct-section">
+          <div class="section-label"><span class="num">02</span> / Search TV Shows & Movies</div>
+          <div class="search-bar">
+            <input type="text" class="search-input" id="searchInput" placeholder="Search for 'Silo', 'House of the Dragon'..." value="silo">
+            <button class="btn btn-lime" onclick="performSearch()">Search</button>
+          </div>
+
+          <!-- Results -->
+          <div id="searchResults" class="hidden">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+              <span style="font-family:'Space Grotesk';font-weight:700;font-size:16px;" id="resultTitle">Silo</span>
+              <span class="badge badge-lime">O2TV</span>
+              <span class="badge badge-faint">3 seasons found</span>
+            </div>
+            <div class="seasons-grid" id="seasonsGrid"></div>
+          </div>
+        </div>
+
+        <!-- Create Room Section (shown after episode selection) -->
+        <div id="createRoomSection" class="hidden">
+          <div class="flow-arrow">
+            <div class="line"></div>
+            <div class="action">Episode selected — Create your watch party</div>
+            <div class="why">Video will sync playback for all participants</div>
+          </div>
+
+          <div class="create-room">
+            <div class="room-header">
+              <div class="room-title">Create Watch Party</div>
+              <span class="badge badge-purple badge-pulse"><span class="badge-dot"></span>Ready</span>
+            </div>
+
+            <div class="video-summary">
+              <div class="video-poster" style="color:var(--text-faint);"><svg class="" style="width:48px;height:48px;"><use href="#i-film-card"/></svg></div>
+              <div class="video-details">
+                <div class="title" id="selectedTitle">Silo — Season 1, Episode 1</div>
+                <div class="row"><span class="label">Source</span>O2TV (tvshows4mobile)</div>
+                <div class="row"><span class="label">Format</span>MKV · H.264 · AAC</div>
+                <div class="row"><span class="label">Quality</span>1080p · 4.2 GB</div>
+                <div class="row"><span class="label">Duration</span>52 min</div>
+                <div class="row"><span class="label">Status</span><span class="badge badge-lime">Resolved ✓</span></div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:10px;margin-bottom:16px;">
+              <input type="text" class="search-input" placeholder="Room name (optional)" value="Silo S01E01 — Watch Party" style="flex:1;">
+              <button class="btn btn-lime" onclick="createRoom()">
+                Create Room & Play
+              </button>
+            </div>
+          </div>
+
+          <!-- Video Player -->
+          <div id="playerSection" class="hidden">
+            <div class="flow-arrow">
+              <div class="line"></div>
+              <div class="action">Room created — Video syncing for all participants</div>
+              <div class="why">Play/pause/seek syncs across the room</div>
+            </div>
+
+            <div class="player">
+              <div class="player-screen" id="playerScreen">
+                <div class="show-title" id="playerTitle">Silo</div>
+                <div class="show-sub" id="playerSub">S01 E01</div>
+                <div class="big-play" id="bigPlayBtn" onclick="togglePlay()"><svg class="" style="width:24px;height:24px;"><use href="#i-play"/></svg></div>
+              </div>
+              <div class="player-controls">
+                <div class="progress-bar" id="progressBar" onclick="seekTo(event)">
+                  <div class="progress-fill" id="progressFill">
+                    <div class="progress-handle"></div>
+                  </div>
+                </div>
+                <div class="controls-row">
+                  <div class="controls-left">
+                    <button class="ctrl-btn" onclick="skip(-10)"><svg class="" style="width:16px;height:16px;"><use href="#i-skip-back"/></svg></button>
+                    <button class="ctrl-btn play-btn" id="playBtn" onclick="togglePlay()"><svg class="" style="width:20px;height:20px;"><use href="#i-play"/></svg></button>
+                    <button class="ctrl-btn" onclick="skip(10)"><svg class="" style="width:16px;height:16px;"><use href="#i-skip-forward"/></svg></button>
+                    <button class="ctrl-btn" id="muteBtn" onclick="toggleMute()"><svg class="" style="width:16px;height:16px;"><use href="#i-volume"/></svg></button>
+                    <span class="time-display" id="timeDisplay">00:00 / 52:00</span>
+                  </div>
+                  <div class="controls-right">
+                    <span class="badge badge-faint" style="font-size:8px;">1080p</span>
+                    <button class="ctrl-btn" title="Settings"><svg class="" style="width:16px;height:16px;"><use href="#i-settings"/></svg></button>
+                    <button class="ctrl-btn" title="Chat"><svg class="" style="width:16px;height:16px;"><use href="#i-message"/></svg></button>
+                    <button class="ctrl-btn" title="Fullscreen" onclick="toggleFullscreen()"><svg class="" style="width:16px;height:16px;"><use href="#i-maximize"/></svg></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+              <span class="badge badge-lime badge-pulse"><span class="badge-dot"></span>3 viewers synced</span>
+              <span class="badge badge-faint">Host: You</span>
+              <span class="badge badge-faint">Room: R-7X2K</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Episodes Modal -->
+  <div class="modal-overlay" id="episodesModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span id="modalTitle">Silo — Season 1</span>
+          <span class="badge badge-faint" id="modalCount">10 episodes</span>
+        </div>
+        <button class="modal-close" onclick="closeModal()"><svg class="" style="width:14px;height:14px;"><use href="#i-close"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="episodes-grid" id="episodesGrid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    // ─── State ───
+    let state = {
+      currentMedia: 'direct',
+      searchQuery: '',
+      selectedSeason: null,
+      selectedEpisode: null,
+      isPlaying: false,
+      isMuted: false,
+      currentTime: 0,
+      duration: 52 * 60, // 52 minutes in seconds
+      playInterval: null,
+    };
+
+    // ─── Mock Data ───
+    const showData = {
+      'silo': {
+        title: 'Silo',
+        seasons: [
+          { number: 1, episodes: 10, poster: 'S1' },
+          { number: 2, episodes: 8, poster: 'S2' },
+          { number: 3, episodes: 6, poster: 'S3' },
+        ]
+      }
+    };
+
+    const episodeData = {
+      1: [
+        { num: 1, title: 'Freedom Day', duration: '52:14' },
+        { num: 2, title: 'Safety Gear', duration: '48:32' },
+        { num: 3, title: 'The Janitor\'s Boy', duration: '55:08' },
+        { num: 4, title: 'Truth', duration: '50:21' },
+        { num: 5, title: 'The Relic', duration: '47:55' },
+        { num: 6, title: 'The Flame', duration: '53:40' },
+        { num: 7, title: 'The Plot', duration: '49:18' },
+        { num: 8, title: 'The Equation', duration: '51:03' },
+        { num: 9, title: 'Nurse\'s Office', duration: '48:47' },
+        { num: 10, title: 'Outside', duration: '54:22' },
+      ],
+      2: [
+        { num: 1, title: 'The Engineer', duration: '55:10' },
+        { num: 2, title: 'The Chasm', duration: '49:33' },
+        { num: 3, title: 'Solo', duration: '52:18' },
+        { num: 4, title: 'The Keeper', duration: '48:07' },
+        { num: 5, title: 'Rebellion', duration: '51:44' },
+        { num: 6, title: 'The Dive', duration: '53:29' },
+        { num: 7, title: 'Legacy', duration: '50:56' },
+        { num: 8, title: 'The Promise', duration: '56:12' },
+      ],
+      3: [
+        { num: 1, title: 'The Descent', duration: '54:08' },
+        { num: 2, title: 'New World', duration: '50:41' },
+        { num: 3, title: 'Echoes', duration: '48:15' },
+        { num: 4, title: 'The Signal', duration: '52:33' },
+        { num: 5, title: 'Convergence', duration: '51:20' },
+        { num: 6, title: 'Silos Fall', duration: '57:04' },
+      ],
+    };
+
+    // ─── Navigation ───
+    function navigate(page) {
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+      showToast(`${page} page`, 'info');
+    }
+
+    // ─── Media Selection ───
+    function selectMedia(type) {
+      state.currentMedia = type;
+      document.querySelectorAll('.media-card').forEach(c => c.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+
+      const directSection = document.getElementById('direct-section');
+      if (type === 'direct') {
+        directSection.classList.remove('hidden');
+      } else {
+        directSection.classList.add('hidden');
+        showToast(`${type} — coming soon in this mockup`, 'info');
+      }
+    }
+
+    // ─── Search ───
+    function performSearch() {
+      const query = document.getElementById('searchInput').value.trim().toLowerCase();
+      if (!query) {
+        showToast('Enter a search query', 'error');
+        return;
+      }
+
+      state.searchQuery = query;
+      const resultsDiv = document.getElementById('searchResults');
+
+      // Simulate loading
+      resultsDiv.classList.remove('hidden');
+      resultsDiv.innerHTML = '<div class="loading-state"><div class="spinner"></div><div class="label">Resolving from O2TV & Nkiri...</div></div>';
+
+      setTimeout(() => {
+        const show = showData[query] || showData['silo'];
+        document.getElementById('resultTitle').textContent = show.title;
+
+        let html = '';
+        show.seasons.forEach(season => {
+          html += `
+            <div class="season-card" onclick="openEpisodes(${season.number})">
+              <div class="season-poster">${season.poster}</div>
+              <div class="season-info">
+                <div class="season-title">Season ${season.number}</div>
+                <div class="season-meta">${season.episodes} episodes · O2TV</div>
+              </div>
+              <span class="badge badge-lime" style="margin-left:auto;">HD</span>
+            </div>
+          `;
+        });
+
+        resultsDiv.innerHTML = `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+            <span style="font-family:'Space Grotesk';font-weight:700;font-size:16px;">${show.title}</span>
+            <span class="badge badge-lime">O2TV</span>
+            <span class="badge badge-faint">${show.seasons.length} seasons found</span>
+          </div>
+          <div class="seasons-grid">${html}</div>
+        `;
+
+        showToast(`Found ${show.seasons.length} seasons for "${show.title}"`, 'success');
+      }, 800);
+    }
+
+    // ─── Episodes Modal ───
+    function openEpisodes(seasonNum) {
+      state.selectedSeason = seasonNum;
+      const episodes = episodeData[seasonNum] || [];
+      const modal = document.getElementById('episodesModal');
+
+      document.getElementById('modalTitle').textContent = `Silo — Season ${seasonNum}`;
+      document.getElementById('modalCount').textContent = `${episodes.length} episodes`;
+
+      let html = '';
+      episodes.forEach(ep => {
+        html += `
+          <div class="episode-card" onclick="selectEpisode(${seasonNum}, ${ep.num})">
+            <div class="episode-thumb">
+              <span class="ep-num">E${String(ep.num).padStart(2,'0')}</span>
+              <div class="play-icon"><svg class="" style="width:14px;height:14px;"><use href="#i-play"/></svg></div>
+              <span class="ep-dur">${ep.duration}</span>
+            </div>
+            <div class="episode-info">
+              <div class="episode-title">Episode ${ep.num}</div>
+              <div class="episode-meta">${ep.title}</div>
+            </div>
+          </div>
+        `;
+      });
+
+      document.getElementById('episodesGrid').innerHTML = html;
+      modal.classList.add('open');
+    }
+
+    function closeModal() {
+      document.getElementById('episodesModal').classList.remove('open');
+    }
+
+    // Close modal on overlay click
+    document.getElementById('episodesModal').addEventListener('click', function(e) {
+      if (e.target === this) closeModal();
+    });
+
+    // ─── Episode Selection ───
+    function selectEpisode(season, episode) {
+      state.selectedEpisode = { season, episode };
+      closeModal();
+
+      const epData = episodeData[season].find(e => e.num === episode);
+      document.getElementById('selectedTitle').textContent = `Silo — Season ${season}, Episode ${episode}: ${epData.title}`;
+      document.getElementById('playerTitle').textContent = 'Silo';
+      document.getElementById('playerSub').textContent = `S${String(season).padStart(2,'0')} E${String(episode).padStart(2,'0')} · ${epData.title}`;
+
+      // Show create room section
+      document.getElementById('createRoomSection').classList.remove('hidden');
+      document.getElementById('playerSection').classList.add('hidden');
+
+      // Scroll to it
+      setTimeout(() => {
+        document.getElementById('createRoomSection').scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+
+      showToast(`Selected S${season}E${episode} — Ready to create room`, 'success');
+    }
+
+    // ─── Create Room ───
+    function createRoom() {
+      showToast('Resolving media URL...', 'info');
+
+      setTimeout(() => {
+        showToast('Room created! R-7X2K — Video syncing...', 'success');
+        document.getElementById('playerSection').classList.remove('hidden');
+
+        setTimeout(() => {
+          document.getElementById('playerSection').scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+
+        // Start the playback simulation
+        startPlayback();
+      }, 1200);
+    }
+
+    // ─── Video Player Controls ───
+    function startPlayback() {
+      state.isPlaying = true;
+      updatePlayButton();
+      state.playInterval = setInterval(() => {
+        if (state.isPlaying && state.currentTime < state.duration) {
+          state.currentTime += 1;
+          updateProgress();
+        }
+      }, 1000);
+    }
+
+    function togglePlay() {
+      state.isPlaying = !state.isPlaying;
+      updatePlayButton();
+      showToast(state.isPlaying ? 'Playing — synced to all viewers' : 'Paused — synced to all viewers', 'info');
+    }
+
+    function updatePlayButton() {
+      const playBtn = document.getElementById('playBtn');
+      const bigPlay = document.getElementById('bigPlayBtn');
+      const iconName = state.isPlaying ? 'pause' : 'play';
+      playBtn.innerHTML = `<svg style="width:20px;height:20px;"><use href="#i-${iconName}"/></svg>`;
+      bigPlay.innerHTML = `<svg style="width:24px;height:24px;"><use href="#i-${iconName}"/></svg>`;
+    }
+
+    function skip(seconds) {
+      state.currentTime = Math.max(0, Math.min(state.duration, state.currentTime + seconds));
+      updateProgress();
+      showToast(`Skipped ${seconds > 0 ? '+' : ''}${seconds}s — synced`, 'info');
+    }
+
+    function seekTo(event) {
+      const bar = document.getElementById('progressBar');
+      const rect = bar.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const pct = Math.max(0, Math.min(1, x / rect.width));
+      state.currentTime = Math.round(pct * state.duration);
+      updateProgress();
+    }
+
+    function updateProgress() {
+      const pct = (state.currentTime / state.duration) * 100;
+      document.getElementById('progressFill').style.width = pct + '%';
+      document.getElementById('timeDisplay').textContent = `${formatTime(state.currentTime)} / ${formatTime(state.duration)}`;
+    }
+
+    function toggleMute() {
+      state.isMuted = !state.isMuted;
+      const muteBtn = document.getElementById('muteBtn');
+      const iconName = state.isMuted ? 'volume-mute' : 'volume';
+      muteBtn.innerHTML = `<svg style="width:16px;height:16px;"><use href="#i-${iconName}"/></svg>`;
+      showToast(state.isMuted ? 'Muted' : 'Unmuted', 'info');
+    }
+
+    function toggleFullscreen() {
+      const player = document.querySelector('.player');
+      if (!document.fullscreenElement) {
+        player.requestFullscreen?.() || player.webkitRequestFullscreen?.();
+      } else {
+        document.exitFullscreen?.() || document.webkitExitFullscreen?.();
+      }
+    }
+
+    function formatTime(seconds) {
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+
+    // ─── Toast ───
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type === 'success' ? 'success' : ''}`;
+      const dot = type === 'success' ? '✓' : type === 'error' ? '✕' : '•';
+      toast.innerHTML = `<span class="dot" style="color:${type === 'success' ? 'var(--lime)' : type === 'error' ? 'var(--danger)' : 'var(--text-faint)'}">${dot}</span>${message}`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        toast.style.transition = 'all .3s';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    // ─── Keyboard Shortcuts ───
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      switch(e.key) {
+        case ' ': e.preventDefault(); togglePlay(); break;
+        case 'ArrowLeft': skip(-10); break;
+        case 'ArrowRight': skip(10); break;
+        case 'm': toggleMute(); break;
+        case 'f': toggleFullscreen(); break;
+        case 'Escape': closeModal(); break;
+      }
+    });
+
+    // ─── Auto-search on load ───
+    setTimeout(() => performSearch(), 500);
+  </script>
+</body>
+</html>
