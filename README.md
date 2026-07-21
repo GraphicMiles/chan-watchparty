@@ -1,8 +1,32 @@
 # Chan — Watch Together
 
+![Build Android APK](https://github.com/GraphicMiles/Chan/actions/workflows/build-android.yml/badge.svg)
+![CI](https://github.com/GraphicMiles/Chan/actions/workflows/ci.yml/badge.svg)
+
 A real-time synchronized watch party web app. Host a room around a YouTube video, invite viewers, chat together, and switch to screen sharing via LiveKit.
 
 Built with React + Vite, Firebase Auth/Firestore, LiveKit, and Vercel server functions.
+
+## 📱 Android App
+
+The web app is packaged as a native Android app via **Capacitor 8**. The APK is built automatically on every push via GitHub Actions.
+
+| Feature | Details |
+|---------|---------|
+| **Download APK** | [Actions tab → latest build → Artifacts](../../actions/workflows/build-android.yml) |
+| **MKV Playback** | VLC-compatible remux: H.264, H.265/HEVC, VP9, AV1, Opus, AC3, FLAC |
+| **Min Android** | 6.0 (API 23) |
+| **Package** | `com.chan.watchparty` |
+
+### Build locally
+
+```bash
+npm install
+npm run android:build    # build web + sync to Android
+npm run android:open     # open in Android Studio
+```
+
+See [ANDROID_BUILD.md](ANDROID_BUILD.md) for full details.
 
 
 ## API surface (consolidated)

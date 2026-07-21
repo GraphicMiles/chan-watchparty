@@ -1,5 +1,9 @@
 apply plugin: 'com.android.application'
 
+// CI versioning: pass via -PversionCode=X -PversionName=Y
+def ciVersionCode = project.hasProperty('versionCode') ? project.property('versionCode') as int : 1
+def ciVersionName = project.hasProperty('versionName') ? project.property('versionName') : '1.0'
+
 android {
     namespace "com.chan.watchparty"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,20 +11,47 @@ android {
         applicationId "com.chan.watchparty"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode ciVersionCode
+        versionName ciVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/Aapt#61
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+
+    // Release signing — only applied when keystore file exists (CI injects it via secrets)
+    if (file("app/chan-release.keystore").exists()) {
+        signingConfigs {
+            release {
+                storeFile file("app/chan-release.keystore")
+                storePassword System.getenv("KEYSTORE_PASSWORD") ?: project.findProperty('storePassword') ?: ''
+                keyAlias System.getenv("KEY_ALIAS") ?: project.findProperty('keyAlias') ?: ''
+                keyPassword System.getenv("KEY_PASSWORD") ?: project.findProperty('keyPassword') ?: ''
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (file("app/chan-release.keystore").exists()) {
+                signingConfig signingConfigs.release
+            }
         }
+    }
+
+    // Allow mixed content (HTTP streams) — app uses HTTPS proxy but some CDN probes use HTTP
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 }
 
