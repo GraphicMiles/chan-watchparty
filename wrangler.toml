@@ -1,0 +1,13 @@
+name = "chan"
+pages_build_output_dir = "dist"
+
+[vars]
+# Add your environment variables here or in Cloudflare Dashboard
+# FIREBASE_ADMIN_PROJECT_ID = ""
+# FIREBASE_ADMIN_CLIENT_EMAIL = ""
+# FIREBASE_ADMIN_PRIVATE_KEY = ""
+# LIVEKIT_API_KEY = ""
+# LIVEKIT_API_SECRET = ""
+# CRON_SECRET = ""
+# YOUTUBE_API_KEY = ""
+# GROQ_API_KEY = ""
