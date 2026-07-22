@@ -3,6 +3,7 @@ package com.chan.watchparty;
 import android.net.Uri;
 import android.util.Log;
 import androidx.media3.common.MediaItem;
+import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
 import androidx.media3.exoplayer.source.MediaSource;
@@ -65,11 +66,11 @@ public class VideoPlayerPlugin extends Plugin {
                 MediaSource mediaSource;
                 if (contentType.contains("application/x-mpegurl") || url.endsWith(".m3u8")) {
                     mediaSource = new HlsMediaSource.Factory(
-                        new com.google.android.exoplayer2.upstream.DefaultHttpDataSource.Factory()
+                        new DefaultHttpDataSource.Factory()
                     ).createMediaSource(mediaItem);
                 } else {
                     mediaSource = new ProgressiveMediaSource.Factory(
-                        new com.google.android.exoplayer2.upstream.DefaultHttpDataSource.Factory()
+                        new DefaultHttpDataSource.Factory()
                     ).createMediaSource(mediaItem);
                 }
                 
