@@ -1,11 +1,13 @@
 import { useState, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { O2TvPlugin, Show, Season, Episode } from '../native/O2TvPlugin';
+import { useAuth } from '../shared/auth/hooks/useAuth.jsx';
 
 /**
  * Hook that uses native O2TV plugin on Android, falls back to server on web
  */
 export function useO2TvNative() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,7 +96,16 @@ export function useO2TvNative() {
     setError(null);
     try {
       if (isNative) {
-        const result = await O2TvPlugin.resolveEpisode({ showName, showSlug, seasonNum, epNum });
+        const authToken = user ? await user.getIdToken() : undefined;
+        const captchaSolverEndpoint = `${import.meta.env.VITE_API_URL || ''}/api/media`;
+        const result = await O2TvPlugin.resolveEpisode({
+          showName,
+          showSlug,
+          seasonNum,
+          epNum,
+          captchaSolverEndpoint,
+          authToken,
+        });
         return result.url;
       } else {
         const response = await fetch('/api/media', {
@@ -111,7 +122,7 @@ export function useO2TvNative() {
     } finally {
       setLoading(false);
     }
-  }, [isNative]);
+  }, [isNative, user]);
 
   return {
     search,

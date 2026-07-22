@@ -23,6 +23,7 @@ const ALLOWED_ACTIONS = [
   'o2tvSeasons',
   'o2tvEpisodes',
   'o2tvResolve',
+  'solveCaptchaImage',
   'probeIptv',
   'refreshCatalog',
 ]
@@ -516,6 +517,19 @@ export default async function handler(req, res) {
     // ─── Catalog refresh (cron) ───
     if (action === 'refreshCatalog') {
       return ok(res, await refreshIptvCatalog(req, body))
+    }
+
+    // ─── Native Android captcha OCR proxy ───
+    // The device keeps the O2TV session/cookies locally and sends only the
+    // captcha image here. GROQ_API_KEY stays server-side and is never compiled
+    // into the APK.
+    if (action === 'solveCaptchaImage') {
+      const decoded = await requireUser(req)
+      const captchaRl = await checkRateLimit(`captcha:${decoded.uid}`, { limit: 12, windowMs: 60_000 })
+      if (!captchaRl.allowed) return fail(res, 429, 'Too many captcha requests — slow down')
+      const { solveCaptchaImage } = await import('../server-lib/o2tvCaptcha.js')
+      const captchaText = await solveCaptchaImage(body.imageBase64 || body.image || '')
+      return ok(res, { captchaText })
     }
 
     // ─── IPTV probe ───

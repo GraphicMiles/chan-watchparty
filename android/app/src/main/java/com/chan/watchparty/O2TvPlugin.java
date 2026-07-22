@@ -124,6 +124,8 @@ public class O2TvPlugin extends Plugin {
         String showSlug = call.getString("showSlug");
         Integer seasonNum = call.getInt("seasonNum");
         Integer epNum = call.getInt("epNum");
+        String captchaSolverEndpoint = call.getString("captchaSolverEndpoint");
+        String authToken = call.getString("authToken");
         
         if (showName == null || showSlug == null || seasonNum == null || epNum == null) {
             call.reject("All parameters are required");
@@ -132,7 +134,7 @@ public class O2TvPlugin extends Plugin {
         
         new Thread(() -> {
             try {
-                String cdnUrl = scraper.resolveEpisode(showName, showSlug, seasonNum, epNum);
+                String cdnUrl = scraper.resolveEpisode(showName, showSlug, seasonNum, epNum, captchaSolverEndpoint, authToken);
                 JSObject result = new JSObject();
                 result.put("url", cdnUrl);
                 call.resolve(result);

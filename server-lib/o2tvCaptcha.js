@@ -16,6 +16,76 @@ const PROXY_URL = process.env.O2TV_PROXY_URL || 'https://zero2tv-proxy.onrender.
 const GROQ_KEY = process.env.GROQ_API_KEY || ''
 const TIMEOUT = 8000
 
+function normalizeGroqCaptchaText(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^['"`]+|['"`]+$/g, '')
+    .replace(/\s+/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 16)
+}
+
+/**
+ * OCR-only captcha solver for native Android.
+ *
+ * The Android client downloads the captcha image using its own O2TV session/IP,
+ * sends only the image bytes here, and receives only the solved text. This keeps
+ * GROQ_API_KEY on the server and out of the APK.
+ */
+export async function solveCaptchaImage(imageBase64) {
+  if (!GROQ_KEY) {
+    throw Object.assign(new Error('GROQ_API_KEY not configured on server'), { status: 503 })
+  }
+
+  const cleanBase64 = String(imageBase64 || '')
+    .replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '')
+    .trim()
+
+  if (!cleanBase64 || cleanBase64.length > 256_000 || !/^[a-zA-Z0-9+/=\r\n]+$/.test(cleanBase64)) {
+    throw Object.assign(new Error('Invalid captcha image'), { status: 400 })
+  }
+
+  const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${GROQ_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'Read the text shown in this CAPTCHA image. Reply with ONLY the text characters, nothing else. No explanation, no quotes, no extra text.',
+            },
+            {
+              type: 'image_url',
+              image_url: { url: `data:image/png;base64,${cleanBase64}` },
+            },
+          ],
+        },
+      ],
+      max_tokens: 20,
+      temperature: 0,
+    }),
+  })
+
+  const groqData = await groqRes.json().catch(() => ({}))
+  if (!groqRes.ok) {
+    throw Object.assign(new Error(groqData?.error?.message || `Groq API failed: HTTP ${groqRes.status}`), { status: 502 })
+  }
+
+  const captchaText = normalizeGroqCaptchaText(groqData?.choices?.[0]?.message?.content)
+  if (!captchaText || captchaText.length < 2) {
+    throw Object.assign(new Error('Groq returned invalid captcha text'), { status: 502 })
+  }
+
+  return captchaText
+}
+
 /**
  * Fetch via proxy (for tvshows4mobile.org) or direct
  */
@@ -139,7 +209,7 @@ export async function solveCaptcha(fileId, attempts = 3) {
     })
 
     const groqData = await groqRes.json()
-    const captchaText = groqData?.choices?.[0]?.message?.content?.trim()
+    const captchaText = normalizeGroqCaptchaText(groqData?.choices?.[0]?.message?.content)
 
     if (!captchaText || captchaText.length < 2) {
       console.error('O2TV captcha: Groq returned empty/invalid text:', captchaText)

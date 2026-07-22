@@ -174,6 +174,10 @@ public class O2TvScraper {
      * Resolve episode to CDN URL
      */
     public String resolveEpisode(String showName, String showSlug, int seasonNum, int epNum) throws IOException {
+        return resolveEpisode(showName, showSlug, seasonNum, epNum, null, null);
+    }
+
+    public String resolveEpisode(String showName, String showSlug, int seasonNum, int epNum, String captchaSolverEndpoint, String authToken) throws IOException {
         Log.d(TAG, "Resolving " + showName + " S" + seasonNum + "E" + epNum);
         
         String episodePath = showSlug + "/Season-" + String.format("%02d", seasonNum) + "/Episode-" + String.format("%02d", epNum);
@@ -187,7 +191,7 @@ public class O2TvScraper {
             java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("/download/(\\d+)").matcher(doc.html());
             if (matcher.find()) {
                 String fileId = matcher.group(1);
-                return solveCaptcha(fileId);
+                return solveCaptcha(fileId, captchaSolverEndpoint, authToken, 1);
             }
             Log.w(TAG, "No download links found");
             return null;
@@ -198,7 +202,7 @@ public class O2TvScraper {
         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("/download/(\\d+)").matcher(href);
         if (matcher.find()) {
             String fileId = matcher.group(1);
-            return solveCaptcha(fileId);
+            return solveCaptcha(fileId, captchaSolverEndpoint, authToken, 1);
         }
         
         return null;
@@ -349,15 +353,19 @@ public class O2TvScraper {
     }
     
     private Document fetchPage(String url) throws IOException {
-        Request request = new Request.Builder()
+        Request.Builder builder = new Request.Builder()
             .url(url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
             .header("Accept-Language", "en-US,en;q=0.5")
             .header("Accept-Encoding", "gzip, deflate, br")
             .header("Connection", "keep-alive")
-            .header("Upgrade-Insecure-Requests", "1")
-            .build();
+            .header("Upgrade-Insecure-Requests", "1");
+        String cookieHeader = buildCookieHeader();
+        if (!cookieHeader.isEmpty()) {
+            builder.header("Cookie", cookieHeader);
+        }
+        Request request = builder.build();
         
         try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful()) {
@@ -373,29 +381,26 @@ public class O2TvScraper {
                 }
             }
             
-            return Jsoup.parse(response.body().string());
+            String finalUrl = response.request().url().toString();
+            return Jsoup.parse(response.body().string(), finalUrl);
         }
     }
     
-    private String solveCaptcha(String fileId) throws IOException {
+    private String solveCaptcha(String fileId, String captchaSolverEndpoint, String authToken, int attemptsRemaining) throws IOException {
         Log.d(TAG, "Solving captcha for file " + fileId);
+        if (attemptsRemaining < 0) {
+            Log.e(TAG, "Captcha retry limit exceeded");
+            return null;
+        }
         
         // Get captcha page
         String captchaUrl = BASE_URL + "/areyouhuman.php?fid=" + fileId;
         Document captchaDoc = fetchPage(captchaUrl);
         String html = captchaDoc.html();
         
-        // Extract session cookie
-        String sessionCookie = "";
-        List<String> cookies = client.cookieJar().loadForRequest(
-            okhttp3.HttpUrl.parse(captchaUrl)
-        );
-        for (String cookie : cookies) {
-            if (cookie.contains("ci_session")) {
-                sessionCookie = cookie;
-                break;
-            }
-        }
+        // Use the cookies captured from O2TV responses so captcha image and
+        // form submit stay bound to the same on-device session/IP.
+        String sessionCookie = buildCookieHeader();
         
         // Extract captcha image
         java.util.regex.Matcher imgMatcher = java.util.regex.Pattern.compile("simple-php-captcha\\.php\\?_CAPTCHA[^\"'\\s]*", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html);
@@ -412,14 +417,9 @@ public class O2TvScraper {
         byte[] imgBytes = downloadBytes(captchaImgUrl, sessionCookie);
         String imgBase64 = android.util.Base64.encodeToString(imgBytes, android.util.Base64.NO_WRAP);
         
-        // Send to Groq Vision API
-        String groqKey = BuildConfig.GROQ_API_KEY;
-        if (groqKey == null || groqKey.isEmpty()) {
-            Log.e(TAG, "GROQ_API_KEY not configured");
-            return null;
-        }
-        
-        String captchaText = solveWithGroq(imgBase64, groqKey);
+        // Ask the app backend to OCR the image with Groq. The Groq API key stays
+        // server-side and is never shipped in the APK.
+        String captchaText = solveWithServer(imgBase64, captchaSolverEndpoint, authToken);
         if (captchaText == null || captchaText.length() < 2) {
             Log.e(TAG, "Groq returned invalid text");
             return null;
@@ -449,11 +449,17 @@ public class O2TvScraper {
                 return null;
             }
             
-            // Check for redirect to CDN
+            // Check for redirect to CDN. OkHttp follows redirects by default, so
+            // response.request().url() is the final URL after redirects.
             String location = response.header("Location");
             if (location != null && (location.contains("o2tv.org") || location.contains(".mp4"))) {
                 Log.d(TAG, "CDN redirect: " + location);
                 return location;
+            }
+            String finalUrl = response.request().url().toString();
+            if (finalUrl.contains("o2tv.org") || finalUrl.contains(".mp4")) {
+                Log.d(TAG, "CDN final URL: " + finalUrl);
+                return finalUrl;
             }
             
             // Check response body for CDN URL
@@ -468,11 +474,21 @@ public class O2TvScraper {
             // Check if captcha was wrong
             if (responseBody.contains("Captcha Does Not Match")) {
                 Log.w(TAG, "Wrong captcha text, retrying...");
-                return solveCaptcha(fileId); // Retry once
+                return solveCaptcha(fileId, captchaSolverEndpoint, authToken, attemptsRemaining - 1); // Retry once
             }
         }
         
         return null;
+    }
+    
+    private String buildCookieHeader() {
+        if (cookieStore.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> entry : cookieStore.entrySet()) {
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(entry.getKey()).append("=").append(entry.getValue());
+        }
+        return sb.toString();
     }
     
     private byte[] downloadBytes(String url, String cookie) throws IOException {
@@ -490,44 +506,38 @@ public class O2TvScraper {
         }
     }
     
-    private String solveWithGroq(String imgBase64, String apiKey) throws IOException {
-        String jsonBody = "{\n" +
-            "  \"model\": \"meta-llama/llama-4-scout-17b-16e-instruct\",\n" +
-            "  \"messages\": [{\n" +
-            "    \"role\": \"user\",\n" +
-            "    \"content\": [{\n" +
-            "      \"type\": \"text\",\n" +
-            "      \"text\": \"Read the text shown in this CAPTCHA image. Reply with ONLY the text characters, nothing else.\"\n" +
-            "    }, {\n" +
-            "      \"type\": \"image_url\",\n" +
-            "      \"image_url\": {\"url\": \"data:image/png;base64," + imgBase64 + "\"}\n" +
-            "    }]\n" +
-            "  }],\n" +
-            "  \"max_tokens\": 20,\n" +
-            "  \"temperature\": 0\n" +
-            "}";
-        
-        Request request = new Request.Builder()
-            .url("https://api.groq.com/openai/v1/chat/completions")
+    private String solveWithServer(String imgBase64, String endpoint, String authToken) throws IOException {
+        if (endpoint == null || endpoint.trim().isEmpty()) {
+            Log.e(TAG, "Captcha solver endpoint not configured");
+            return null;
+        }
+
+        String safeBase64 = imgBase64.replace("\\", "\\\\").replace("\"", "\\\"");
+        String jsonBody = "{\"action\":\"solveCaptchaImage\",\"imageBase64\":\"" + safeBase64 + "\"}";
+
+        Request.Builder builder = new Request.Builder()
+            .url(endpoint)
             .post(RequestBody.create(jsonBody, MediaType.parse("application/json")))
-            .header("Authorization", "Bearer " + apiKey)
-            .header("Content-Type", "application/json")
-            .build();
-        
-        try (Response response = client.newCall(request).execute()) {
+            .header("Content-Type", "application/json");
+        if (authToken != null && !authToken.trim().isEmpty()) {
+            builder.header("Authorization", "Bearer " + authToken.trim());
+        }
+
+        try (Response response = client.newCall(builder.build()).execute()) {
+            String responseBody = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {
-                Log.e(TAG, "Groq API failed: HTTP " + response.code());
+                Log.e(TAG, "Captcha solver failed: HTTP " + response.code());
                 return null;
             }
-            
-            String responseBody = response.body().string();
-            // Parse JSON response (simple regex for quick extraction)
-            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\"content\"\\s*:\\s*\"([^\"]+)\"").matcher(responseBody);
+
+            java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\"captchaText\"\s*:\s*\"([^\"]+)\"")
+                .matcher(responseBody);
             if (matcher.find()) {
                 return matcher.group(1).trim();
             }
         }
-        
+
         return null;
     }
     

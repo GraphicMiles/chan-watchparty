@@ -46,6 +46,8 @@ export interface O2TvPlugin {
     showSlug: string;
     seasonNum: number;
     epNum: number;
+    captchaSolverEndpoint?: string;
+    authToken?: string;
   }): Promise<ResolveResponse>;
 }
 
