@@ -5,6 +5,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.json.JSONObject;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,10 +23,10 @@ import okhttp3.Response;
  * Native O2TV Scraper - Runs on-device to bypass server IP blocking
  * 
  * Flow:
- * 1. search(query) → find shows
- * 2. getSeasons(showSlug) → list seasons
- * 3. getEpisodes(showSlug, seasonNum) → list episodes
- * 4. resolveEpisode(showName, showSlug, seasonNum, epNum) → get CDN URL
+ * 1. search(query) -> find shows
+ * 2. getSeasons(showSlug) -> list seasons
+ * 3. getEpisodes(showSlug, seasonNum) -> list episodes
+ * 4. resolveEpisode(showName, showSlug, seasonNum, epNum) -> get CDN URL
  */
 public class O2TvScraper {
     private static final String TAG = "O2TvScraper";
@@ -234,7 +235,7 @@ public class O2TvScraper {
             
             if (isShowPage) {
                 String title = query;
-                java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("<title>\\s*(?:Download\\s+)?(.+?)(?:\\s+TV Show|\\s*[-–|]\\s*TvShows)", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html);
+                java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("<title>\\s*(?:Download\\s+)?(.+?)(?:\\s+TV Show|\\s*[-|]\\s*TvShows)", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html);
                 if (matcher.find()) {
                     title = matcher.group(1).trim();
                 }
@@ -530,11 +531,14 @@ public class O2TvScraper {
                 return null;
             }
 
-            java.util.regex.Matcher matcher = java.util.regex.Pattern
-                .compile("\"captchaText\"\s*:\s*\"([^\"]+)\"")
-                .matcher(responseBody);
-            if (matcher.find()) {
-                return matcher.group(1).trim();
+            try {
+                JSONObject json = new JSONObject(responseBody);
+                String captchaText = json.optString("captchaText", "").trim();
+                if (!captchaText.isEmpty()) {
+                    return captchaText;
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Could not parse captcha solver response", e);
             }
         }
 
