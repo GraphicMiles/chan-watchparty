@@ -46,10 +46,18 @@ app.all('/api/proxy', async (req, res) => {
   }
 })
 
-// Serve static frontend
+// Serve static frontend - hashed assets can be cached long-term
 app.use(express.static(join(__dirname, 'dist'), {
   maxAge: '1y',
   immutable: true,
+  setHeaders: (res, path) => {
+    // Never cache index.html - it must always be fresh to load new asset hashes
+    if (path.endsWith('index.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+      res.setHeader('Pragma', 'no-cache')
+      res.setHeader('Expires', '0')
+    }
+  }
 }))
 
 // SPA fallback - serve index.html for all non-API routes
