@@ -17,19 +17,32 @@ const TIMEOUT = 8000
 
 /**
  * Solve the captcha for a given file ID.
+ * Retries 2-3 times due to redirect ads.
  * @param {number|string} fileId - The download file ID (e.g. 158224)
+ * @param {number} attempts - Remaining attempts (default 3)
  * @returns {Promise<string|null>} The CDN URL, or null if failed
  */
-export async function solveCaptcha(fileId) {
+export async function solveCaptcha(fileId, attempts = 3) {
   if (!GROQ_KEY) {
     console.error('O2TV captcha: GROQ_API_KEY not configured')
     return null
   }
 
+  if (attempts <= 0) {
+    console.error(`O2TV captcha: exhausted all attempts for fid=${fileId}`)
+    return null
+  }
+
   try {
+    console.log(`[Captcha] Attempt ${4-attempts}/3 for fid=${fileId}`)
+
     // Step 1: Get the captcha page
     const pageRes = await fetch(`${BASE}/areyouhuman.php?fid=${fileId}`, {
-      headers: { 'User-Agent': UA, Accept: 'text/html' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+      },
       redirect: 'follow',
     })
     const pageHtml = await pageRes.text()
@@ -90,7 +103,7 @@ export async function solveCaptcha(fileId) {
       return null
     }
 
-    console.log(`O2TV captcha: Groq read "${captchaText}" for fid=${fileId}`)
+    console.log(`[Captcha] Groq read "${captchaText}" for fid=${fileId}`)
 
     // Step 4: Submit the form
     const formBody = new URLSearchParams({
@@ -107,40 +120,68 @@ export async function solveCaptcha(fileId) {
         Referer: `${BASE}/areyouhuman.php?fid=${fileId}`,
       },
       body: formBody,
-      redirect: 'follow',
+      redirect: 'manual', // Don't follow redirects automatically
     })
 
-    // The response should redirect to the CDN URL
-    const finalUrl = submitRes.url || ''
+    // Check for redirects (ads)
+    if (submitRes.status >= 300 && submitRes.status < 400) {
+      const redirectUrl = submitRes.headers.get('location') || ''
+      console.log(`[Captcha] Got redirect (ad?): ${redirectUrl}`)
 
-    // Check if we got a video URL
-    if (finalUrl && (finalUrl.includes('.mp4') || finalUrl.includes('o2tv.org') || finalUrl.includes('video'))) {
-      console.log(`O2TV captcha: resolved fid=${fileId} → ${finalUrl.slice(0, 80)}...`)
-      return finalUrl
+      // If it's an ad redirect, go back and try again
+      if (redirectUrl && !redirectUrl.includes('o2tv.org') && !redirectUrl.includes('.mp4')) {
+        console.log(`[Captcha] Ad redirect detected, retrying... (${attempts-1} left)`)
+        await new Promise(r => setTimeout(r, 1500)) // Wait before retry
+        return solveCaptcha(fileId, attempts - 1)
+      }
+
+      // If it's a CDN redirect, follow it
+      if (redirectUrl && (redirectUrl.includes('o2tv.org') || redirectUrl.includes('.mp4'))) {
+        console.log(`[Captcha] CDN redirect: ${redirectUrl.slice(0, 80)}...`)
+        return redirectUrl
+      }
     }
 
-    // If not redirected, check response body for a link
-    const body = await submitRes.text()
-    const linkMatch = body.match(/https?:\/\/[^"'\s<>\)]+\.mp4[^"'\s<>\)]*/i)
-      || body.match(/https?:\/\/[^"'\s<>\)]*o2tv\.org[^"'\s<>\)]*/i)
+    // Handle direct response (200)
+    if (submitRes.status === 200) {
+      const body = await submitRes.text()
 
-    if (linkMatch) {
-      const cdnUrl = linkMatch[0].replace(/&amp;/g, '&')
-      console.log(`O2TV captcha: resolved fid=${fileId} (from body) → ${cdnUrl.slice(0, 80)}...`)
-      return cdnUrl
+      // Check if we got a video URL in the body
+      const linkMatch = body.match(/https?:\/\/[^"'\s<>\)]+\.mp4[^"'\s<>\)]*/i)
+        || body.match(/https?:\/\/[^"'\s<>\)]*o2tv\.org[^"'\s<>\)]*/i)
+
+      if (linkMatch) {
+        const cdnUrl = linkMatch[0].replace(/&amp;/g, '&')
+        console.log(`[Captcha] Resolved fid=${fileId} → ${cdnUrl.slice(0, 80)}...`)
+        return cdnUrl
+      }
+
+      // Check if captcha was wrong
+      if (body.includes('Captcha Does Not Match') || body.includes('captcha')) {
+        console.log(`[Captcha] Wrong text "${captchaText}", retrying... (${attempts-1} left)`)
+        await new Promise(r => setTimeout(r, 1000))
+        return solveCaptcha(fileId, attempts - 1)
+      }
+
+      // Check for ad redirects in the body
+      const adRedirect = body.match(/window\.location\.href\s*=\s*["']([^"']+)["']/i)
+        || body.match(/<meta[^>]+http-equiv=["']refresh["'][^>]+content=["']\d+;\s*url=([^"']+)["']/i)
+
+      if (adRedirect) {
+        const adUrl = adRedirect[1]
+        console.log(`[Captcha] Ad redirect in body: ${adUrl}`)
+        if (!adUrl.includes('o2tv.org') && !adUrl.includes('.mp4')) {
+          console.log(`[Captcha] Ad detected, retrying... (${attempts-1} left)`)
+          await new Promise(r => setTimeout(r, 1500))
+          return solveCaptcha(fileId, attempts - 1)
+        }
+      }
     }
 
-    // Check if captcha was wrong
-    if (body.includes('Captcha Does Not Match') || body.includes('captcha')) {
-      console.error(`O2TV captcha: wrong text "${captchaText}" for fid=${fileId}`)
-      // Retry once with a fresh captcha
-      return null
-    }
-
-    console.error('O2TV captcha: no CDN URL found in response for fid=' + fileId)
+    console.error(`[Captcha] No CDN URL for fid=${fileId}, status=${submitRes.status}`)
     return null
   } catch (err) {
-    console.error('O2TV captcha error:', err.message)
+    console.error('[Captcha] Error:', err.message)
     return null
   }
 }
@@ -154,7 +195,11 @@ export async function resolveViaCaptcha(episodeUrl) {
   try {
     // Get the episode page to find download links
     const res = await fetch(episodeUrl, {
-      headers: { 'User-Agent': UA, Accept: 'text/html' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+      },
       redirect: 'follow',
     })
     const html = await res.text()

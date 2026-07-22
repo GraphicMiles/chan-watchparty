@@ -18,16 +18,37 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const TIMEOUT_MS = 8000
 
 // ─── HTTP helper ───
-async function fetchPage(url, timeoutMs = TIMEOUT_MS) {
+async function fetchPage(url, timeoutMs = TIMEOUT_MS, retries = 2) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+      },
       redirect: 'follow',
     })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    if (!res.ok) {
+      if (res.status === 403 && retries > 0) {
+        console.log(`[O2TV] Got 403, retrying in 1s... (${retries} retries left)`)
+        clearTimeout(timer)
+        await new Promise(r => setTimeout(r, 1000))
+        return fetchPage(url, timeoutMs, retries - 1)
+      }
+      console.error(`[O2TV] HTTP ${res.status} for ${url}`)
+      throw new Error(`HTTP ${res.status}`)
+    }
     return await res.text()
   } finally {
     clearTimeout(timer)
@@ -148,7 +169,7 @@ export async function searchO2Tv(query, maxResults = 10) {
  * Fast probe: check if a direct show page exists.
  * Much faster than fetching the full catalog.
  */
-async function probeShowPage(query) {
+async function probeShowPage(query, retries = 2) {
   const guessSlug = String(query || '').trim()
     .replace(/[^\w\s-]/g, '')
     .replace(/\s+/g, '-')
@@ -161,12 +182,25 @@ async function probeShowPage(query) {
     const timer = setTimeout(() => controller.abort(), 5000)
     const res = await fetch(`${BASE_URL}/${guessSlug}/`, {
       signal: controller.signal,
-      headers: { 'User-Agent': UA, Accept: 'text/html' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+      },
       redirect: 'follow',
     })
     clearTimeout(timer)
 
-    if (!res.ok) return null
+    if (!res.ok) {
+      if (res.status === 403 && retries > 0) {
+        console.log(`[O2TV] Probe got 403, retrying... (${retries} left)`)
+        await new Promise(r => setTimeout(r, 1000))
+        return probeShowPage(query, retries - 1)
+      }
+      return null
+    }
 
     const finalUrl = res.url || ''
     const html = await res.text()
