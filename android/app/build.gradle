@@ -14,9 +14,13 @@ android {
         versionCode ciVersionCode
         versionName ciVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        
+        // Build config fields for API keys
+        buildConfigField "String", "GROQ_API_KEY", "\"${System.getenv('GROQ_API_KEY') ?: ''}\""
+        
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/Aapt#61
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
@@ -75,6 +79,12 @@ dependencies {
     // O2TV Scraper dependencies
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'org.jsoup:jsoup:1.17.2'
+    
+    // Video Player - ExoPlayer with MKV support
+    implementation 'androidx.media3:media3-exoplayer:1.2.1'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.2.1'
+    implementation 'androidx.media3:media3-ui:1.2.1'
+    implementation 'androidx.media3:media3-exoplayer-ffmpeg:1.2.1'
 }
 
 apply from: 'capacitor.build.gradle'

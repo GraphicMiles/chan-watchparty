@@ -11,8 +11,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import okhttp3.FormBody;
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 
 /**
@@ -382,6 +385,18 @@ public class O2TvScraper {
         Document captchaDoc = fetchPage(captchaUrl);
         String html = captchaDoc.html();
         
+        // Extract session cookie
+        String sessionCookie = "";
+        List<String> cookies = client.cookieJar().loadForRequest(
+            okhttp3.HttpUrl.parse(captchaUrl)
+        );
+        for (String cookie : cookies) {
+            if (cookie.contains("ci_session")) {
+                sessionCookie = cookie;
+                break;
+            }
+        }
+        
         // Extract captcha image
         java.util.regex.Matcher imgMatcher = java.util.regex.Pattern.compile("simple-php-captcha\\.php\\?_CAPTCHA[^\"'\\s]*", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html);
         if (!imgMatcher.find()) {
@@ -389,12 +404,129 @@ public class O2TvScraper {
             return null;
         }
         
-        String captchaImgUrl = BASE_URL + "/" + imgMatcher.group().replaceAll("&amp;", "&");
+        String captchaImgPath = imgMatcher.group().replaceAll("&amp;", "&");
+        String captchaImgUrl = BASE_URL + "/" + captchaImgPath;
         Log.d(TAG, "Captcha image: " + captchaImgUrl);
         
-        // TODO: Show captcha to user or use OCR
-        // For now, return null (user would need to solve manually)
-        // In production, integrate with OCR service or manual input
+        // Download captcha image
+        byte[] imgBytes = downloadBytes(captchaImgUrl, sessionCookie);
+        String imgBase64 = android.util.Base64.encodeToString(imgBytes, android.util.Base64.NO_WRAP);
+        
+        // Send to Groq Vision API
+        String groqKey = BuildConfig.GROQ_API_KEY;
+        if (groqKey == null || groqKey.isEmpty()) {
+            Log.e(TAG, "GROQ_API_KEY not configured");
+            return null;
+        }
+        
+        String captchaText = solveWithGroq(imgBase64, groqKey);
+        if (captchaText == null || captchaText.length() < 2) {
+            Log.e(TAG, "Groq returned invalid text");
+            return null;
+        }
+        
+        Log.d(TAG, "Groq read: " + captchaText);
+        
+        // Submit captcha
+        String submitUrl = BASE_URL + "/areyouhuman.php?fid=" + fileId;
+        RequestBody formBody = new FormBody.Builder()
+            .add("captchainput", captchaText)
+            .add("submit", "Continue Download")
+            .build();
+        
+        Request submitRequest = new Request.Builder()
+            .url(submitUrl)
+            .post(formBody)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Cookie", sessionCookie)
+            .header("Referer", captchaUrl)
+            .build();
+        
+        try (Response response = client.newCall(submitRequest).execute()) {
+            if (!response.isSuccessful()) {
+                Log.e(TAG, "Captcha submit failed: HTTP " + response.code());
+                return null;
+            }
+            
+            // Check for redirect to CDN
+            String location = response.header("Location");
+            if (location != null && (location.contains("o2tv.org") || location.contains(".mp4"))) {
+                Log.d(TAG, "CDN redirect: " + location);
+                return location;
+            }
+            
+            // Check response body for CDN URL
+            String responseBody = response.body().string();
+            java.util.regex.Matcher urlMatcher = java.util.regex.Pattern.compile("https?://[^\"'\\s<>)]+\\.mp4[^\"'\\s<>)]*", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(responseBody);
+            if (urlMatcher.find()) {
+                String cdnUrl = urlMatcher.group().replaceAll("&amp;", "&");
+                Log.d(TAG, "CDN URL from body: " + cdnUrl);
+                return cdnUrl;
+            }
+            
+            // Check if captcha was wrong
+            if (responseBody.contains("Captcha Does Not Match")) {
+                Log.w(TAG, "Wrong captcha text, retrying...");
+                return solveCaptcha(fileId); // Retry once
+            }
+        }
+        
+        return null;
+    }
+    
+    private byte[] downloadBytes(String url, String cookie) throws IOException {
+        Request request = new Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("Cookie", cookie)
+            .build();
+        
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("Download failed: HTTP " + response.code());
+            }
+            return response.body().bytes();
+        }
+    }
+    
+    private String solveWithGroq(String imgBase64, String apiKey) throws IOException {
+        String jsonBody = "{\n" +
+            "  \"model\": \"meta-llama/llama-4-scout-17b-16e-instruct\",\n" +
+            "  \"messages\": [{\n" +
+            "    \"role\": \"user\",\n" +
+            "    \"content\": [{\n" +
+            "      \"type\": \"text\",\n" +
+            "      \"text\": \"Read the text shown in this CAPTCHA image. Reply with ONLY the text characters, nothing else.\"\n" +
+            "    }, {\n" +
+            "      \"type\": \"image_url\",\n" +
+            "      \"image_url\": {\"url\": \"data:image/png;base64," + imgBase64 + "\"}\n" +
+            "    }]\n" +
+            "  }],\n" +
+            "  \"max_tokens\": 20,\n" +
+            "  \"temperature\": 0\n" +
+            "}";
+        
+        Request request = new Request.Builder()
+            .url("https://api.groq.com/openai/v1/chat/completions")
+            .post(RequestBody.create(jsonBody, MediaType.parse("application/json")))
+            .header("Authorization", "Bearer " + apiKey)
+            .header("Content-Type", "application/json")
+            .build();
+        
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                Log.e(TAG, "Groq API failed: HTTP " + response.code());
+                return null;
+            }
+            
+            String responseBody = response.body().string();
+            // Parse JSON response (simple regex for quick extraction)
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\"content\"\\s*:\\s*\"([^\"]+)\"").matcher(responseBody);
+            if (matcher.find()) {
+                return matcher.group(1).trim();
+            }
+        }
         
         return null;
     }
