@@ -94,17 +94,23 @@ export async function searchO2Tv(query, maxResults = 10) {
   const qRaw = String(query || '').trim()
   if (!qRaw) return []
 
+  console.log(`[O2TV] Searching for: "${qRaw}"`)
+
   try {
     // Fast path: try direct show page probe first
+    console.log(`[O2TV] Probing show page...`)
     const probed = await probeShowPage(qRaw)
+    console.log(`[O2TV] Probe result:`, probed ? 'found' : 'not found')
 
     // Also fetch the catalog for broader matching
     let catalog = []
     try {
+      console.log(`[O2TV] Fetching catalog...`)
       const html = await fetchPage(`${BASE_URL}/search/list_all_tv_series`, 6000)
       catalog = parseCatalogHtml(html)
+      console.log(`[O2TV] Catalog parsed: ${catalog.length} shows`)
     } catch (err) {
-      console.error('O2TV catalog fetch failed:', err.message)
+      console.error('[O2TV] Catalog fetch failed:', err.message)
     }
 
     const scored = []
@@ -129,9 +135,11 @@ export async function searchO2Tv(query, maxResults = 10) {
     }
 
     scored.sort((a, b) => b.matchScore - a.matchScore)
-    return scored.slice(0, Math.max(1, Number(maxResults) || 10))
+    const results = scored.slice(0, Math.max(1, Number(maxResults) || 10))
+    console.log(`[O2TV] Returning ${results.length} results for "${qRaw}"`)
+    return results
   } catch (err) {
-    console.error('O2TV search failed:', err.message)
+    console.error('[O2TV] Search failed:', err.message)
     return []
   }
 }

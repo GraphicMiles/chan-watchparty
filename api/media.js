@@ -168,10 +168,16 @@ async function searchDirect(query, options = {}) {
     ])
   } catch (err) {
     searchError = err.message
+    console.error('O2TV search error:', err.message)
     shows = []
   }
 
-  if (!Array.isArray(shows)) shows = []
+  if (!Array.isArray(shows)) {
+    console.error('O2TV returned non-array:', shows)
+    shows = []
+  }
+
+  console.log(`O2TV search for "${baseQ}": found ${shows.length} results`)
 
   const results = shows.slice(0, limit).map(s => {
     const showName = String(s.showName || s.title || baseQ).trim() || baseQ
