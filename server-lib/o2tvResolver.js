@@ -14,33 +14,34 @@
 import * as cheerio from 'cheerio'
 
 const BASE_URL = 'https://tvshows4mobile.org'
+const PROXY_URL = process.env.O2TV_PROXY_URL || 'https://zero2tv-proxy.onrender.com'
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 const TIMEOUT_MS = 8000
 
-// ─── HTTP helper ───
+// ─── HTTP helper (uses proxy for tvshows4mobile.org) ───
 async function fetchPage(url, timeoutMs = TIMEOUT_MS, retries = 2) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const res = await fetch(url, {
+    // Use proxy for tvshows4mobile.org requests
+    const fetchUrl = url.includes('tvshows4mobile.org')
+      ? `${PROXY_URL}/proxy?url=${encodeURIComponent(url)}`
+      : url
+
+    const res = await fetch(fetchUrl, {
       signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Cache-Control': 'max-age=0',
-      },
+      headers: fetchUrl.includes('/proxy?')
+        ? { 'Accept': 'application/json' }
+        : {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+          },
       redirect: 'follow',
     })
+
     if (!res.ok) {
-      if (res.status === 403 && retries > 0) {
+      if (res.status === 403 && retries > 0 && !fetchUrl.includes('/proxy?')) {
         console.log(`[O2TV] Got 403, retrying in 1s... (${retries} retries left)`)
         clearTimeout(timer)
         await new Promise(r => setTimeout(r, 1000))
@@ -49,6 +50,18 @@ async function fetchPage(url, timeoutMs = TIMEOUT_MS, retries = 2) {
       console.error(`[O2TV] HTTP ${res.status} for ${url}`)
       throw new Error(`HTTP ${res.status}`)
     }
+
+    // If using proxy, parse the JSON response
+    if (fetchUrl.includes('/proxy?')) {
+      const result = await res.json()
+      if (result.status !== 200) {
+        throw new Error(`Proxy returned HTTP ${result.status}`)
+      }
+      return result.isBinary
+        ? Buffer.from(result.data, 'base64').toString('utf-8')
+        : result.data
+    }
+
     return await res.text()
   } finally {
     clearTimeout(timer)

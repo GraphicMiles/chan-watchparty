@@ -12,8 +12,51 @@
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 const BASE = 'https://tvshows4mobile.org'
+const PROXY_URL = process.env.O2TV_PROXY_URL || 'https://zero2tv-proxy.onrender.com'
 const GROQ_KEY = process.env.GROQ_API_KEY || ''
 const TIMEOUT = 8000
+
+/**
+ * Fetch via proxy (for tvshows4mobile.org) or direct
+ */
+async function fetchWithProxy(url, options = {}) {
+  const useProxy = url.includes('tvshows4mobile.org')
+  const fetchUrl = useProxy
+    ? `${PROXY_URL}/proxy?url=${encodeURIComponent(url)}`
+    : url
+
+  const res = await fetch(fetchUrl, {
+    ...options,
+    headers: useProxy
+      ? { 'Accept': 'application/json' }
+      : options.headers || {},
+  })
+
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`)
+  }
+
+  // If using proxy, parse JSON response
+  if (useProxy) {
+    const result = await res.json()
+    if (result.status !== 200) {
+      throw new Error(`Proxy returned HTTP ${result.status}`)
+    }
+    return {
+      ok: true,
+      url: result.url,
+      headers: new Map([['content-type', result.contentType]]),
+      text: async () => result.isBinary
+        ? Buffer.from(result.data, 'base64').toString('utf-8')
+        : result.data,
+      arrayBuffer: async () => result.isBinary
+        ? Buffer.from(result.data, 'base64').buffer
+        : new TextEncoder().encode(result.data).buffer,
+    }
+  }
+
+  return res
+}
 
 /**
  * Solve the captcha for a given file ID.
@@ -37,7 +80,7 @@ export async function solveCaptcha(fileId, attempts = 3) {
     console.log(`[Captcha] Attempt ${4-attempts}/3 for fid=${fileId}`)
 
     // Step 1: Get the captcha page
-    const pageRes = await fetch(`${BASE}/areyouhuman.php?fid=${fileId}`, {
+    const pageRes = await fetchWithProxy(`${BASE}/areyouhuman.php?fid=${fileId}`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -60,7 +103,7 @@ export async function solveCaptcha(fileId, attempts = 3) {
     const captchaUrl = `${BASE}/${captchaMatch[0].replace(/&amp;/g, '&')}`
 
     // Step 2: Download the captcha image
-    const imgRes = await fetch(captchaUrl, {
+    const imgRes = await fetchWithProxy(captchaUrl, {
       headers: { 'User-Agent': UA, Cookie: sessionCookie },
     })
     const imgBuffer = await imgRes.arrayBuffer()
@@ -111,7 +154,7 @@ export async function solveCaptcha(fileId, attempts = 3) {
       submit: 'Continue Download',
     }).toString()
 
-    const submitRes = await fetch(`${BASE}/areyouhuman.php?fid=${fileId}`, {
+    const submitRes = await fetchWithProxy(`${BASE}/areyouhuman.php?fid=${fileId}`, {
       method: 'POST',
       headers: {
         'User-Agent': UA,
@@ -194,7 +237,7 @@ export async function solveCaptcha(fileId, attempts = 3) {
 export async function resolveViaCaptcha(episodeUrl) {
   try {
     // Get the episode page to find download links
-    const res = await fetch(episodeUrl, {
+    const res = await fetchWithProxy(episodeUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
