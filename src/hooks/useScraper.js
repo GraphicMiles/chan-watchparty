@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { isDirectVideoUrl, normalizePlaybackUrl } from '../shared/lib/youtube.js'
 import { useAuth } from '../shared/auth/hooks/useAuth.jsx'
 import { isSuitableThumbnail, isTitleMatch, cleanTitleForMatching } from '../shared/lib/mediaHelper.js'
+import { apiPath, parseJsonResponse } from '../shared/lib/api.js'
 
 function softClientTitleMatch(title, query) {
   if (!title || !query) return true
@@ -24,8 +25,6 @@ function softClientTitleMatch(title, query) {
   }
   return hits.length >= Math.ceil(qTokens.length * 0.5)
 }
-
-const API_URL = import.meta.env.VITE_API_URL || ''
 
 export function useScraper() {
   const { user } = useAuth()
@@ -75,7 +74,7 @@ export function useScraper() {
       const request = isActualUrl
         ? { action: 'scrape', url: url.trim(), site, options: { resolve: true } }
         : { action: 'search', layer: 'direct', query: (url || query || '').trim(), options: { site, resolve: true } }
-      const res = await fetch(`${API_URL}/api/media`, {
+      const res = await fetch(apiPath('/api/media'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -83,7 +82,7 @@ export function useScraper() {
         },
         body: JSON.stringify(request),
       })
-      const data = await res.json()
+      const data = await parseJsonResponse(res)
 
       if (!res.ok || !data.success) {
         throw new Error(data.error || `HTTP ${res.status}`)

@@ -1,8 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { useAuth } from '../shared/auth/hooks/useAuth.jsx'
 import { isSuitableThumbnail, isTitleMatch, cleanTitleForMatching } from '../shared/lib/mediaHelper.js'
-
-const API_URL = import.meta.env.VITE_API_URL || ''
+import { apiPath, parseJsonResponse } from '../shared/lib/api.js'
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
 function softClientTitleMatch(title, query) {
@@ -146,7 +145,7 @@ export function useUnifiedSearch() {
     try {
       if (!user) throw new Error('Sign in to search media')
       const token = await user.getIdToken()
-      const res = await fetch(`${API_URL}/api/media`, {
+      const res = await fetch(apiPath('/api/media'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -165,24 +164,17 @@ export function useUnifiedSearch() {
         signal: controller.signal,
       })
 
-      // Vercel sometimes returns HTML error pages (504/500) instead of JSON —
-      // never throw a raw JSON parse error to the UI.
-      const rawText = await res.text()
       let data
       try {
-        data = JSON.parse(rawText)
-      } catch {
+        data = await parseJsonResponse(res)
+      } catch (parseErr) {
         if (res.status === 504) {
           throw new Error('Search timed out — providers are slow. Try a more specific query or another layer.')
         }
         if (res.status === 429) {
           throw new Error('Too many searches — wait a moment and try again.')
         }
-        throw new Error(
-          res.status >= 500
-            ? 'Server error — please try again in a moment'
-            : `Search failed (HTTP ${res.status})`
-        )
+        throw parseErr
       }
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
       // Treat soft errors (e.g. YouTube key missing) as non-fatal if results exist

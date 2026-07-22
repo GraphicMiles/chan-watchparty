@@ -98,7 +98,7 @@ export function useO2TvNative() {
     try {
       if (isNative) {
         const authToken = user ? await user.getIdToken() : undefined;
-        const captchaSolverEndpoint = `${import.meta.env.VITE_API_URL || ''}/api/media`;
+        const captchaSolverEndpoint = apiPath('/api/media');
         const result = await O2TvPlugin.resolveEpisode({
           showName,
           showSlug,
