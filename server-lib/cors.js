@@ -6,7 +6,7 @@
  * If unset, falls back to `*` for backward compatibility.
  */
 
-const LOCAL_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
+const LOCAL_RE = /^(https?|capacitor|ionic):\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
 
 function allowlist() {
   if (!process.env.ALLOWED_ORIGINS) return null // null = allow all

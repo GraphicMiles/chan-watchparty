@@ -19,7 +19,10 @@ const PORT = process.env.PORT || 3000
 app.use(express.json({ limit: '10mb' }))
 
 // API routes
-app.post('/api/media', async (req, res) => {
+// Use app.all so Android/Capacitor CORS preflight OPTIONS requests reach
+// the API handlers. Cross-origin JSON requests with Authorization headers
+// will fail as "Failed to fetch" if OPTIONS is not handled here.
+app.all('/api/media', async (req, res) => {
   try {
     await mediaHandler(req, res)
   } catch (err) {
@@ -28,7 +31,7 @@ app.post('/api/media', async (req, res) => {
   }
 })
 
-app.post('/api/room', async (req, res) => {
+app.all('/api/room', async (req, res) => {
   try {
     await roomHandler(req, res)
   } catch (err) {
