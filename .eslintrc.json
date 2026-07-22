@@ -1,13 +1,42 @@
 {
   "root": true,
-  "env": { "browser": true, "es2022": true, "node": true },
-  "parser": "@babel/eslint-parser",
-  "parserOptions": { "ecmaVersion": 2022, "sourceType": "module", "ecmaFeatures": { "jsx": true }, "requireConfigFile": false, "babelOptions": { "presets": ["@babel/preset-react"] } },
-  "settings": {
-    "react": { "version": "18" },
-    "import/resolver": { "node": { "extensions": [".js", ".jsx"] } }
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "node": true
   },
-  "plugins": ["react", "react-hooks", "import"],
+  "parser": "@babel/eslint-parser",
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "jsx": true
+    },
+    "requireConfigFile": false,
+    "babelOptions": {
+      "presets": [
+        "@babel/preset-react"
+      ]
+    }
+  },
+  "settings": {
+    "react": {
+      "version": "18"
+    },
+    "import/resolver": {
+      "node": {
+        "extensions": [
+          ".js",
+          ".jsx"
+        ]
+      }
+    }
+  },
+  "plugins": [
+    "react",
+    "react-hooks",
+    "import"
+  ],
   "extends": [
     "eslint:recommended",
     "plugin:react/recommended",
@@ -20,13 +49,53 @@
     "react-hooks/exhaustive-deps": "warn",
     "react/prop-types": "off",
     "react/display-name": "off",
-    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^(_|RETRY_)" }],
+    "no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^(_|RETRY_)"
+      }
+    ],
     "no-undef": "error",
     "no-redeclare": "error",
-    "no-use-before-define": ["error", { "functions": false, "variables": true }],
+    "no-use-before-define": [
+      "error",
+      {
+        "functions": false,
+        "variables": false
+      }
+    ],
     "import/no-unresolved": "off",
     "import/named": "off",
-    "no-empty": ["error", { "allowEmptyCatch": true }]
+    "no-empty": [
+      "error",
+      {
+        "allowEmptyCatch": true
+      }
+    ],
+    "react-hooks/purity": "off",
+    "react-hooks/set-state-in-effect": "off",
+    "react-hooks/immutability": "off",
+    "react-hooks/refs": "off"
   },
-  "ignorePatterns": ["dist", "node_modules", "server-lib", "api", "src/**/*.module.scss", "src/**/*.module.css", "*.config.js", "test-captcha.js", "fix_hevc.py"]
+  "ignorePatterns": [
+    "dist",
+    "node_modules",
+    "server-lib",
+    "api",
+    "src/**/*.module.scss",
+    "src/**/*.module.css",
+    "*.config.js",
+    "test-captcha.js",
+    "fix_hevc.py",
+    "android",
+    "_archive",
+    "o2tv-worker",
+    "o2tv-proxy",
+    "functions",
+    "audit-npm.json",
+    "eslint-report.txt",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ]
 }

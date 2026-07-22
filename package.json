@@ -12,12 +12,12 @@
     "android:build": "npm run build && npx cap sync android",
     "android:open": "npx cap open android",
     "android:run": "npm run android:build && npx cap run android",
-    "android:studio": "npx cap open android"
+    "android:studio": "npx cap open android",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.2",
     "@capacitor/app": "^8.1.1",
-    "@capacitor/cli": "^7.6.8",
     "@capacitor/core": "^8.4.2",
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/keyboard": "^8.0.5",
@@ -35,7 +35,7 @@
     "firebase-admin": "^12.0.0",
     "hls.js": "^1.5.0",
     "jsonwebtoken": "^9.0.0",
-    "livekit-client": "^2.5.0",
+    "livekit-client": "^2.20.2",
     "lucide-react": "^0.478.0",
     "qrcode": "^1.5.0",
     "react": "^18.2.0",
@@ -43,16 +43,26 @@
     "react-player": "^2.13.0",
     "react-router-dom": "^6.20.0",
     "react-toastify": "^9.1.3",
-    "uuid": "^9.0.0"
+    "uuid": "^11.1.1"
   },
   "devDependencies": {
+    "@babel/eslint-parser": "^7.29.7",
+    "@babel/preset-react": "^7.29.7",
+    "@capacitor/cli": "^8.4.2",
     "@sparticuz/chromium": "^147.0.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
+    "eslint": "^8.57.1",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "puppeteer": "^24.43.1",
     "puppeteer-core": "^24.43.1",
     "sass": "^1.69.0",
     "vite": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   }
 }

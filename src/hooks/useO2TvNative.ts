@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { isPlatform } from '@ionic/react';
+import { Capacitor } from '@capacitor/core';
 import { O2TvPlugin, Show, Season, Episode } from '../native/O2TvPlugin';
 
 /**
@@ -9,7 +9,7 @@ export function useO2TvNative() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isNative = isPlatform('android') || isPlatform('ios');
+  const isNative = Capacitor.isNativePlatform();
 
   const search = useCallback(async (query: string): Promise<Show[]> => {
     setLoading(true);
