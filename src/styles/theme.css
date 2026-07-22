@@ -1,7 +1,6 @@
 :root {
   /* ================================================================
-     SPACING SCALE (4px base — use ONLY these values)
-     4, 8, 12, 16, 20, 24, 32, 40, 48, 64
+     SPACING SCALE (4px base)
      ================================================================ */
   --s-1: 4px;
   --s-2: 8px;
@@ -15,56 +14,99 @@
   --s-16: 64px;
 
   /* ================================================================
-     LIGHT THEME (landing / home / discover)
+     LIME/DARK THEME (app-wide)
      ================================================================ */
-  --bg-light: #F3F4F1;
-  --bg-grid-line: #E7E8E4;
-  --surface-white: #FFFFFF;
-  --text-black: #111111;
-  --text-body-grey: #6B7069;
-  --text-muted-grey: #8B8F87;
-  --brand-green: #1F7A5C;
-  --accent-orange: #FF6A2B;
-  --pill-black: #111111;
-  --pill-black-text: #FFFFFF;
-  --live-red: #EA3323;
-  --border-hairline: #E7E8E4;
+  --bg: #0A0908;
+  --bg-light: #0A0908;
+  --bg-grid-line: #1D1B16;
+  --surface-white: #1D1B16;
+  --surface-light: #26231C;
+  --bg-base: #0A0908;
+  --bg-surface: #1D1B16;
+
+  --text-black: #F2EFE6;
+  --text-body-grey: #A8A296;
+  --text-muted-grey: #6E695C;
+  --text-primary: #F2EFE6;
+  --text-secondary: #A8A296;
+  --text-muted: #6E695C;
+
+  --brand-green: #C6FF33;
+  --accent: #C6FF33;
+  --accent-orange: #C6FF33;
+  --accent-hover: #b8ef25;
+  --accent-muted: rgba(198, 255, 51, 0.12);
+
+  --pill-black: #C6FF33;
+  --pill-black-text: #0A0908;
+  --text-on-accent: #0A0908;
+
+  --live-red: #FF5C3E;
+  --danger: #FF5C3E;
+  --danger-hover: #e84d2e;
+  --danger-muted: rgba(255, 92, 62, 0.12);
+  --text-on-danger: #FFFFFF;
+
+  --border-hairline: #38352B;
+  --border: #38352B;
+  --border-strong: #38352B;
+  --border-focus: #C6FF33;
+
+  --success: #C6FF33;
+  --success-muted: rgba(198, 255, 51, 0.12);
+  --text-on-success: #0A0908;
+
+  --warning: #F2B200;
+  --warning-muted: rgba(242, 178, 0, 0.12);
+  --text-on-warning: #0A0908;
+
+  /* Purple accent (secondary) */
+  --purple: #7D39EB;
+  --purple-soft: #B79CF2;
+  --purple-glow: rgba(125, 57, 235, 0.15);
 
   /* ================================================================
-     DARK THEME (in-room view)
+     DARK THEME (in-room view) - aliases for compatibility
      ================================================================ */
-  --room-bg: #0B0B0C;
-  --room-surface: #17181A;
-  --room-surface-raised: #1E1F22;
-  --room-avatar-bg: #2A2B2E;
-  --room-text-primary: #FFFFFF;
-  --room-text-secondary: #9A9C9F;
-  --room-divider: #232426;
-  --room-danger: #E4463A;
-  --room-danger-bg: rgba(228, 70, 58, 0.12);
-  --pulse-red-core: #FF3B30;
-  --pulse-red-ring: rgba(255, 59, 48, 0.15);
+  --room-bg: #0A0908;
+  --room-surface: #1D1B16;
+  --room-surface-raised: #26231C;
+  --room-avatar-bg: #2E2A20;
+  --room-text-primary: #F2EFE6;
+  --room-text-secondary: #A8A296;
+  --room-divider: #38352B;
+  --room-danger: #FF5C3E;
+  --room-danger-bg: rgba(255, 92, 62, 0.12);
+  --pulse-red-core: #FF5C3E;
+  --pulse-red-ring: rgba(255, 92, 62, 0.15);
 
   /* ================================================================
-     SHAPE — single radius system (don't mix)
+     SHAPE — single radius system
      ================================================================ */
   --radius-pill: 999px;
-  --radius-card: 16px;
-  --radius-sm: 8px;
+  --radius-card: 10px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
 
   /* ================================================================
      TYPOGRAPHY
      ================================================================ */
   --font-display: 'Space Grotesk', system-ui, sans-serif;
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
 
   /* ================================================================
-     SHADOWS — removed as requested for crisp flat design
+     SHADOWS — flat design, no shadows
      ================================================================ */
   --shadow-card: none;
   --shadow-card-hover: none;
   --shadow-pill: none;
   --shadow-nav: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
 
   /* ================================================================
      TOUCH TARGETS
@@ -75,43 +117,37 @@
   --btn-height-lg: 48px;
 
   /* ================================================================
-     LEGACY ALIASES
+     GRADIENTS & GLOWS (disabled for flat design)
      ================================================================ */
-  --accent: var(--accent-orange);
-  --danger: var(--live-red);
-  --bg-base: var(--bg-light);
-  --bg-surface: var(--surface-white);
-  --text-primary: var(--text-black);
-  --text-secondary: var(--text-body-grey);
-  --text-muted: var(--text-muted-grey);
-  --border: var(--border-hairline);
-  --border-strong: var(--border-hairline);
-  --accent-muted: rgba(255, 106, 43, 0.1);
-  --danger-muted: rgba(234, 51, 35, 0.08);
-  --success: #1F7A5C;
-  --success-muted: rgba(31, 122, 92, 0.08);
-  --warning: #F2B200;
-  --warning-muted: rgba(242, 178, 0, 0.1);
-  --accent-hover: #e85e22;
-  --danger-hover: #d42d1e;
-  --text-on-accent: #FFFFFF;
-  --text-on-danger: #FFFFFF;
-  --text-on-success: #FFFFFF;
-  --text-on-warning: #111111;
-  --border-focus: var(--text-black);
-  --shadow-sm: none;
-  --shadow-md: none;
-  --shadow-lg: none;
-  --radius-md: 16px;
-  --radius-lg: 16px;
-  --radius-full: 999px;
   --gradient-cta: none;
   --inner-glow: none;
   --glow-ember-sm: none;
   --glow-drift-sm: none;
   --glow-ember: none;
   --glow-drift: none;
+
+  /* ================================================================
+     SPACE ALIASES
+     ================================================================ */
   --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
   --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
   --space-12: 48px; --space-16: 64px;
+}
+
+/* Room theme - now same as default (dark) */
+body.room-theme {
+  background: var(--room-bg);
+  color: var(--room-text-primary);
+}
+
+body.room-theme::before {
+  display: none;
+}
+
+.room-theme ::-webkit-scrollbar-thumb {
+  background: rgba(242, 239, 230, 0.15);
+}
+
+.room-theme ::-webkit-scrollbar-thumb:hover {
+  background: rgba(242, 239, 230, 0.25);
 }
