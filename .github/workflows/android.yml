@@ -49,6 +49,8 @@ jobs:
         run: npm ci
 
       - name: Build web assets
+        env:
+          VITE_API_URL: https://chan-aunk.onrender.com
         run: npm run build
 
       - name: Sync Capacitor Android
@@ -70,8 +72,6 @@ jobs:
 
       - name: Build Debug APK
         working-directory: android
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Show generated APK files
