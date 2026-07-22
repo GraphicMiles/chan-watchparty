@@ -19,6 +19,7 @@ import { resolveNsfwVideoUrl, isNsfwProviderUrl } from '../server-lib/nsfwResolv
 
 const ALLOWED_ACTIONS = [
   'search',
+  'scrape',
   'o2tvSeasons',
   'o2tvEpisodes',
   'o2tvResolve',
@@ -28,8 +29,25 @@ const ALLOWED_ACTIONS = [
 
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY
 const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
 // ─── Helpers ───
+
+async function fetchPage(url, timeoutMs = 8000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml' },
+      redirect: 'follow',
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return await res.text()
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 async function requireUser(req) {
   const auth = req.headers?.authorization || ''
@@ -525,6 +543,168 @@ export default async function handler(req, res) {
         episodeNum: body.episodeNum ?? options.episodeNum,
         thumbnail: body.thumbnail || options.thumbnail,
       }))
+    }
+
+    // ─── Scrape (resolve a URL to a playable video) ───
+    if (action === 'scrape') {
+      const scrapeUrl = body.url || ''
+      if (!scrapeUrl) return fail(res, 400, 'URL required')
+      const scrapeSite = body.site || ''
+      const scrapeOptions = body.options || {}
+
+      // Direct video URL
+      if (/\.(mp4|m3u8|webm|mkv|avi|mov|flv|ts)(\?|#|$)/i.test(scrapeUrl)) {
+        const proxied = toProxiedUrl(scrapeUrl)
+        let title = 'Video'
+        try { title = decodeURIComponent(new URL(scrapeUrl).pathname.split('/').pop() || 'Video') } catch {}
+        return ok(res, {
+          results: [{
+            title: title.replace(/\.(mp4|m3u8|webm|mkv|avi|mov|flv|ts)$/i, ''),
+            url: proxied,
+            link: proxied,
+            isDirect: true,
+            playableInRoom: true,
+            source: 'direct',
+            type: 'direct',
+          }],
+          count: 1,
+          directCount: 1,
+          resolved: true,
+        })
+      }
+
+      // O2TV / tvshows4mobile URL
+      if (/tvshows4mobile|o2tvseries|o2tv\.org/i.test(scrapeUrl)) {
+        try {
+          // Try to parse as an episode URL
+          const urlParts = scrapeUrl.split('/')
+          const seasonMatch = urlParts.find(p => /Season-\d+/i.test(p))
+          const episodeMatch = urlParts.find(p => /Episode-\d+/i.test(p))
+
+          if (seasonMatch && episodeMatch) {
+            // It's an episode page — resolve it
+            const seasonNum = parseInt(seasonMatch.match(/(\d+)/)[1], 10)
+            const epNum = parseInt(episodeMatch.match(/(\d+)/)[1], 10)
+            const slugIdx = urlParts.findIndex(p => /tvshows4mobile|o2tvseries/i.test(p))
+            const showSlug = urlParts[slugIdx + 1] || ''
+
+            const resolved = await resolveO2TvEpisode(showSlug, showSlug, seasonNum, epNum)
+            if (resolved?.url) {
+              return ok(res, {
+                results: [{ ...resolved, source: 'o2tv', type: 'direct' }],
+                count: 1,
+                directCount: 1,
+                resolved: true,
+              })
+            }
+          }
+
+          // If not a specific episode, try to scrape the page for download links
+          const html = await fetchPage(scrapeUrl)
+          const downloadIds = []
+          const idRegex = /\/download\/(\d+)/g
+          let m
+          while ((m = idRegex.exec(html)) !== null) {
+            if (!downloadIds.includes(m[1])) downloadIds.push(m[1])
+          }
+
+          if (downloadIds.length > 0) {
+            try {
+              const { resolveViaCaptcha } = await import('../server-lib/o2tvCaptcha.js')
+              const cdnUrl = await resolveViaCaptcha(scrapeUrl)
+              if (cdnUrl) {
+                const proxied = toProxiedUrl(cdnUrl, { referer: 'http://d6.o2tv.org/' })
+                return ok(res, {
+                  results: [{
+                    title: 'Video',
+                    url: proxied,
+                    link: proxied,
+                    isDirect: true,
+                    playableInRoom: true,
+                    source: 'o2tv',
+                    type: 'direct',
+                  }],
+                  count: 1,
+                  directCount: 1,
+                  resolved: true,
+                })
+              }
+            } catch (err) {
+              console.error('Scrape captcha resolve failed:', err.message)
+            }
+          }
+
+          return ok(res, { results: [], count: 0, directCount: 0, resolved: false, error: 'Could not resolve video from this page' })
+        } catch (err) {
+          console.error('Scrape O2TV failed:', err.message)
+          return fail(res, 500, err.message)
+        }
+      }
+
+      // NSFW provider URL
+      if (isNsfwProviderUrl(scrapeUrl)) {
+        try {
+          const resolved = await resolveNsfwVideoUrl(scrapeUrl)
+          if (resolved?.videoUrl) {
+            const referer = resolved.referer || scrapeUrl
+            const proxied = toProxiedUrl(resolved.videoUrl, { referer })
+            return ok(res, {
+              results: [{
+                title: 'Video',
+                url: proxied,
+                link: proxied,
+                isDirect: true,
+                playableInRoom: true,
+                source: resolved.source || 'nsfw',
+                type: 'nsfw',
+                quality: resolved.quality,
+              }],
+              count: 1,
+              directCount: 1,
+              resolved: true,
+            })
+          }
+        } catch (err) {
+          console.error('Scrape NSFW failed:', err.message)
+        }
+        return ok(res, { results: [], count: 0, directCount: 0, resolved: false })
+      }
+
+      // Unknown URL — try to extract any video links from the page
+      try {
+        const html = await fetchPage(scrapeUrl)
+        const videoUrls = []
+        const videoRegex = /https?:\/\/[^"'\s<>]+\.(mp4|m3u8|webm|mkv)[^"'\s<>]*/gi
+        let vm
+        while ((vm = videoRegex.exec(html)) !== null) {
+          const url = vm[0].replace(/&amp;/g, '&')
+          if (!videoUrls.includes(url)) videoUrls.push(url)
+        }
+
+        if (videoUrls.length > 0) {
+          return ok(res, {
+            results: videoUrls.map(url => {
+              const proxied = toProxiedUrl(url)
+              let title = 'Video'
+              try { title = decodeURIComponent(new URL(url).pathname.split('/').pop() || 'Video') } catch {}
+              return {
+                title: title.replace(/\.(mp4|m3u8|webm|mkv)$/i, ''),
+                url: proxied,
+                link: proxied,
+                isDirect: true,
+                playableInRoom: true,
+                source: scrapeSite || 'direct',
+                type: 'direct',
+              }
+            }),
+            count: videoUrls.length,
+            directCount: videoUrls.length,
+            resolved: true,
+          })
+        }
+      } catch { /* */ }
+
+      return ok(res, { results: [], count: 0, directCount: 0, resolved: false })
     }
 
     // ─── Search (all other actions) ───

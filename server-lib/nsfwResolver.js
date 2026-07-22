@@ -17,7 +17,6 @@
  */
 
 import * as cheerio from 'cheerio'
-import { isBrowserAvailable, resolveWithBrowser } from './browser.js'
 
 const RESOLVE_TIMEOUT_MS = 8000
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
@@ -645,95 +644,8 @@ async function resolvePornhub(pageUrl) {
     }
   }
 
-  // Strategy 8: optional headless browser — some PH pages only attach streams
-  // after player JS / "continue" click. Disabled on Vercel Hobby unless chromium
-  // is bundled; local/dev can unlock more videos.
-  if (isBrowserAvailable()) {
-    try {
-      const browserHits = await resolveWithBrowser(pageUrl, {
-        timeout: 18000,
-        countdownSeconds: 4,
-        waitForSelector: 'video, video source, .mgp_videoWrapper, #player',
-        extractFn: async (page) => {
-          // Try clicking common continue / age / play affordances (best-effort)
-          try {
-            await page.evaluate(() => {
-              const candidates = [
-                ...document.querySelectorAll('button, a, .mgp_play, .playButton, [data-title="Play"]'),
-              ]
-              for (const el of candidates) {
-                const t = `${el.textContent || ''} ${el.getAttribute?.('aria-label') || ''}`.toLowerCase()
-                if (/play|continue|watch|accept|i am|enter|yes|18\+/.test(t)) {
-                  try { el.click() } catch { /* */ }
-                }
-              }
-              const v = document.querySelector('video')
-              if (v) {
-                try { v.muted = true; v.play?.() } catch { /* */ }
-              }
-            })
-            await new Promise((r) => setTimeout(r, 2500))
-          } catch { /* */ }
-
-          return page.evaluate(() => {
-            const out = []
-            const push = (u, quality, format) => {
-              if (!u || typeof u !== 'string') return
-              let url = u
-              if (url.startsWith('//')) url = 'https:' + url
-              if (!/^https?:\/\//i.test(url)) return
-              if (/get_media/i.test(url) && !/\.(mp4|m3u8)/i.test(url)) return
-              out.push({ videoUrl: url, url, quality, format })
-            }
-            document.querySelectorAll('video source, video').forEach((el) => {
-              push(el.src || el.getAttribute('src'), null, /\.m3u8/i.test(el.src || '') ? 'hls' : 'mp4')
-            })
-            // Scan performance entries for media requests fired by the player
-            try {
-              const entries = performance.getEntriesByType('resource') || []
-              for (const e of entries) {
-                if (/\.(m3u8|mp4)(\?|#|$)/i.test(e.name)) {
-                  push(e.name, null, /\.m3u8/i.test(e.name) ? 'hls' : 'mp4')
-                }
-              }
-            } catch { /* */ }
-            // mediaDefinitions in page JS after hydrate
-            try {
-              const html = document.documentElement.innerHTML
-              const m = html.match(/"mediaDefinitions"\s*:\s*(\[[\s\S]*?\])\s*[,}]/)
-              if (m?.[1]) {
-                const defs = JSON.parse(m[1])
-                if (Array.isArray(defs)) {
-                  for (const d of defs) {
-                    push(d.videoUrl || d.url, d.quality, d.format)
-                  }
-                }
-              }
-            } catch { /* */ }
-            return out
-          })
-        },
-      })
-      if (Array.isArray(browserHits) && browserHits.length) {
-        // Expand any remaining remote get_media
-        const expanded = await expandRemoteDefinitions(browserHits, pageUrl)
-        const best = pickBestDefinition(expanded.length ? expanded : browserHits)
-        if (best?.videoUrl) {
-          return {
-            videoUrl: best.videoUrl,
-            type: best.type || 'mp4',
-            source: 'pornhub',
-            quality: best.quality,
-            referer: 'https://www.pornhub.com/',
-            seekable: best.seekable,
-            viaBrowser: true,
-          }
-        }
-      }
-    } catch (err) {
-      console.error('PornHub browser unlock failed:', err.message)
-    }
-  }
+  // Strategy 8: browser-based unlock removed (Puppeteer not available on Vercel)
+  // Strategies 1-7 handle the vast majority of PornHub videos via HTML parsing
 
   throw new Error('Could not extract video URL from PornHub page — stream may require browser JS unlock')
 }
