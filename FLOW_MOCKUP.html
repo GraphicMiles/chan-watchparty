@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chan — App Flow</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #14130F;
+    --surface: #1D1B16;
+    --surface-2: #26231C;
+    --surface-3: #2E2A20;
+    --line: #38352B;
+    --text: #F2EFE6;
+    --text-dim: #A8A296;
+    --text-faint: #6E695C;
+    --accent: #C6FF33;
+    --accent-glow: rgba(198,255,51,0.12);
+    --accent-soft: rgba(198,255,51,0.06);
+    --purple: #7D39EB;
+    --purple-glow: rgba(125,57,235,0.15);
+    --danger: #FF5C3E;
+    --danger-glow: rgba(255,92,62,0.12);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { background: #0A0908; color: var(--text); font-family: 'Inter', sans-serif; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  svg { flex-shrink: 0; }
+  svg * { vector-effect: non-scaling-stroke; }
+
+  .icon { width: 16px; height: 16px; }
+  .icon-lg { width: 24px; height: 24px; }
+  .icon-xl { width: 32px; height: 32px; }
+
+  .page { padding: 48px 24px; max-width: 1080px; margin: 0 auto; }
+  @media (max-width: 600px) { .page { padding: 32px 16px; } }
+
+  .step-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 6px;
+  }
+  .step-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: clamp(22px, 3vw, 28px);
+    margin-bottom: 6px;
+    letter-spacing: -0.5px;
+  }
+  .step-desc {
+    color: var(--text-dim);
+    font-size: 14px;
+    margin-bottom: 28px;
+    max-width: 560px;
+    line-height: 1.6;
+  }
+
+  .flow-arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 24px;
+    text-align: center;
+  }
+  .flow-arrow .line {
+    width: 1px;
+    height: 32px;
+    background: linear-gradient(var(--line), var(--text-faint));
+    margin-bottom: 10px;
+  }
+  .flow-arrow .action {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 3px;
+  }
+  .flow-arrow .why {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-faint);
+    max-width: 380px;
+    line-height: 1.5;
+  }
+
+  .btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-weight: 600;
+    padding: 10px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid transparent;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .btn-accent { background: var(--accent); color: #14130F; }
+  .btn-accent:hover { box-shadow: 0 0 0 4px var(--accent-glow); }
+  .btn-outline { background: transparent; border-color: var(--line); color: var(--text-dim); }
+  .btn-outline:hover { border-color: var(--text-faint); color: var(--text); }
+  .btn-block { width: 100%; justify-content: center; }
+  .btn-sm { padding: 7px 12px; font-size: 9px; }
+
+  .badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid transparent;
+    font-weight: 500;
+  }
+  .badge-accent { background: var(--accent-soft); color: var(--accent); border-color: rgba(198,255,51,0.2); }
+  .badge-purple { background: var(--purple-glow); color: #B79CF2; border-color: rgba(125,57,235,0.3); }
+  .badge-faint { background: var(--surface-2); color: var(--text-faint); border-color: var(--line); }
+  .badge-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .badge-pulse .badge-dot { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+
+  /* ── Media Type Cards ─── */
+  .media-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 700px) { .media-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; } }
+
+  .media-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 20px 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .media-card:hover { border-color: var(--text-faint); }
+  .media-card.active { border-color: var(--accent); background: var(--accent-soft); }
+  .media-card .mc-icon {
+    width: 40px; height: 40px;
+    margin: 0 auto 10px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface-2);
+    border-radius: 8px;
+    color: var(--text-dim);
+    transition: all 0.15s;
+  }
+  .media-card.active .mc-icon { background: rgba(198,255,51,0.1); color: var(--accent); }
+  .media-card .mc-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 3px;
+  }
+  .media-card .mc-provider {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: var(--text-faint);
+    letter-spacing: 0.3px;
+  }
+
+  /* ─── Search Bar ─── */
+  .search-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 32px;
+    max-width: 580px;
+  }
+  .search-input {
+    flex: 1;
+    padding: 11px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .search-input:focus { border-color: var(--text-faint); }
+  .search-input::placeholder { color: var(--text-faint); }
+
+  /* ─── Result Cards ─── */
+  .results-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 520px) { .results-grid { grid-template-columns: 1fr; } }
+
+  .result-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .result-card:hover { border-color: var(--text-faint); transform: translateY(-2px); }
+  .result-thumb {
+    aspect-ratio: 16/9;
+    background: linear-gradient(135deg, var(--surface-2), var(--surface-3));
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .result-thumb .play-btn {
+    width: 36px; height: 36px;
+    background: rgba(242,239,230,0.08);
+    border: 1px solid rgba(242,239,230,0.15);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim);
+    transition: all 0.15s;
+  }
+  .result-card:hover .play-btn { background: rgba(198,255,51,0.15); border-color: rgba(198,255,51,0.3); color: var(--accent); }
+  .result-thumb .q-badge {
+    position: absolute;
+    top: 8px; right: 8px;
+    font-family: 'IBM Plex Mono';
+    font-size: 9px;
+    background: rgba(10,9,8,0.8);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-weight: 500;
+  }
+  .result-info { padding: 12px; }
+  .result-info .r-title {
+    font-family: 'Space Grotesk';
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .result-info .r-meta {
+    font-family: 'IBM Plex Mono';
+    font-size: 10px;
+    color: var(--text-faint);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ─── Episodes Grid ─── */
+  .episodes-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+  }
+  .episodes-header h3 {
+    font-family: 'Space Grotesk';
+    font-weight: 700;
+    font-size: 17px;
+  }
+  .episodes-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 40px;
+  }
+  .episode-card {
+    width: calc(25% - 7.5px);
+    min-width: 140px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .episode-card:hover { border-color: var(--text-faint); transform: translateY(-2px); }
+  @media (max-width: 700px) { .episode-card { width: calc(50% - 5px); min-width: 0; } }
+  @media (max-width: 420px) { .episode-card { width: 100%; } }
+
+  .episode-thumb {
+    aspect-ratio: 16/9;
+    background: linear-gradient(135deg, var(--surface-2), var(--surface-3));
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .episode-thumb .ep-num {
+    position: absolute;
+    top: 8px; left: 8px;
+    font-family: 'IBM Plex Mono';
+    font-size: 9px;
+    font-weight: 500;
+    background: rgba(10,9,8,0.8);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--text-dim);
+  }
+  .episode-thumb .ep-play {
+    width: 32px; height: 32px;
+    background: rgba(242,239,230,0.06);
+    border: 1px solid rgba(242,239,230,0.12);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim);
+    transition: all 0.15s;
+  }
+  .episode-card:hover .ep-play { background: rgba(198,255,51,0.15); border-color: rgba(198,255,51,0.3); color: var(--accent); }
+  .episode-thumb .ep-dur {
+    position: absolute;
+    bottom: 8px; right: 8px;
+    font-family: 'IBM Plex Mono';
+    font-size: 9px;
+    background: rgba(10,9,8,0.8);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-weight: 500;
+  }
+  .episode-info { padding: 10px 12px; }
+  .episode-info .e-title {
+    font-family: 'Space Grotesk';
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 2px;
+  }
+  .episode-info .e-meta {
+    font-family: 'IBM Plex Mono';
+    font-size: 10px;
+    color: var(--text-faint);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ─── Create Room ─── */
+  .create-section {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 500px) { .create-section { padding: 16px; } }
+
+  .create-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .create-header h3 {
+    font-family: 'Space Grotesk';
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .video-summary {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 500px) { .video-summary { flex-direction: column; gap: 14px; } }
+
+  .video-poster {
+    width: 120px;
+    height: 170px;
+    background: linear-gradient(135deg, var(--surface-2), var(--surface-3));
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 1px solid var(--line);
+    color: var(--text-faint);
+  }
+  @media (max-width: 500px) { .video-poster { width: 100%; height: 140px; } }
+
+  .video-details { flex: 1; min-width: 0; }
+  .video-details .vd-title {
+    font-family: 'Space Grotesk';
+    font-weight: 700;
+    font-size: 18px;
+    margin-bottom: 10px;
+    letter-spacing: -0.3px;
+  }
+  .video-details .vd-row {
+    font-family: 'IBM Plex Mono';
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 5px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .video-details .vd-label {
+    color: var(--text-faint);
+    min-width: 64px;
+    flex-shrink: 0;
+  }
+  .video-details .vd-value {
+    color: var(--text-dim);
+    word-break: break-all;
+  }
+  .room-inputs {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .room-inputs input {
+    flex: 1;
+    min-width: 200px;
+    padding: 11px 14px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .room-inputs input:focus { border-color: var(--text-faint); }
+
+  /* ── Resolving ─── */
+  .resolving-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 40px 24px;
+    text-align: center;
+    max-width: 380px;
+    margin: 0 auto 40px;
+  }
+  .spinner {
+    width: 28px; height: 28px;
+    border: 2px solid var(--line);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin: 0 auto 14px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .resolving-card .r-label {
+    font-family: 'Space Grotesk';
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  .resolving-card .r-sub {
+    font-family: 'IBM Plex Mono';
+    font-size: 10px;
+    color: var(--text-faint);
+  }
+
+  /* ─── Player ─── */
+  .player-container {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 40px;
+  }
+  .player-screen {
+    aspect-ratio: 16/9;
+    background: linear-gradient(135deg, #1a1a18, #0d0d0c);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    position: relative;
+  }
+  .player-screen .ps-title {
+    font-family: 'Space Grotesk';
+    font-weight: 700;
+    font-size: clamp(18px, 3vw, 24px);
+    letter-spacing: -0.3px;
+  }
+  .player-screen .ps-sub {
+    font-family: 'IBM Plex Mono';
+    font-size: 11px;
+    color: var(--text-faint);
+    letter-spacing: 0.5px;
+  }
+  .big-play {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    margin-top: 10px;
+    border: none;
+  }
+  .big-play:hover { transform: scale(1.08); box-shadow: 0 0 0 6px var(--accent-glow); }
+  .player-controls {
+    padding: 32px 16px 12px;
+    background: linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0.5) 70%, transparent);
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+  }
+  .progress-bar {
+    width: 100%;
+    height: 3px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 2px;
+    margin-bottom: 10px;
+    cursor: pointer;
+  }
+  .progress-bar:hover { height: 5px; }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    width: 35%;
+  }
+  .controls-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .controls-left, .controls-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ctrl-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    padding: 4px;
+    opacity: 0.8;
+    transition: opacity 0.15s, color 0.15s;
+  }
+  .ctrl-btn:hover { opacity: 1; color: var(--text); }
+  .time-display {
+    font-family: 'IBM Plex Mono';
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  /* ─── Failed State ─── */
+  .failed-card {
+    background: var(--surface);
+    border: 1px solid rgba(255,92,62,0.3);
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 40px;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  @media (max-width: 500px) { .failed-card { flex-direction: column; gap: 12px; } }
+  .failed-card .f-icon {
+    width: 44px; height: 44px;
+    background: var(--danger-glow);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--danger);
+    flex-shrink: 0;
+  }
+  .failed-card .f-title {
+    font-family: 'Space Grotesk';
+    font-weight: 700;
+    font-size: 15px;
+    margin-bottom: 4px;
+    color: var(--danger);
+  }
+  .failed-card .f-desc {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin-bottom: 14px;
+  }
+  .failed-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  /* ─── Summary ─── */
+  .summary-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    font-family: 'IBM Plex Mono';
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .summary-item {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .summary-item .num {
+    font-weight: 600;
+    min-width: 20px;
+    color: var(--accent);
+  }
+  .summary-item.fail .num { color: var(--danger); }
+  .summary-item code {
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+</style>
+</head>
+<body>
+
+<!-- SVG Icon Sprite -->
+<svg style="position:absolute;width:0;height:0;overflow:hidden;" aria-hidden="true">
+  <symbol id="i-link" viewBox="0 0 24 24" fill="none"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24" fill="none"><polygon points="6,4 20,12 6,20" fill="currentColor"/></symbol>
+  <symbol id="i-tv" viewBox="0 0 24 24" fill="none"><rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="21" x2="16" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="12" y1="17" x2="12" y2="21" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="1.5"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.5"/><line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24" fill="none"><polyline points="9 18 15 12 9 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24" fill="none"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="2" stroke="currentColor" stroke-width="1.5"/><line x1="7" y1="2" x2="7" y2="22" stroke="currentColor" stroke-width="1.5"/><line x1="17" y1="2" x2="17" y2="22" stroke="currentColor" stroke-width="1.5"/><line x1="2" y1="12" x2="22" y2="12" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-skip-back" viewBox="0 0 24 24" fill="none"><polygon points="19,20 9,12 19,4" fill="currentColor"/><line x1="5" y1="4" x2="5" y2="20" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-skip-fwd" viewBox="0 0 24 24" fill="none"><polygon points="5,4 15,12 5,20" fill="currentColor"/><line x1="19" y1="4" x2="19" y2="20" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-volume" viewBox="0 0 24 24" fill="none"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19" fill="currentColor"/><path d="M15.54 8.46a5 5 0 010 7.07" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-message" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="i-maximize" viewBox="0 0 24 24" fill="none"><polyline points="15,3 21,3 21,9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="9,21 3,21 3,15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="21" y1="3" x2="14" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="3" y1="21" x2="10" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+</svg>
+
+<!-- ═══════════════════════════════════════
+     STEP 1 — MEDIA TYPE SELECTOR
+     ═══════════════════════════════════════ -->
+<div class="page">
+  <div class="step-label">Step 1 — /media</div>
+  <div class="step-title">Choose Media Source</div>
+  <div class="step-desc">Four providers. Select one to begin searching.</div>
+
+  <div class="media-grid">
+    <div class="media-card active">
+      <div class="mc-icon"><svg class="icon-lg"><use href="#i-link"/></svg></div>
+      <div class="mc-title">Direct Links</div>
+      <div class="mc-provider">O2TV · tvshows4mobile</div>
+    </div>
+    <div class="media-card">
+      <div class="mc-icon"><svg class="icon-lg"><use href="#i-play"/></svg></div>
+      <div class="mc-title">YouTube</div>
+      <div class="mc-provider">YouTube Data API</div>
+    </div>
+    <div class="media-card">
+      <div class="mc-icon"><svg class="icon-lg"><use href="#i-tv"/></svg></div>
+      <div class="mc-title">IPTV</div>
+      <div class="mc-provider">Free-TV M3U</div>
+    </div>
+    <div class="media-card">
+      <div class="mc-icon"><svg class="icon-lg"><use href="#i-shield"/></svg></div>
+      <div class="mc-title">NSFW</div>
+      <div class="mc-provider">XVideos</div>
+    </div>
+  </div>
+</div>
+
+<div class="flow-arrow">
+  <div class="line"></div>
+  <div class="action">User selects "Direct Links"</div>
+  <div class="why">TV shows and movies from tvshows4mobile.org</div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     STEP 2 — SEARCH
+     ═══════════════════════════════════════ -->
+<div class="page">
+  <div class="step-label">Step 2 — Search</div>
+  <div class="step-title">Search TV Shows & Movies</div>
+  <div class="step-desc">Type a show name. Results come from O2TV's catalog.</div>
+
+  <div class="search-bar">
+    <input type="text" class="search-input" placeholder="Search for 'Silo', 'House of the Dragon'..." value="silo">
+    <button class="btn btn-accent">
+      <svg class="icon"><use href="#i-search"/></svg>
+      Search
+    </button>
+  </div>
+
+  <div style="font-family:'IBM Plex Mono';font-size:10px;color:var(--text-faint);line-height:1.6;">
+    POST /api/media { action: "search", layer: "direct", query: "silo" }
+  </div>
+</div>
+
+<div class="flow-arrow">
+  <div class="line"></div>
+  <div class="action">User types "silo" and taps Search</div>
+  <div class="why">Server probes tvshows4mobile.org/silo/ and returns matching shows</div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     STEP 3 — RESULTS
+     ═══════════════════════════════════════ -->
+<div class="page">
+  <div class="step-label">Step 3 — Results</div>
+  <div class="step-title">Search Results</div>
+  <div class="step-desc">Each card is a show. Tap to see episodes.</div>
+
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+    <span style="font-family:'Space Grotesk';font-weight:700;font-size:17px;">Silo</span>
+    <span class="badge badge-accent">O2TV</span>
+    <span class="badge badge-faint">3 seasons</span>
+  </div>
+
+  <div class="results-grid">
+    <div class="result-card">
+      <div class="result-thumb">
+        <div class="play-btn"><svg class="icon"><use href="#i-play"/></svg></div>
+        <div class="q-badge">HD</div>
+      </div>
+      <div class="result-info">
+        <div class="r-title">Silo</div>
+        <div class="r-meta">
+          <span>O2TV</span>
+          <span>·</span>
+          <span>3 seasons</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="result-card">
+      <div class="result-thumb">
+        <div class="play-btn"><svg class="icon"><use href="#i-play"/></svg></div>
+        <div class="q-badge">HD</div>
+      </div>
+      <div class="result-info">
+        <div class="r-title">House of the Dragon</div>
+        <div class="r-meta">
+          <span>O2TV</span>
+          <span>·</span>
+          <span>2 seasons</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="result-card">
+      <div class="result-thumb">
+        <div class="play-btn"><svg class="icon"><use href="#i-play"/></svg></div>
+        <div class="q-badge">HD</div>
+      </div>
+      <div class="result-info">
+        <div class="r-title">The Last of Us</div>
+        <div class="r-meta">
+          <span>O2TV</span>
+          <span>·</span>
+          <span>2 seasons</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="flow-arrow">
+  <div class="line"></div>
+  <div class="action">User taps the "Silo" card</div>
+  <div class="why">It's a TV show with seasons → fetch and display episodes grid</div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     STEP 4 — EPISODES GRID
+     ═══════════════════════════════════════ -->
+<div class="page">
+  <div class="step-label">Step 4 — Episodes</div>
+  <div class="step-title">Silo — Season 1</div>
+  <div class="step-desc">4-column grid on desktop, 2 on tablet, 1 on mobile. Flex-wrap responsive.</div>
+
+  <div class="episodes-header">
+    <h3>Season 1</h3>
+    <span class="badge badge-faint">10 episodes</span>
+    <span class="badge badge-accent">O2TV</span>
+  </div>
+
+  <div class="episodes-grid">
+    <div class="episode-card">
+      <div class="episode-thumb">
+        <span class="ep-num">E01</span>
+        <div class="ep-play"><svg class="icon"><use href="#i-play"/></svg></div>
+        <span class="ep-dur">52:14</span>
+      </div>
+      <div class="episode-info">
+        <div class="e-title">Episode 1</div>
+        <div class="e-meta">Freedom Day</div>
+      </div>
+    </div>
+
+    <div class="episode-card">
+      <div class="episode-thumb">
+        <span class="ep-num">E02</span>
+        <div class="ep-play"><svg class="icon"><use href="#i-play"/></svg></div>
+        <span class="ep-dur">48:32</span>
+      </div>
+      <div class="episode-info">
+        <div class="e-title">Episode 2</div>
+        <div class="e-meta">Safety Gear</div>
+      </div>
+    </div>
+
+    <div class="episode-card">
+      <div class="episode-thumb">
+        <span class="ep-num">E03</span>
+        <div class="ep-play"><svg class="icon"><use href="#i-play"/></svg></div>
+        <span class="ep-dur">55:08</span>
+      </div>
+      <div class="episode-info">
+        <div class="e-title">Episode 3</div>
+        <div class="e-meta">The Janitor's Boy</div>
+      </div>
+    </div>
+
+    <div class="episode-card">
+      <div class="episode-thumb">
+        <span class="ep-num">E04</span>
+        <div class="ep-play"><svg class="icon"><use href="#i-play"/></svg></div>
+        <span class="ep-dur">50:21</span>
+      </div>
+      <div class="episode-info">
+        <div class="e-title">Episode 4</div>
+        <div class="e-meta">Truth</div>
+      </div>
+    </div>
+
+    <div class="episode-card">
+      <div class="episode-thumb">
+        <span class="ep-num">E05</span>
+        <div class="ep-play"><svg class="icon"><use href="#i-play"/></svg></div>
+        <span class="ep-dur">47:55</span>
+      </div>
+      <div class="episode-info">
+        <div class="e-title">Episode 5</div>
+        <div class="e-meta">The Relic</div>
+      </div>
+    </div>
+
+    <div class="episode-card">
+      <div class="episode-thumb">
+        <span class="ep-num">E06</span>
+        <div class="ep-play"><svg class="icon"><use href="#i-play"/></svg></div>
+        <span class="ep-dur">53:40</span>
+      </div>
+      <div class="episode-info">
+        <div class="e-title">Episode 6</div>
+        <div class="e-meta">The Flame</div>
+      </div>
+    </div>
+
+    <div class="episode-card">
+      <div class="episode-thumb">
+        <span class="ep-num">E07</span>
+        <div class="ep-play"><svg class="icon"><use href="#i-play"/></svg></div>
+        <span class="ep-dur">49:18</span>
+      </div>
+      <div class="episode-info">
+        <div class="e-title">Episode 7</div>
+        <div class="e-meta">The Plot</div>
+      </div>
+    </div>
+
+    <div class="episode-card">
+      <div class="episode-thumb">
+        <span class="ep-num">E08</span>
+        <div class="ep-play"><svg class="icon"><use href="#i-play"/></svg></div>
+        <span class="ep-dur">51:03</span>
+      </div>
+      <div class="episode-info">
+        <div class="e-title">Episode 8</div>
+        <div class="e-meta">The Equation</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="font-family:'IBM Plex Mono';font-size:10px;color:var(--text-faint);line-height:1.6;">
+    POST /api/media { action: "o2tvEpisodes", showSlug: "silo", seasonNum: 1 }<br>
+    Tap E01 → navigate to /create with the episode page URL
+  </div>
+</div>
+
+<div class="flow-arrow">
+  <div class="line"></div>
+  <div class="action">User taps Episode 1</div>
+  <div class="why">Navigate to /create with tvshows4mobile.org/Silo/Season-01/Episode-01/</div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     STEP 5 — CREATE ROOM
+     ═══════════════════════════════════════ -->
+<div class="page">
+  <div class="step-label">Step 5 — /create</div>
+  <div class="step-title">Create Watch Party</div>
+  <div class="step-desc">Review episode details. Set room name. Tap "Create Room & Play".</div>
+
+  <div class="create-section">
+    <div class="create-header">
+      <h3>Room Setup</h3>
+      <span class="badge badge-purple badge-pulse"><span class="badge-dot"></span>Ready</span>
+    </div>
+
+    <div class="video-summary">
+      <div class="video-poster">
+        <svg class="icon-xl"><use href="#i-film"/></svg>
+      </div>
+      <div class="video-details">
+        <div class="vd-title">Silo — Season 1, Episode 1</div>
+        <div class="vd-row"><span class="vd-label">Source</span><span class="vd-value">O2TV (tvshows4mobile)</span></div>
+        <div class="vd-row"><span class="vd-label">Format</span><span class="vd-value">MKV · H.264 · AAC</span></div>
+        <div class="vd-row"><span class="vd-label">Quality</span><span class="vd-value">1080p · 4.2 GB</span></div>
+        <div class="vd-row"><span class="vd-label">Duration</span><span class="vd-value">52 min</span></div>
+        <div class="vd-row"><span class="vd-label">Page</span><span class="vd-value">tvshows4mobile.org/Silo/Season-01/Episode-01/</span></div>
+      </div>
+    </div>
+
+    <div class="room-inputs">
+      <input type="text" placeholder="Room name (optional)" value="Silo S01E01 — Watch Party">
+      <button class="btn btn-accent">Create Room & Play</button>
+    </div>
+  </div>
+
+  <div style="font-family:'IBM Plex Mono';font-size:10px;color:var(--text-faint);line-height:1.7;">
+    POST /api/media { action: "scrape", url: "..." }<br>
+    Server scrapes episode page → finds download links → solves captcha via Groq → gets CDN URL<br>
+    <strong style="color:var(--accent);">If resolved:</strong> create room in Firestore → navigate to /room/:id<br>
+    <strong style="color:var(--danger);">If NOT resolved:</strong> show error, DO NOT create room
+  </div>
+</div>
+
+<div class="flow-arrow">
+  <div class="line"></div>
+  <div class="action">Resolving media via Groq captcha solver</div>
+  <div class="why">GET captcha image → Groq vision reads text → POST form → get CDN MP4 URL (5-8s)</div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     STEP 6 — RESOLVING
+     ═══════════════════════════════════════ -->
+<div class="page">
+  <div class="step-label">Step 6 — Resolving</div>
+  <div class="step-title">Resolving Media...</div>
+  <div class="step-desc">The server is solving the O2TV captcha and extracting the CDN URL.</div>
+
+  <div class="resolving-card">
+    <div class="spinner"></div>
+    <div class="r-label">Solving captcha via Groq AI</div>
+    <div class="r-sub">This takes 5-8 seconds</div>
+  </div>
+
+  <div style="font-family:'IBM Plex Mono';font-size:10px;color:var(--text-faint);line-height:1.8;max-width:400px;margin:0 auto;">
+    1. GET episode page → find /download/{id} links<br>
+    2. GET /areyouhuman.php → get captcha image<br>
+    3. Send captcha to Groq vision API<br>
+    4. POST captcha text → get CDN redirect<br>
+    5. Success → create room → navigate<br>
+    6. Fail → show error, no room created
+  </div>
+</div>
+
+<div class="flow-arrow">
+  <div class="line"></div>
+  <div class="action">Two outcomes</div>
+  <div class="why">Success → video player plays. Failure → error, no room.</div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     STEP 7A — SUCCESS
+     ═══════════════════════════════════════ -->
+<div class="page">
+  <div class="step-label">Step 7A — Success</div>
+  <div class="step-title">Silo S01E01 — Watch Party</div>
+  <div class="step-desc">Room created. Video plays through /api/proxy. All participants synced.</div>
+
+  <div class="player-container">
+    <div class="player-screen">
+      <div class="ps-title">Silo</div>
+      <div class="ps-sub">S01 E01 · Freedom Day</div>
+      <button class="big-play"><svg class="icon-lg"><use href="#i-play"/></svg></button>
+
+      <div class="player-controls">
+        <div class="progress-bar">
+          <div class="progress-fill"></div>
+        </div>
+        <div class="controls-row">
+          <div class="controls-left">
+            <button class="ctrl-btn"><svg class="icon"><use href="#i-skip-back"/></svg></button>
+            <button class="ctrl-btn"><svg class="icon-lg"><use href="#i-play"/></svg></button>
+            <button class="ctrl-btn"><svg class="icon"><use href="#i-skip-fwd"/></svg></button>
+            <button class="ctrl-btn"><svg class="icon"><use href="#i-volume"/></svg></button>
+            <span class="time-display">18:24 / 52:14</span>
+          </div>
+          <div class="controls-right">
+            <span class="badge badge-faint" style="font-size:8px;">1080p</span>
+            <button class="ctrl-btn"><svg class="icon"><use href="#i-settings"/></svg></button>
+            <button class="ctrl-btn"><svg class="icon"><use href="#i-message"/></svg></button>
+            <button class="ctrl-btn"><svg class="icon"><use href="#i-maximize"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+    <span class="badge badge-accent badge-pulse"><span class="badge-dot"></span>3 viewers synced</span>
+    <span class="badge badge-faint">Host: You</span>
+    <span class="badge badge-faint">Room: R-7X2K</span>
+  </div>
+
+  <div style="font-family:'IBM Plex Mono';font-size:10px;color:var(--text-faint);line-height:1.7;">
+    Video URL: /api/proxy?url=http://d6.o2tv.org/Silo/Season%2001/Silo%20-%20S01E01...mp4<br>
+    Proxy handles: CORS bypass, HTTPS upgrade, MKV→fMP4 remux, chunked streaming<br>
+    Sync: host writes playerState to Firestore every 1.5s → viewers read every 3s → auto-seek if >0.5s off<br>
+    No CORS errors — all traffic routed through /api/proxy
+  </div>
+</div>
+
+<div class="flow-arrow">
+  <div class="line"></div>
+  <div class="action">Or — resolution failed</div>
+  <div class="why">Groq couldn't read captcha, or CDN returned 404</div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     STEP 7B — FAILURE
+     ══════════════════════════════════════ -->
+<div class="page">
+  <div class="step-label">Step 7B — Failure</div>
+  <div class="step-title">Could Not Resolve Media</div>
+  <div class="step-desc">No playable CDN URL was found. No room was created.</div>
+
+  <div class="failed-card">
+    <div class="f-icon"><svg class="icon-lg"><use href="#i-close"/></svg></div>
+    <div>
+      <div class="f-title">Media Resolution Failed</div>
+      <div class="f-desc">Could not extract a playable video URL from this episode. The captcha may have been unreadable, or the CDN link may have expired. Try another episode or show.</div>
+      <div class="failed-actions">
+        <button class="btn btn-outline">Back to Episodes</button>
+        <button class="btn btn-outline">Try Another Episode</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="font-family:'IBM Plex Mono';font-size:10px;color:var(--text-faint);line-height:1.7;">
+    Server returned: { results: [], resolved: false }<br>
+    Frontend checks: if no playable URL → show error → DO NOT navigate to /room<br>
+    User can retry or pick a different episode
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     FLOW SUMMARY
+     ═══════════════════════════════════════ -->
+<div class="page" style="border-top:1px solid var(--line);padding-top:40px;margin-top:20px;">
+  <div class="step-label">Complete Flow</div>
+  <div class="step-title" style="margin-bottom:24px;">End-to-End User Journey</div>
+
+  <div class="summary-list">
+    <div class="summary-item">
+      <span class="num">1.</span>
+      <div>User visits <code>/media</code> → selects "Direct Links" (O2TV)</div>
+    </div>
+    <div class="summary-item">
+      <span class="num">2.</span>
+      <div>Types "silo" → taps Search</div>
+    </div>
+    <div class="summary-item">
+      <span class="num">3.</span>
+      <div>Server probes tvshows4mobile.org → returns show cards</div>
+    </div>
+    <div class="summary-item">
+      <span class="num">4.</span>
+      <div>Taps "Silo" card → server fetches seasons → shows 4×4 episodes grid</div>
+    </div>
+    <div class="summary-item">
+      <span class="num">5.</span>
+      <div>Taps Episode 1 → navigates to <code>/create</code> with episode page URL</div>
+    </div>
+    <div class="summary-item">
+      <span class="num">6.</span>
+      <div>Taps "Create Room & Play" → server scrapes episode page</div>
+    </div>
+    <div class="summary-item">
+      <span class="num">7.</span>
+      <div>Server solves captcha via Groq → gets CDN URL → creates room in Firestore</div>
+    </div>
+    <div class="summary-item">
+      <span class="num" style="color:var(--accent);">8.</span>
+      <div><strong style="color:var(--accent);">IF resolved:</strong> navigate to <code>/room/:id</code> → video plays via /api/proxy</div>
+    </div>
+    <div class="summary-item fail">
+      <span class="num">✕</span>
+      <div><strong style="color:var(--danger);">IF NOT resolved:</strong> show error → DO NOT create room → user retries</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

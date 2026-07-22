@@ -127,6 +127,23 @@ a:hover {
   }
 }
 
+/* Episode modal responsive grid */
+@media (max-width: 700px) {
+  [style*="width: calc(25%"] {
+    width: calc(50% - 5px) !important;
+  }
+}
+@media (max-width: 420px) {
+  [style*="width: calc(25%"] {
+    width: 100% !important;
+  }
+}
+
+/* Spinner animation for modals */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 4px;
