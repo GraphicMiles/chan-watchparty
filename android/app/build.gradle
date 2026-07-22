@@ -7,6 +7,11 @@ def ciVersionName = project.hasProperty('versionName') ? project.property('versi
 android {
     namespace "com.chan.watchparty"
     compileSdk rootProject.ext.compileSdkVersion
+
+    buildFeatures {
+        buildConfig true
+    }
+
     defaultConfig {
         applicationId "com.chan.watchparty"
         minSdkVersion rootProject.ext.minSdkVersion
