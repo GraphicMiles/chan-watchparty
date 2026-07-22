@@ -6,6 +6,7 @@ import { useUnifiedSearch } from '../../../hooks/useUnifiedSearch.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, extractVideoId, getThumbnail } from '../../../shared/lib/youtube.js'
 import { Button, Input } from '../../../shared/ui/index.js'
 import styles from './QueuePanel.module.scss'
+import { apiPath } from '../../../shared/lib/api.js'
 
 export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast }) {
   const [queue, setQueue] = useState([])
@@ -39,7 +40,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast
     setLoadingEpisodes(prev => ({ ...prev, [seasonUrl]: true }))
     try {
       const token = await user.getIdToken()
-      const res = await fetch('/api/media', {
+      const res = await fetch(apiPath('/api/media'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

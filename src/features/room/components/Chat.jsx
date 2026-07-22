@@ -5,6 +5,7 @@ import { db } from '../../../shared/lib/firebase.js'
 import { Input, Button, IconButton, Modal, useToast } from '../../../shared/ui/index.js'
 import ChatMessage from './ChatMessage.jsx'
 import styles from './Chat.module.css'
+import { apiPath } from '../../../shared/lib/api.js'
 
 const REACTIONS = ['heart', 'thumbs-up', 'laugh', 'fire', 'clap', 'wow']
 const REACTION_SYMBOLS = { heart: '\u2764', 'thumbs-up': '\ud83d\udc4d', laugh: '\ud83d\ude02', fire: '\ud83d\udd25', clap: '\ud83d\udc4f', wow: '\ud83d\ude2e' }
@@ -220,7 +221,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     try {
       setAiLoading(true)
       const token = await user.getIdToken()
-      const res = await fetch('/api/room', {
+      const res = await fetch(apiPath('/api/room'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: 'ai', roomId, uid: user.uid }),
@@ -248,7 +249,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     try {
       setCatchupLoading(true)
       const token = await user.getIdToken()
-      const res = await fetch('/api/room', {
+      const res = await fetch(apiPath('/api/room'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: 'catchup', roomId, uid: user.uid }),
@@ -270,7 +271,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     try {
       setQuizLoading(true)
       const token = await user.getIdToken()
-      const res = await fetch('/api/room', {
+      const res = await fetch(apiPath('/api/room'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: 'quiz', roomId, uid: user.uid }),
@@ -293,7 +294,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
       setMyQuizVote(optionIndex)
       setRevealQuizAnswer(true)
       const token = await user.getIdToken()
-      await fetch('/api/room', {
+      await fetch(apiPath('/api/room'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: 'votequiz', roomId, uid: user.uid, optionIndex }),

@@ -12,6 +12,7 @@ import { normalizePlaybackUrl, isRemuxProxyUrl, withRemuxSeekTime, getRemuxSeekT
 import { useToast } from '../../../shared/ui/index.js'
 import { VideoUpscaler } from './VideoUpscaler.jsx'
 import styles from './VideoPlayer.module.scss'
+import { apiPath } from '../../../shared/lib/api.js'
 
 const RETRY_ATTEMPTS = 3
 const RETRY_DELAY = 3000
@@ -410,7 +411,7 @@ export default function VideoPlayer({
     try {
       setSubtitlesLoading(true)
       const token = await user.getIdToken()
-      const res = await fetch('/api/room', {
+      const res = await fetch(apiPath('/api/room'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: 'subtitles', roomId, uid: user.uid, currentTimeSec: Math.floor(currentTime()) }),

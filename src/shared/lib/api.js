@@ -1,3 +1,11 @@
+export const API_URL = import.meta.env.VITE_API_URL || ''
+
+export function apiPath(path) {
+  const normalizedPath = String(path || '')
+  if (!API_URL) return normalizedPath
+  return `${API_URL}${normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`}`
+}
+
 export async function parseJsonResponse(res) {
   const text = await res.text()
   try {

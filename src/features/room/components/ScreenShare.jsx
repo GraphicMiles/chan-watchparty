@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Loader2, AlertCircle, Camera } from 'lucide-react'
 import { createRoom, connectToLivekit, publishScreenShare, publishCameraShare, isDisplayMediaSupported, getHostVideoTrack } from '../services/livekit.js'
-import { parseJsonResponse } from '../../../shared/lib/api.js'
+import { apiPath, parseJsonResponse } from '../../../shared/lib/api.js'
 
 export default function ScreenShare({ roomId, isHost, user }) {
   const videoRef = useRef(null)
@@ -17,7 +17,7 @@ export default function ScreenShare({ roomId, isHost, user }) {
     const setup = async () => {
       try {
         const token = await user.getIdToken()
-        const res = await fetch('/api/room', {
+        const res = await fetch(apiPath('/api/room'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ action: 'livekit', roomId, uid: user.uid, role: isHost ? 'host' : 'viewer' }),

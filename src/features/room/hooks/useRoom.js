@@ -16,7 +16,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
-import { parseJsonResponse } from '../../../shared/lib/api.js'
+import { apiPath, parseJsonResponse } from '../../../shared/lib/api.js'
 
 const LAST_ROOM_KEY = 'chan:lastRoom'
 
@@ -82,7 +82,7 @@ export function useRoom(roomId, inviteCode = null) {
       // If rules block (rare race), the leave API will still freeze via server.
       if (idToken) {
         try {
-          await fetch('/api/room', {
+          await fetch(apiPath('/api/room'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -115,7 +115,7 @@ export function useRoom(roomId, inviteCode = null) {
         displayName: user.displayName || 'Viewer',
       }
       if (inviteCode) body.inviteCode = inviteCode
-      const res = await fetch('/api/room', {
+      const res = await fetch(apiPath('/api/room'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
@@ -139,7 +139,7 @@ export function useRoom(roomId, inviteCode = null) {
       const token = await user.getIdToken()
       // Freeze playback position BEFORE leaving so rejoin can resume
       await freezePlayerStateOnLeave(token)
-      const res = await fetch('/api/room', {
+      const res = await fetch(apiPath('/api/room'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -162,7 +162,7 @@ export function useRoom(roomId, inviteCode = null) {
     intentionalLeave.current = true
     try {
       const token = await user.getIdToken()
-      const res = await fetch('/api/room', {
+      const res = await fetch(apiPath('/api/room'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: 'end', roomId, uid: user.uid }),
@@ -370,7 +370,7 @@ export function useRoom(roomId, inviteCode = null) {
       const frozenTime = Math.max(0, Number(playerPositionRef.current.currentTime) || 0)
       // Fire-and-forget LEAVE (not end) on real tab close / hard navigation.
       // keepalive ensures the request is sent even during unload.
-      fetch('/api/room', {
+      fetch(apiPath('/api/room'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

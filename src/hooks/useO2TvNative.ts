@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { O2TvPlugin, Show, Season, Episode } from '../native/O2TvPlugin';
 import { useAuth } from '../shared/auth/hooks/useAuth.jsx';
+import { apiPath } from '../shared/lib/api.js'
 
 /**
  * Hook that uses native O2TV plugin on Android, falls back to server on web
@@ -22,7 +23,7 @@ export function useO2TvNative() {
         return result.shows;
       } else {
         // Fallback to server
-        const response = await fetch('/api/media', {
+        const response = await fetch(apiPath('/api/media'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'search', layer: 'direct', query }),
@@ -46,7 +47,7 @@ export function useO2TvNative() {
         const result = await O2TvPlugin.getSeasons({ showSlug });
         return result.seasons;
       } else {
-        const response = await fetch('/api/media', {
+        const response = await fetch(apiPath('/api/media'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'o2tvSeasons', showSlug }),
@@ -70,7 +71,7 @@ export function useO2TvNative() {
         const result = await O2TvPlugin.getEpisodes({ showSlug, seasonNum });
         return result.episodes;
       } else {
-        const response = await fetch('/api/media', {
+        const response = await fetch(apiPath('/api/media'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'o2tvEpisodes', showSlug, seasonNum }),
@@ -108,7 +109,7 @@ export function useO2TvNative() {
         });
         return result.url;
       } else {
-        const response = await fetch('/api/media', {
+        const response = await fetch(apiPath('/api/media'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'o2tvResolve', showName, showSlug, seasonNum, episodeNum: epNum }),
