@@ -1,4 +1,6 @@
 // YouTube Data API v3 configuration (optional - only needed for search)
+import { apiPath } from './api.js'
+
 const YOUTUBE_API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY || ''
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
 
@@ -98,12 +100,12 @@ export function normalizePlaybackUrl(url, opts = {}) {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
   normalized = normalizeDirectUrl(normalized)
-  // Already a same-origin proxy path — leave intact (keeps remux/referer params)
-  if (/^\/api\/proxy\?/i.test(normalized)) return normalized
+  // Already a proxy path — prefix with VITE_API_URL in Android/Capacitor builds.
+  if (/^\/api\/proxy\?/i.test(normalized)) return apiPath(normalized)
   try {
     const parsed = new URL(normalized, typeof window !== 'undefined' ? window.location.origin : 'https://chan.invalid')
     if (parsed.pathname.startsWith('/api/proxy')) {
-      return `${parsed.pathname}${parsed.search}`
+      return apiPath(`${parsed.pathname}${parsed.search}`)
     }
 
     const hostname = parsed.hostname.toLowerCase()
@@ -157,7 +159,7 @@ export function normalizePlaybackUrl(url, opts = {}) {
       || (!isSameOrigin && looksLiveHls)
 
     if (isMkv || isKoyebWatch || needsProxyHost || isHttp || shouldProxyDirect) {
-      let out = `/api/proxy?url=${encodeURIComponent(normalized)}`
+      let out = apiPath(`/api/proxy?url=${encodeURIComponent(normalized)}`)
       if (isMkv || isKoyebWatch) out += '&remux=1'
       if (hostname.includes('downloadwella') || hostname.includes('fsmc')) {
         out += `&referer=${encodeURIComponent('https://downloadwella.com/')}`

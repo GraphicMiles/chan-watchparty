@@ -16,6 +16,7 @@ import { searchO2Tv, getO2TvSeasons, getO2TvEpisodes, resolveO2TvEpisode, probeA
 import { checkIptvChannel, getIptvChannels, getPlaylistChannels, probeIptvChannel } from '../server-lib/iptv.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
 import { resolveNsfwVideoUrl, isNsfwProviderUrl } from '../server-lib/nsfwResolver.js'
+import { searchNkiri, getNkiriEpisodes, resolveDownloadwellaPage } from '../o2tv-worker/nkiriResolver.js'
 
 const ALLOWED_ACTIONS = [
   'search',
@@ -23,6 +24,8 @@ const ALLOWED_ACTIONS = [
   'o2tvSeasons',
   'o2tvEpisodes',
   'o2tvResolve',
+  'nkiriEpisodes',
+  'nkiriResolve',
   'solveCaptchaImage',
   'probeIptv',
   'refreshCatalog',
@@ -155,9 +158,56 @@ async function searchYouTube(query, limit = 20) {
 // ─── Direct (O2TV) ───
 async function searchDirect(query, options = {}) {
   const baseQ = String(query || '').trim()
-  if (!baseQ) return { results: [], hasMore: false, searchedSites: ['o2tv'] }
+  if (!baseQ) return { results: [], hasMore: false, searchedSites: ['nkiri'] }
 
+  const provider = String(options.provider || 'nkiri').toLowerCase()
   const limit = Math.min(40, Math.max(5, Number(options.limit) || 20))
+
+  // MVP: Direct Links = Nkiri. O2TV is intentionally suspended because it is
+  // captcha/proxy fragile; keep an explicit opt-in for diagnostics only.
+  if (provider !== 'o2tv') {
+    let shows = []
+    let searchError = null
+    try {
+      shows = await Promise.race([
+        searchNkiri(baseQ),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Nkiri timed out')), 12000)),
+      ])
+    } catch (err) {
+      searchError = err.message
+      console.error('Nkiri search error:', err.message)
+      shows = []
+    }
+
+    const results = (Array.isArray(shows) ? shows : []).slice(0, limit).map((show, index) => ({
+      id: `nkiri-${index}-${Buffer.from(String(show.url || show.title || index)).toString('base64url').slice(0, 12)}`,
+      title: show.title || baseQ,
+      url: show.url,
+      link: show.url,
+      thumbnail: show.thumbnail || null,
+      image: show.thumbnail || null,
+      source: 'nkiri',
+      provider: 'nkiri',
+      type: 'direct',
+      isDirect: false,
+      playableInRoom: false,
+      requiresResolve: true,
+      requiresEpisodes: true,
+      o2tvKind: 'nkiri-show',
+      videoType: 'direct',
+      meta: 'Nkiri show — pick an episode, then resolve the stream',
+    })).filter(r => r.url)
+
+    return {
+      results,
+      hasMore: false,
+      searchedSites: ['nkiri'],
+      multiLayerCascaded: false,
+      error: results.length ? undefined : (searchError || 'No Nkiri results found'),
+    }
+  }
+
+  // Legacy O2TV path retained only when explicitly requested with provider=o2tv.
   const searchTimeout = 8000
 
   let shows = []
@@ -173,20 +223,14 @@ async function searchDirect(query, options = {}) {
     shows = []
   }
 
-  if (!Array.isArray(shows)) {
-    console.error('O2TV returned non-array:', shows)
-    shows = []
-  }
-
-  console.log(`O2TV search for "${baseQ}": found ${shows.length} results`)
+  if (!Array.isArray(shows)) shows = []
 
   const results = shows.slice(0, limit).map(s => {
     const showName = String(s.showName || s.title || baseQ).trim() || baseQ
     const showSlug = String(s.showSlug || '').trim()
     const pageUrl = String(s.url || (showSlug ? `${BASE_URL}/${showSlug}/index.html` : '')).trim()
-    const title = showName.length <= 80 ? showName : showName
     return {
-      title,
+      title: showName,
       url: pageUrl,
       link: pageUrl,
       thumbnail: null,
@@ -216,6 +260,84 @@ async function searchDirect(query, options = {}) {
 }
 
 const BASE_URL = 'https://tvshows4mobile.org'
+
+// ─── Nkiri MVP Direct Links ───
+async function handleNkiriEpisodes({ url, title }) {
+  const showUrl = String(url || '').trim()
+  if (!showUrl) throw Object.assign(new Error('Nkiri show URL required'), { status: 400 })
+  const episodes = await Promise.race([
+    getNkiriEpisodes(showUrl),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Nkiri episodes timed out')), 20_000)),
+  ])
+  return {
+    results: (Array.isArray(episodes) ? episodes : []).map((ep, index) => ({
+      id: `nkiri-episode-${index}-${Buffer.from(String(ep.url || index)).toString('base64url').slice(0, 12)}`,
+      title: ep.title || `Episode ${index + 1}`,
+      label: ep.title || `Episode ${index + 1}`,
+      url: ep.url,
+      link: ep.url,
+      source: 'nkiri',
+      provider: 'downloadwella',
+      type: 'direct',
+      isDirect: false,
+      playableInRoom: false,
+      requiresResolve: true,
+      o2tvKind: 'nkiri-episode',
+      showName: title || 'Nkiri Show',
+      episodeNum: index + 1,
+      container: ep.container || 'unknown',
+    })).filter(ep => ep.url),
+    count: Array.isArray(episodes) ? episodes.length : 0,
+    showName: title || 'Nkiri Show',
+    stage: 'episodes',
+  }
+}
+
+async function handleNkiriResolve({ url, title }) {
+  const episodeUrl = String(url || '').trim()
+  if (!episodeUrl) throw Object.assign(new Error('Nkiri episode URL required'), { status: 400 })
+
+  const resolved = await Promise.race([
+    resolveDownloadwellaPage(episodeUrl),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Nkiri resolve timed out')), 55_000)),
+  ])
+
+  const streamUrl = resolved?.directUrls?.[0]
+  if (!streamUrl) {
+    throw Object.assign(new Error(resolved?.error || 'Could not create DownloadWella link'), { status: 404 })
+  }
+
+  const container = /\.mkv(\?|#|$)/i.test(streamUrl) ? 'mkv'
+    : /\.mp4(\?|#|$)/i.test(streamUrl) ? 'mp4'
+      : /\.m3u8(\?|#|$)/i.test(streamUrl) ? 'hls'
+        : 'unknown'
+
+  const playUrl = toProxiedUrl(streamUrl, { referer: 'https://downloadwella.com/' })
+
+  return {
+    results: [{
+      title: title || 'Nkiri Video',
+      url: playUrl,
+      link: playUrl,
+      rawUrl: streamUrl,
+      source: 'nkiri',
+      provider: 'downloadwella',
+      type: 'direct',
+      isDirect: true,
+      playableInRoom: true,
+      requiresResolve: false,
+      o2tvKind: 'nkiri-direct',
+      container,
+      format: container,
+      quality: 'HD',
+      videoType: 'direct',
+    }],
+    count: 1,
+    directCount: 1,
+    resolved: true,
+    stage: 'resolved',
+  }
+}
 
 // ─── O2TV Hierarchical ───
 async function handleO2TvSeasons({ showSlug, showName, thumbnail }) {
@@ -580,6 +702,20 @@ export default async function handler(req, res) {
       const probeUrl = body.url
       if (!probeUrl) return fail(res, 400, 'URL required')
       return ok(res, { ...(await probeIptvChannel(probeUrl)), url: probeUrl })
+    }
+
+    // ─── Nkiri MVP direct-link actions ───
+    if (action === 'nkiriEpisodes') {
+      return ok(res, await handleNkiriEpisodes({
+        url: body.url || body.showUrl || options.url || options.showUrl,
+        title: body.title || body.showName || options.title || options.showName,
+      }))
+    }
+    if (action === 'nkiriResolve') {
+      return ok(res, await handleNkiriResolve({
+        url: body.url || body.episodeUrl || options.url || options.episodeUrl,
+        title: body.title || options.title,
+      }))
     }
 
     // ─── O2TV hierarchical actions ───
