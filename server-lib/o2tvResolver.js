@@ -18,45 +18,28 @@ const PROXY_URL = process.env.O2TV_PROXY_URL || 'https://zero2tv-proxy.onrender.
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 const TIMEOUT_MS = 8000
 
-// ─── HTTP helper (uses proxy for tvshows4mobile.org) ───
-async function fetchPage(url, timeoutMs = TIMEOUT_MS, retries = 2) {
+async function fetchRawPage(fetchUrl, url, timeoutMs) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    // Use proxy for tvshows4mobile.org requests
-    const fetchUrl = url.includes('tvshows4mobile.org')
-      ? `${PROXY_URL}/proxy?url=${encodeURIComponent(url)}`
-      : url
-
+    const viaProxy = fetchUrl.includes('/proxy?')
     const res = await fetch(fetchUrl, {
       signal: controller.signal,
-      headers: fetchUrl.includes('/proxy?')
-        ? { 'Accept': 'application/json' }
+      headers: viaProxy
+        ? { Accept: 'application/json' }
         : {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
           },
       redirect: 'follow',
     })
 
-    if (!res.ok) {
-      if (res.status === 403 && retries > 0 && !fetchUrl.includes('/proxy?')) {
-        console.log(`[O2TV] Got 403, retrying in 1s... (${retries} retries left)`)
-        clearTimeout(timer)
-        await new Promise(r => setTimeout(r, 1000))
-        return fetchPage(url, timeoutMs, retries - 1)
-      }
-      console.error(`[O2TV] HTTP ${res.status} for ${url}`)
-      throw new Error(`HTTP ${res.status}`)
-    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
-    // If using proxy, parse the JSON response
-    if (fetchUrl.includes('/proxy?')) {
+    if (viaProxy) {
       const result = await res.json()
-      if (result.status !== 200) {
-        throw new Error(`Proxy returned HTTP ${result.status}`)
-      }
+      if (result.status !== 200) throw new Error(`Proxy returned HTTP ${result.status}`)
       return result.isBinary
         ? Buffer.from(result.data, 'base64').toString('utf-8')
         : result.data
@@ -65,6 +48,31 @@ async function fetchPage(url, timeoutMs = TIMEOUT_MS, retries = 2) {
     return await res.text()
   } finally {
     clearTimeout(timer)
+  }
+}
+
+// ─── HTTP helper (proxy first, direct fallback) ───
+async function fetchPage(url, timeoutMs = TIMEOUT_MS, retries = 1) {
+  const useProxy = url.includes('tvshows4mobile.org') && PROXY_URL
+  const proxyUrl = useProxy ? `${PROXY_URL}/proxy?url=${encodeURIComponent(url)}` : null
+
+  if (proxyUrl) {
+    try {
+      return await fetchRawPage(proxyUrl, url, timeoutMs)
+    } catch (err) {
+      console.error(`[O2TV] Proxy fetch failed for ${url}: ${err.message}. Falling back direct.`)
+    }
+  }
+
+  try {
+    return await fetchRawPage(url, url, timeoutMs)
+  } catch (err) {
+    if (retries > 0) {
+      await new Promise(r => setTimeout(r, 750))
+      return fetchPage(url, timeoutMs, retries - 1)
+    }
+    console.error(`[O2TV] Fetch failed for ${url}: ${err.message}`)
+    throw err
   }
 }
 

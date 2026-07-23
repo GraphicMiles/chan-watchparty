@@ -278,6 +278,35 @@ async function handleO2TvEpisodes({ showSlug, showName, seasonNum, thumbnail }) 
   }
 }
 
+async function resolveO2TvViaWorker({ showSlug, showName, seasonNum, episodeNum }) {
+  const workerUrl = String(process.env.O2TV_WORKER_URL || '').replace(/\/+$/, '')
+  if (!workerUrl) return null
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 55_000)
+  try {
+    const res = await fetch(`${workerUrl}/resolve-episode`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.O2TV_WORKER_SECRET ? { 'X-Worker-Secret': process.env.O2TV_WORKER_SECRET } : {}),
+      },
+      body: JSON.stringify({ showSlug, showName, seasonNum, episodeNum }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || data.success === false) {
+      throw new Error(data.error || `O2TV worker returned HTTP ${res.status}`)
+    }
+    return data.result || data.results?.[0] || null
+  } catch (err) {
+    console.error('O2TV worker resolve failed:', err.message)
+    return null
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 async function handleO2TvResolve({ showSlug, showName, seasonNum, episodeNum }) {
   const slug = String(showSlug || '').trim()
   if (!slug) throw Object.assign(new Error('showSlug required'), { status: 400 })
@@ -285,7 +314,8 @@ async function handleO2TvResolve({ showSlug, showName, seasonNum, episodeNum }) 
   const ep = Math.max(1, Number(episodeNum) || 1)
   const name = String(showName || '').trim() || slug.replace(/-otv[a-z0-9]+$/i, '').replace(/-/g, ' ').trim()
 
-  const resolved = await resolveO2TvEpisode(name, slug, season, ep)
+  const resolved = await resolveO2TvViaWorker({ showSlug: slug, showName: name, seasonNum: season, episodeNum: ep })
+    || await resolveO2TvEpisode(name, slug, season, ep)
   if (!resolved?.url) {
     throw Object.assign(
       new Error(`Could not resolve ${name} S${season}E${ep}. Try another episode.`),
@@ -417,12 +447,24 @@ async function searchNSFW(query, options = {}, user = null) {
   }
 
   const provider = options.provider || 'all'
-  const maxLimit = Math.min(100, Math.max(1, Number(options.limit) || 25))
+  const maxLimit = Math.min(60, Math.max(1, Number(options.limit) || 20))
   const offset = Math.max(0, Number(options.offset) || 0)
-  const allResults = await searchNsfwProvider(provider, query, maxLimit + offset)
 
-  const paginated = allResults.slice(offset, offset + maxLimit)
-  const nextHasMore = offset + maxLimit < allResults.length
+  let allResults = []
+  let softError = null
+  try {
+    allResults = await Promise.race([
+      searchNsfwProvider(provider, query, maxLimit + offset),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('NSFW search timed out')), 8500)),
+    ])
+  } catch (err) {
+    console.error('NSFW search failed:', err.message)
+    softError = err.message || 'NSFW provider unavailable'
+    allResults = []
+  }
+
+  const paginated = Array.isArray(allResults) ? allResults.slice(offset, offset + maxLimit) : []
+  const nextHasMore = Array.isArray(allResults) && offset + maxLimit < allResults.length
 
   return {
     results: paginated.map(result => ({
@@ -435,6 +477,7 @@ async function searchNSFW(query, options = {}, user = null) {
       playableInRoom: false,
     })),
     hasMore: nextHasMore,
+    error: paginated.length ? undefined : softError,
   }
 }
 
