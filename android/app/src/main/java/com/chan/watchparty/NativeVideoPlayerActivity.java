@@ -100,7 +100,7 @@ public class NativeVideoPlayerActivity extends Activity {
                 @Override
                 public void onPlayerError(PlaybackException error) {
                     Log.e(TAG, "Playback error", error);
-                    showError("Native playback failed: " + (error.getMessage() != null ? error.getMessage() : error.errorCodeName));
+                    showError("Native playback failed: " + (error.getMessage() != null ? error.getMessage() : error.getErrorCodeName()));
                 }
             });
 
