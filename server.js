@@ -8,6 +8,7 @@ import { dirname, join } from 'path'
 import mediaHandler from './api/media.js'
 import roomHandler from './api/room.js'
 import proxyHandler from './api/proxy.js'
+import { corsHeaders } from './server-lib/cors.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -17,6 +18,17 @@ const PORT = process.env.PORT || 3000
 
 // Parse JSON bodies
 app.use(express.json({ limit: '10mb' }))
+
+// Apply CORS to every API response, not just OPTIONS preflight.
+// Without this, Android/Capacitor fetch() rejects successful POST responses as
+// "Failed to fetch" because the actual response has no Access-Control headers.
+app.use('/api', (req, res, next) => {
+  const headers = corsHeaders(req)
+  for (const [key, value] of Object.entries(headers)) {
+    res.setHeader(key, value)
+  }
+  next()
+})
 
 // API routes
 // Use app.all so Android/Capacitor CORS preflight OPTIONS requests reach
