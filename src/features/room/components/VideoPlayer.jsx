@@ -45,6 +45,18 @@ function youtubeUrl(videoId) {
   return videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : ''
 }
 
+function nativePlaybackUrl(playbackUrl) {
+  if (!playbackUrl || typeof playbackUrl !== 'string') return playbackUrl
+  try {
+    const u = new URL(playbackUrl, typeof window !== 'undefined' ? window.location.origin : 'https://chan.invalid')
+    if (u.pathname.includes('/api/proxy')) {
+      const target = u.searchParams.get('url')
+      if (target) return decodeURIComponent(target)
+    }
+  } catch { /* keep original */ }
+  return playbackUrl
+}
+
 function formatTime(seconds) {
   if (!seconds || isNaN(seconds) || !isFinite(seconds)) return '00:00'
   const sec = Math.max(0, Math.floor(seconds))
@@ -212,11 +224,12 @@ export default function VideoPlayer({
   const openNativePlayer = useCallback(async () => {
     if (!currentUrl) return
     try {
+      const nativeUrl = nativePlaybackUrl(currentUrl)
       await VideoPlayerPlugin.openNative({
-        url: currentUrl,
+        url: nativeUrl,
         title: 'Chan Video',
         startSeconds: currentSec || played || 0,
-        referer: /downloadwella/i.test(currentUrl) ? 'https://downloadwella.com/' : undefined,
+        referer: /downloadwella/i.test(nativeUrl) ? 'https://downloadwella.com/' : undefined,
       })
       setError(null)
     } catch (err) {

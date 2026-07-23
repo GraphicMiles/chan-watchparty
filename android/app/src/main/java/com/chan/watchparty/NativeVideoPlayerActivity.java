@@ -1,6 +1,7 @@
 package com.chan.watchparty;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.os.Bundle;
@@ -33,6 +34,8 @@ public class NativeVideoPlayerActivity extends Activity {
     private ExoPlayer player;
     private PlayerView playerView;
     private TextView errorView;
+    private String playbackUrl;
+    private boolean externalFallbackAttempted = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -43,6 +46,7 @@ public class NativeVideoPlayerActivity extends Activity {
         hideSystemUi();
 
         String url = getIntent().getStringExtra("url");
+        playbackUrl = url;
         String title = getIntent().getStringExtra("title");
         long startMs = getIntent().getLongExtra("startMs", 0L);
 
@@ -100,6 +104,13 @@ public class NativeVideoPlayerActivity extends Activity {
                 @Override
                 public void onPlayerError(PlaybackException error) {
                     Log.e(TAG, "Playback error", error);
+                    if (!externalFallbackAttempted) {
+                        externalFallbackAttempted = true;
+                        if (openExternalPlayer()) {
+                            finish();
+                            return;
+                        }
+                    }
                     showError("Native playback failed: " + (error.getMessage() != null ? error.getMessage() : error.getErrorCodeName()));
                 }
             });
@@ -115,6 +126,20 @@ public class NativeVideoPlayerActivity extends Activity {
         } catch (Exception e) {
             Log.e(TAG, "Could not start native player", e);
             showError("Could not start native player: " + e.getMessage());
+        }
+    }
+
+    private boolean openExternalPlayer() {
+        if (playbackUrl == null || playbackUrl.trim().isEmpty()) return false;
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(Uri.parse(playbackUrl), "video/*");
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(Intent.createChooser(intent, "Open video with"));
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "External player fallback failed", e);
+            return false;
         }
     }
 
