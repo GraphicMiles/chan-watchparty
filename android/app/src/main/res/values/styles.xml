@@ -3,12 +3,12 @@
 
     <!-- Base application theme -->
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="colorPrimary">#FF6A2B</item>
-        <item name="colorPrimaryDark">#0a0a0f</item>
-        <item name="colorAccent">#FF6A2B</item>
-        <item name="android:windowBackground">#0a0a0f</item>
-        <item name="android:statusBarColor">#0a0a0f</item>
-        <item name="android:navigationBarColor">#0a0a0f</item>
+        <item name="colorPrimary">#F5F5F5</item>
+        <item name="colorPrimaryDark">#050505</item>
+        <item name="colorAccent">#F5F5F5</item>
+        <item name="android:windowBackground">#050505</item>
+        <item name="android:statusBarColor">#050505</item>
+        <item name="android:navigationBarColor">#050505</item>
     </style>
 
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">

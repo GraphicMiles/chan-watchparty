@@ -100,6 +100,7 @@ export default function VideoPlayer({
   const isNativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
   // Allow runtime proxy fallback if direct playback fails (e.g. missing CORS headers)
   const [currentUrl, setCurrentUrl] = useState(resolvedUrl)
+  const [forceWebPlayer, setForceWebPlayer] = useState(false)
   const proxyFallbackAttemptedRef = useRef(false)
   // Logical timeline origin for MKV seek-by-time remux (player clock restarts at 0)
   const remuxBaseTimeRef = useRef(0)
@@ -145,7 +146,7 @@ export default function VideoPlayer({
   }, [currentUrl, videoType, isLive])
 
   const isNativeMkvLike = useMemo(() => {
-    if (!isNativeAndroid || !currentUrl || videoType === 'youtube' || isHls) return false
+    if (forceWebPlayer || !isNativeAndroid || !currentUrl || videoType === 'youtube' || isHls) return false
     if (isRemuxProxyUrl(currentUrl)) return true
     try {
       const u = new URL(currentUrl, typeof window !== 'undefined' ? window.location.origin : 'https://chan.invalid')
@@ -155,7 +156,7 @@ export default function VideoPlayer({
     } catch {
       return /\.mkv(\?|#|$)/i.test(currentUrl) || /downloadwella/i.test(currentUrl)
     }
-  }, [currentUrl, isHls, isNativeAndroid, videoType])
+  }, [currentUrl, forceWebPlayer, isHls, isNativeAndroid, videoType])
 
   const isMixedContent = useMemo(
     () => typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(currentUrl),
@@ -226,6 +227,7 @@ export default function VideoPlayer({
 
   useEffect(() => {
     nativeAutoOpenedRef.current = false
+    setForceWebPlayer(false)
   }, [currentUrl])
 
   useEffect(() => {
@@ -1213,7 +1215,7 @@ export default function VideoPlayer({
             </button>
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); setError(null); setCurrentUrl(resolvedUrl) }}
+              onClick={(e) => { e.stopPropagation(); setError(null); setForceWebPlayer(true); setCurrentUrl(resolvedUrl) }}
               style={{ border: 0, background: 'transparent', color: 'rgba(255,255,255,0.55)', fontWeight: 650 }}
             >
               Try Web Player Anyway
@@ -1331,7 +1333,7 @@ export default function VideoPlayer({
         onContextMenu={(e) => e.preventDefault()}
       />
 
-      {(!isReady || isBuffering) && !error && !isMixedContent && (
+      {(!isReady || isBuffering) && !error && !isMixedContent && !isNativeMkvLike && (
         <div className={styles.loadingOverlay}>
           <div className={styles.loadingSpinner} />
           <div className={styles.loadingText}>

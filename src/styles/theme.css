@@ -14,32 +14,32 @@
   --s-16: 64px;
 
   /* ================================================================
-     LIME/DARK THEME (app-wide)
+     BLACK / WHITE / GREY THEME (app-wide)
      ================================================================ */
-  --bg: #0A0908;
-  --bg-light: #0A0908;
-  --bg-grid-line: #1D1B16;
-  --surface-white: #1D1B16;
-  --surface-light: #26231C;
-  --bg-base: #0A0908;
-  --bg-surface: #1D1B16;
+  --bg: #050505;
+  --bg-light: #050505;
+  --bg-grid-line: #171717;
+  --surface-white: #151515;
+  --surface-light: #1f1f1f;
+  --bg-base: #050505;
+  --bg-surface: #151515;
 
-  --text-black: #F2EFE6;
-  --text-body-grey: #A8A296;
-  --text-muted-grey: #6E695C;
-  --text-primary: #F2EFE6;
-  --text-secondary: #A8A296;
-  --text-muted: #6E695C;
+  --text-black: #F5F5F5;
+  --text-body-grey: #B8B8B8;
+  --text-muted-grey: #777777;
+  --text-primary: #F5F5F5;
+  --text-secondary: #B8B8B8;
+  --text-muted: #777777;
 
-  --brand-green: #C6FF33;
-  --accent: #C6FF33;
-  --accent-orange: #C6FF33;
-  --accent-hover: #b8ef25;
-  --accent-muted: rgba(198, 255, 51, 0.12);
+  --brand-green: #F5F5F5;
+  --accent: #F5F5F5;
+  --accent-orange: #F5F5F5;
+  --accent-hover: #D8D8D8;
+  --accent-muted: rgba(255, 255, 255, 0.10);
 
-  --pill-black: #C6FF33;
-  --pill-black-text: #0A0908;
-  --text-on-accent: #0A0908;
+  --pill-black: #F5F5F5;
+  --pill-black-text: #050505;
+  --text-on-accent: #050505;
 
   --live-red: #FF5C3E;
   --danger: #FF5C3E;
@@ -47,34 +47,34 @@
   --danger-muted: rgba(255, 92, 62, 0.12);
   --text-on-danger: #FFFFFF;
 
-  --border-hairline: #38352B;
-  --border: #38352B;
-  --border-strong: #38352B;
-  --border-focus: #C6FF33;
+  --border-hairline: #2A2A2A;
+  --border: #2A2A2A;
+  --border-strong: #3A3A3A;
+  --border-focus: #F5F5F5;
 
-  --success: #C6FF33;
-  --success-muted: rgba(198, 255, 51, 0.12);
-  --text-on-success: #0A0908;
+  --success: #F5F5F5;
+  --success-muted: rgba(255, 255, 255, 0.10);
+  --text-on-success: #050505;
 
   --warning: #F2B200;
   --warning-muted: rgba(242, 178, 0, 0.12);
   --text-on-warning: #0A0908;
 
-  /* Purple accent (secondary) */
-  --purple: #7D39EB;
-  --purple-soft: #B79CF2;
-  --purple-glow: rgba(125, 57, 235, 0.15);
+  /* Neutral secondary accents */
+  --purple: #F5F5F5;
+  --purple-soft: #D8D8D8;
+  --purple-glow: rgba(255, 255, 255, 0.10);
 
   /* ================================================================
      DARK THEME (in-room view) - aliases for compatibility
      ================================================================ */
-  --room-bg: #0A0908;
-  --room-surface: #1D1B16;
-  --room-surface-raised: #26231C;
-  --room-avatar-bg: #2E2A20;
-  --room-text-primary: #F2EFE6;
-  --room-text-secondary: #A8A296;
-  --room-divider: #38352B;
+  --room-bg: #050505;
+  --room-surface: #151515;
+  --room-surface-raised: #1F1F1F;
+  --room-avatar-bg: #242424;
+  --room-text-primary: #F5F5F5;
+  --room-text-secondary: #B8B8B8;
+  --room-divider: #2A2A2A;
   --room-danger: #FF5C3E;
   --room-danger-bg: rgba(255, 92, 62, 0.12);
   --pulse-red-core: #FF5C3E;
