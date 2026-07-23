@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactPlayer from 'react-player'
+import { Capacitor } from '@capacitor/core'
 import { Hls, Events, ErrorTypes, isSupported } from 'hls.js'
 import {
   AlertTriangle, Radio, Play, Pause, RotateCcw, RotateCw,
@@ -13,6 +14,7 @@ import { useToast } from '../../../shared/ui/index.js'
 import { VideoUpscaler } from './VideoUpscaler.jsx'
 import styles from './VideoPlayer.module.scss'
 import { apiPath } from '../../../shared/lib/api.js'
+import { VideoPlayerPlugin } from '../../../native/VideoPlayerPlugin'
 
 const RETRY_ATTEMPTS = 3
 const RETRY_DELAY = 3000
@@ -95,6 +97,7 @@ export default function VideoPlayer({
   const { toast } = useToast()
   const rawUrl = url || videoUrl || (videoType === 'youtube' ? youtubeUrl(videoId) : '')
   const resolvedUrl = useMemo(() => normalizePlaybackUrl(rawUrl), [rawUrl])
+  const isNativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
   // Allow runtime proxy fallback if direct playback fails (e.g. missing CORS headers)
   const [currentUrl, setCurrentUrl] = useState(resolvedUrl)
   const proxyFallbackAttemptedRef = useRef(false)
@@ -141,6 +144,19 @@ export default function VideoPlayer({
     return false
   }, [currentUrl, videoType, isLive])
 
+  const isNativeMkvLike = useMemo(() => {
+    if (!isNativeAndroid || !currentUrl || videoType === 'youtube' || isHls) return false
+    if (isRemuxProxyUrl(currentUrl)) return true
+    try {
+      const u = new URL(currentUrl, typeof window !== 'undefined' ? window.location.origin : 'https://chan.invalid')
+      const target = u.searchParams.get('url') || currentUrl
+      const decoded = decodeURIComponent(target)
+      return /\.mkv(\?|#|$)/i.test(decoded) || /downloadwella/i.test(decoded)
+    } catch {
+      return /\.mkv(\?|#|$)/i.test(currentUrl) || /downloadwella/i.test(currentUrl)
+    }
+  }, [currentUrl, isHls, isNativeAndroid, videoType])
+
   const isMixedContent = useMemo(
     () => typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(currentUrl),
     [currentUrl]
@@ -153,6 +169,7 @@ export default function VideoPlayer({
   const retryCountRef = useRef(0)
   const hlsErrorCountRef = useRef(0)
   const retryTimeoutRef = useRef(null)
+  const nativeAutoOpenedRef = useRef(false)
   const playingRef = useRef(Boolean(playing))
   const onReadyRef = useRef(onReady)
   const onPlayerEventRef = useRef(onPlayerEvent)
@@ -190,6 +207,34 @@ export default function VideoPlayer({
   const vlcSideRef = useRef(null)
   const vlcTimerRef = useRef(null)
   const singleTapTimerRef = useRef(null)
+
+  const openNativePlayer = useCallback(async () => {
+    if (!currentUrl) return
+    try {
+      await VideoPlayerPlugin.openNative({
+        url: currentUrl,
+        title: 'Chan Video',
+        startSeconds: currentSec || played || 0,
+        referer: /downloadwella/i.test(currentUrl) ? 'https://downloadwella.com/' : undefined,
+      })
+      setError(null)
+    } catch (err) {
+      console.error('Native player failed:', err)
+      setError(err?.message || 'Native Android player failed to open')
+    }
+  }, [currentUrl, currentSec, played])
+
+  useEffect(() => {
+    nativeAutoOpenedRef.current = false
+  }, [currentUrl])
+
+  useEffect(() => {
+    if (!isNativeMkvLike || nativeAutoOpenedRef.current) return
+    if (!playing && !isPlayingState) return
+    nativeAutoOpenedRef.current = true
+    openNativePlayer()
+  }, [isNativeMkvLike, isPlayingState, openNativePlayer, playing])
+
 
   const subtitleBlobUrl = useMemo(() => {
     if (!subtitleVtt) return null
@@ -1132,7 +1177,49 @@ export default function VideoPlayer({
         onPointerDown={handlePointerTouch}
         onContextMenu={(e) => e.preventDefault()}
       >
-        {isHls ? (
+        {isNativeMkvLike ? (
+          <div
+            className={styles.nativeFallback}
+            style={{
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 14,
+              padding: 24,
+              textAlign: 'center',
+              background: 'radial-gradient(circle at top, rgba(255,255,255,0.08), transparent 40%), #050505',
+              color: '#f4f1ea',
+            }}
+          >
+            <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.62)', maxWidth: 520, lineHeight: 1.55 }}>
+              This Nkiri file is MKV/HEVC. Android WebView may reject it, so Chan will play it with the native Android media engine.
+            </div>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); openNativePlayer() }}
+              style={{
+                border: 0,
+                borderRadius: 999,
+                padding: '13px 22px',
+                fontWeight: 800,
+                background: '#f4f1ea',
+                color: '#050505',
+              }}
+            >
+              Open Native Player
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setError(null); setCurrentUrl(resolvedUrl) }}
+              style={{ border: 0, background: 'transparent', color: 'rgba(255,255,255,0.55)', fontWeight: 650 }}
+            >
+              Try Web Player Anyway
+            </button>
+          </div>
+        ) : isHls ? (
           <video
             ref={videoRef}
             className={styles.videoElement}

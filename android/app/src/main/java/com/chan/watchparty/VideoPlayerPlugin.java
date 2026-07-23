@@ -1,5 +1,6 @@
 package com.chan.watchparty;
 
+import android.content.Intent;
 import android.net.Uri;
 import android.util.Log;
 import androidx.media3.common.MediaItem;
@@ -38,6 +39,32 @@ public class VideoPlayerPlugin extends Plugin {
             .build();
     }
     
+    @PluginMethod
+    public void openNative(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null || url.trim().isEmpty()) {
+            call.reject("URL is required");
+            return;
+        }
+
+        String title = call.getString("title", "Chan Video");
+        Double startSeconds = call.getDouble("startSeconds");
+        String referer = call.getString("referer", "");
+
+        try {
+            Intent intent = new Intent(getActivity(), NativeVideoPlayerActivity.class);
+            intent.putExtra("url", url);
+            intent.putExtra("title", title);
+            intent.putExtra("startMs", (long) Math.max(0, startSeconds == null ? 0 : startSeconds * 1000));
+            intent.putExtra("referer", referer);
+            getActivity().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "Native player launch failed", e);
+            call.reject("Native player launch failed: " + e.getMessage());
+        }
+    }
+
     @PluginMethod
     public void initialize(PluginCall call) {
         getActivity().runOnUiThread(() -> {
