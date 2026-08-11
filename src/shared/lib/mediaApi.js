@@ -87,3 +87,49 @@ export async function resolveDownloadLink(user, pageUrl, title) {
   }
   return playUrl
 }
+
+/**
+ * Resolve a DownloadWella/fsmc episode PAGE url to a full stream descriptor
+ * (Phase B). Returns the server's descriptor object — the single source of
+ * truth for native playback: direct CDN url, headers, container, codec,
+ * sourceUrl, mirrors. Throws on expiry/unresolvable pages.
+ */
+export async function resolveDownloadDescriptor(user, pageUrl, title) {
+  const raw = proxyTargetUrl(pageUrl)
+  if (!user) throw new Error('Sign in to use media tools')
+  if (!/downloadwella\.com|fsmc/i.test(raw)) {
+    throw new Error('Not a DownloadWella / fsmc link')
+  }
+  const data = await mediaPost(user, {
+    action: 'nkiriResolve',
+    url: raw,
+    title: title || 'Chan video',
+  })
+  const descriptor = data?.descriptor
+  if (!descriptor?.streamUrl) {
+    throw new Error('Could not resolve a playable link. The download page may be expired — pick the episode again.')
+  }
+  return descriptor
+}
+
+/**
+ * Refresh a descriptor from its sourceUrl (fresh token). Same shape as
+ * resolveDownloadDescriptor; the server walks the page form again.
+ */
+export async function refreshDownloadDescriptor(user, sourceUrl, title) {
+  const raw = proxyTargetUrl(sourceUrl)
+  if (!user) throw new Error('Sign in to use media tools')
+  if (!/downloadwella\.com|fsmc/i.test(raw)) {
+    throw new Error('Not a DownloadWella / fsmc link')
+  }
+  const data = await mediaPost(user, {
+    action: 'nkiriRefresh',
+    url: raw,
+    title: title || 'Chan video',
+  })
+  const descriptor = data?.descriptor
+  if (!descriptor?.streamUrl) {
+    throw new Error('Could not refresh the link. The download page may be expired — pick the episode again.')
+  }
+  return descriptor
+}

@@ -1,8 +1,8 @@
 import { doc, setDoc, deleteDoc, serverTimestamp, collection } from 'firebase/firestore'
 import { db } from './firebase.js'
 import { apiPath, parseJsonResponse } from './api.js'
-import { isDirectVideoUrl, checkEmbeddable } from './youtube.js'
-import { proxyTargetUrl, isDownloadPageUrl, resolveDownloadLink } from './mediaApi.js'
+import { isDirectVideoUrl, normalizePlaybackUrl, checkEmbeddable } from './youtube.js'
+import { proxyTargetUrl, isDownloadPageUrl, resolveDownloadLink, resolveDownloadDescriptor } from './mediaApi.js'
 
 export function isO2TvUrl(value) {
   return /tvshows4mobile\.org|o2tvseries|o2tv\.org/i.test(String(value || ''))
@@ -42,6 +42,8 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
   const videoId = content?.kind === 'youtube' ? content.videoId : ''
   let videoUrl = content?.kind === 'direct' ? (content.url || '') : ''
   const videoType = content?.videoType || 'youtube'
+  let mediaDescriptor = null
+  let pageUrl = ''
 
   if (videoType === 'youtube' && !videoId) {
     throw new Error('Pick a valid YouTube video')
@@ -61,11 +63,14 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
     //  2. Otherwise, if the url itself is a downloadwella *page* (HTML), walk
     //     the form now. Already-resolved CDN urls are left as-is.
     const rawVideoUrl = proxyTargetUrl(videoUrl)
-    const pageUrl = content?.sourceUrl ? proxyTargetUrl(content.sourceUrl) : ''
+    pageUrl = content?.sourceUrl ? proxyTargetUrl(content.sourceUrl) : ''
     if (pageUrl && /downloadwella\.com|fsmc/i.test(pageUrl)) {
-      // We have the original episode page — always walk the form for a fresh token.
+      // We have the original episode page — always walk the form for a fresh
+      // token, and keep the full descriptor so the native player can play the
+      // CDN directly with correct headers (Phase B).
       try {
-        videoUrl = await resolveDownloadLink(user, pageUrl, content?.title || 'Chan video')
+        mediaDescriptor = await resolveDownloadDescriptor(user, pageUrl, content?.title || 'Chan video')
+        videoUrl = normalizePlaybackUrl(mediaDescriptor.streamUrl)
       } catch (err) {
         if (/expired|resolve|download/i.test(err.message || '')) throw err
         // Non-fatal: let the proxy attempt the existing url at playback time.
@@ -127,7 +132,21 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
       roomData.isLive = false
     }
     if (content?.thumbnail) roomData.thumbnail = content.thumbnail
-    if (content?.sourceUrl && /downloadwella\.com|fsmc/i.test(proxyTargetUrl(content.sourceUrl))) {
+    if (mediaDescriptor && mediaDescriptor.streamUrl) {
+      roomData.media = {
+        streamUrl: mediaDescriptor.streamUrl,
+        referer: mediaDescriptor.referer || 'https://downloadwella.com/',
+        headers: mediaDescriptor.headers || null,
+        container: mediaDescriptor.container || null,
+        codec: mediaDescriptor.codec || null,
+        sourceUrl: mediaDescriptor.sourceUrl || pageUrl || null,
+        mirrors: Array.isArray(mediaDescriptor.mirrors) ? mediaDescriptor.mirrors : [],
+        sizeBytes: mediaDescriptor.sizeBytes || null,
+        probe: mediaDescriptor.probe || null,
+        resolvedAt: mediaDescriptor.resolvedAt || null,
+      }
+      roomData.videoUrl = normalizePlaybackUrl(mediaDescriptor.streamUrl)
+    } else if (content?.sourceUrl && /downloadwella\.com|fsmc/i.test(proxyTargetUrl(content.sourceUrl))) {
       roomData.sourceUrl = proxyTargetUrl(content.sourceUrl)
     }
   }

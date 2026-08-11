@@ -72,3 +72,18 @@
 .reResolveBtn:disabled {
   opacity: 0.6;
 }
+
+.errorActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.errorActions .reResolveBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0;
+}

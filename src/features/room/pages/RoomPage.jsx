@@ -23,7 +23,7 @@ import { Button, Input, Card, IconButton, Modal, Badge, useToast } from '../../.
 import { Layout } from '../../../shared/layout/index.js'
 import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
-import { proxyTargetUrl, resolveDownloadLink } from '../../../shared/lib/mediaApi.js'
+import { proxyTargetUrl, resolveDownloadLink, refreshDownloadDescriptor } from '../../../shared/lib/mediaApi.js'
 import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
 
 const SOUND_FX_URLS = {
@@ -230,24 +230,47 @@ export default function RoomPage() {
   // all other hooks, so call order is stable across renders.
   // Re-resolve a stale/expired DownloadWella page link and update the room so
   // every viewer gets the fresh CDN URL (wired to the player's error card).
+  // Re-resolve a stale/expired DownloadWella link. Uses the room's stored
+  // descriptor (sourceUrl) to walk the page form for a FRESH token, updates
+  // the room doc (videoUrl + media descriptor) so ALL viewers recover, and
+  // returns the new descriptor for immediate native playback (Phase B).
   const reResolveVideo = useCallback(async (staleUrl) => {
     if (!canControl) {
       toast('Only the host or a co-host can re-resolve the link', { variant: 'warning' })
-      return
+      throw new Error('Only the host or a co-host can re-resolve the link')
     }
     setBusy(true)
     try {
       toast('Re-resolving link…', { variant: 'info' })
-      // Prefer the original episode page URL (room.sourceUrl) — walking the
-      // form again is the only way to get a FRESH token. The stale CDN URL
-      // alone cannot be refreshed (nkiriResolve just echoes it back).
-      const resolveFrom = (room?.sourceUrl && /downloadwella\.com|fsmc/i.test(room.sourceUrl))
-        ? room.sourceUrl
-        : staleUrl
-      const freshUrl = await resolveDownloadLink(user, resolveFrom, room?.title || 'Chan video')
-      await updateRoom({ videoUrl: freshUrl, videoType: 'direct', activityType: 'direct', isLive: false })
+      const resolveFrom = (room?.media?.sourceUrl && /downloadwella\.com|fsmc/i.test(room.media.sourceUrl))
+        ? room.media.sourceUrl
+        : (room?.sourceUrl && /downloadwella\.com|fsmc/i.test(room.sourceUrl))
+          ? room.sourceUrl
+          : staleUrl
+      const descriptor = await refreshDownloadDescriptor(user, resolveFrom, room?.title || 'Chan video')
+      const freshUrl = normalizePlaybackUrl(descriptor.streamUrl)
+      const mediaDoc = {
+        streamUrl: descriptor.streamUrl,
+        referer: descriptor.referer || 'https://downloadwella.com/',
+        headers: descriptor.headers || null,
+        container: descriptor.container || null,
+        codec: descriptor.codec || null,
+        sourceUrl: descriptor.sourceUrl || resolveFrom || null,
+        mirrors: Array.isArray(descriptor.mirrors) ? descriptor.mirrors : [],
+        sizeBytes: descriptor.sizeBytes || null,
+        probe: descriptor.probe || null,
+        resolvedAt: descriptor.resolvedAt || null,
+      }
+      await updateRoom({
+        videoUrl: freshUrl,
+        videoType: 'direct',
+        activityType: 'direct',
+        isLive: false,
+        media: mediaDoc,
+      })
       await writePlayerState({ videoUrl: freshUrl, isPlaying: false, currentTime: 0 }, true)
       toast('Link refreshed — playing', { variant: 'success' })
+      return descriptor
     } catch (err) {
       toast(err.message || 'Could not re-resolve the link', { variant: 'error' })
       throw err
@@ -591,7 +614,9 @@ export default function RoomPage() {
                     || (room.isLive && room.videoType !== 'nsfw' && room.videoType !== 'direct' && room.videoType !== 'youtube')
                   )}
                   subtitleVtt={room.subtitleVtt}
+                  media={room?.media || null}
                   onReResolve={canControl ? reResolveVideo : null}
+                  onRefresh={canControl ? reResolveVideo : null}
                 />
               </ErrorBoundary>
             ) : (

@@ -289,3 +289,23 @@ Server-side resolver hardening shipped (no client changes):
 Codec and size come from the real bytes, not guesses.
 
 **Phase B (next):** app player core — `playDescriptor(descriptor, startMs)`, headers from descriptor, engine-switch-on-error, recovery state machine, remove the WebView fallback. No client changes in Phase A, so the installed APK keeps working as-is.
+
+---
+
+## Phase B — Implementation log (2026-08-11, committed)
+
+App player core — direct CDN playback + recovery state machine. The silent
+WebView fallback is GONE; the "Source not supported" chain can no longer happen.
+
+| Piece | What shipped |
+|---|---|
+| `ChanPlayerEngine.java` | `prepare()` accepts extra headers + container/codec hints; engine preference = URL **or** descriptor (`mkv`/`hevc`/`vp9`/`av1` → VLC, else Exo); Exo errors classified → `expired` (403/404/410) / `network` (IO/timeout) / `decode` (decoder/format) / `other`; decode failures switch engine (Exo→VLC) once, other kinds surface to JS |
+| `VideoPlayerPlugin.java` | `showEmbedded` accepts `headers`/`container`/`codec`; new `showStatus({text})` (overlay status during recovery); new `probeStatus({url,referer})` (native range probe → status/contentType — lets JS classify precisely); error events carry `kind` |
+| `VideoPlayerPlugin.ts` | Types for the new API (`ErrorKind`, `ProbeResult`, options) |
+| `mediaApi.js` | `resolveDownloadDescriptor()` + `refreshDownloadDescriptor()` → full descriptors from the server |
+| `createRoom.js` | Room doc now stores `room.media` = full descriptor (`streamUrl`, `referer`, `headers`, `container`, `codec`, `sourceUrl`, `mirrors`, `sizeBytes`, `probe`); `videoUrl` kept proxied for legacy |
+| `NativeEmbeddedPlayer.jsx` | Recovery state machine: **expired** → refresh from `sourceUrl` → resume at position; **network** → retry (1.5s/3s backoff) → mirrors → refresh; **decode** → mirrors → honest failure; **other** → `probeStatus` to classify → recurse. Terminal errors close the native overlay and show a friendly card (Retry / Re-resolve link). Adapter contract unchanged → sync + queue work as before |
+| `VideoPlayer.jsx` | `isNativeEmbedded` no longer has a fallback escape; passes descriptor props (`media.streamUrl`/`referer`/`headers`/`container`/`codec`/`sourceUrl`/`mirrors`) + `onRefresh` |
+| `RoomPage.jsx` | `reResolveVideo` upgraded: `refreshDownloadDescriptor` from `room.media.sourceUrl` → updates room doc (`videoUrl` + `media`) for ALL viewers → returns new descriptor for immediate native playback; passed as `media`/`onRefresh` to the player |
+
+**Verified:** web build ✓, eslint ✓ (0 errors). Android Java hand-reviewed + structurally valid — **compile verification runs in GitHub Actions** (`./gradlew assembleDebug`), plus the CI regression guard still checks no fallback/choice UI strings return.
