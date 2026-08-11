@@ -321,3 +321,75 @@
 .stepPaneHidden {
   display: none;
 }
+
+/* Inline selection bar (step 1) — sticky so it's always reachable */
+.selectedBar {
+  position: sticky;
+  bottom: var(--s-3);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+  padding: 10px 12px;
+  background: var(--surface-light);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.18s ease;
+}
+
+.selectedTick {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  background: var(--pill-black);
+  border: 1px solid var(--border-strong);
+  color: var(--pill-black-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.selectedInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.selectedLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted-grey);
+  font-weight: 700;
+}
+
+.selectedTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-black);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 640px) {
+  .selectedBar {
+    flex-wrap: wrap;
+  }
+
+  .selectedInfo {
+    flex-basis: calc(100% - 40px);
+  }
+
+  .selectedBar .button,
+  .selectedBar button {
+    flex: 1;
+  }
+}

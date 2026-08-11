@@ -75,11 +75,14 @@ export default function CreateRoomPage() {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
 
-  const pickContent = useCallback((next) => {
+  // Tapping a result only marks it as selected (inline, stays on step 1).
+  // The step switch to room settings happens when the user taps "Continue",
+  // or immediately for deep-link hand-offs (advance: true).
+  const pickContent = useCallback((next, { advance = false } = {}) => {
     setContent(next)
     setError(null)
     setTitle((t) => t || (next?.title || ''))
-    setStep(2)
+    if (advance) setStep(2)
   }, [])
 
   // ── Bootstrap from /media hand-off / deep link ───────────────────────
@@ -94,7 +97,7 @@ export default function CreateRoomPage() {
         title: presetTitle || 'YouTube video',
         thumbnail: presetThumb,
         videoType: 'youtube',
-      })
+      }, { advance: true })
       return
     }
     if (!presetVideoUrl) return
@@ -107,7 +110,7 @@ export default function CreateRoomPage() {
         title: presetTitle || 'YouTube video',
         thumbnail: presetThumb,
         videoType: 'youtube',
-      })
+      }, { advance: true })
       return
     }
     if (isDirectVideoUrl(presetVideoUrl) || /\/api\/proxy\?/i.test(presetVideoUrl)) {
@@ -120,7 +123,7 @@ export default function CreateRoomPage() {
         thumbnail: presetThumb,
         videoType: streamType,
         isLive: presetIsLive,
-      })
+      }, { advance: true })
       return
     }
     // O2TV show page / slug → open the browser at seasons (step 1)
@@ -262,6 +265,23 @@ export default function CreateRoomPage() {
 
             {/* The one browser (TV shows / YouTube) */}
             <ShowBrowser ref={browserRef} onPick={pickContent} />
+
+            {/* Inline selection — stays on step 1 until "Continue" */}
+            {content && (
+              <div className={styles.selectedBar}>
+                <span className={styles.selectedTick}>✓</span>
+                <div className={styles.selectedInfo}>
+                  <span className={styles.selectedLabel}>Selected</span>
+                  <span className={styles.selectedTitle}>{content.title || 'Selected video'}</span>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setContent(null)}>
+                  Change
+                </Button>
+                <Button variant="primary" size="md" onClick={() => setStep(2)}>
+                  Continue →
+                </Button>
+              </div>
+            )}
 
             {error && <p className={styles.error}>{error}</p>}
           </>
