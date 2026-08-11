@@ -1194,6 +1194,7 @@ export default function VideoPlayer({
             onPlayerEvent={onPlayerEvent}
             onEnded={onEnded}
             onError={() => setEmbeddedFailed(true)}
+            onReResolve={onReResolve}
           />
         ) : isHls ? (
           <video

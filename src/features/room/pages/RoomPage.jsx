@@ -238,7 +238,13 @@ export default function RoomPage() {
     setBusy(true)
     try {
       toast('Re-resolving link…', { variant: 'info' })
-      const freshUrl = await resolveDownloadLink(user, staleUrl, room?.title || 'Chan video')
+      // Prefer the original episode page URL (room.sourceUrl) — walking the
+      // form again is the only way to get a FRESH token. The stale CDN URL
+      // alone cannot be refreshed (nkiriResolve just echoes it back).
+      const resolveFrom = (room?.sourceUrl && /downloadwella\.com|fsmc/i.test(room.sourceUrl))
+        ? room.sourceUrl
+        : staleUrl
+      const freshUrl = await resolveDownloadLink(user, resolveFrom, room?.title || 'Chan video')
       await updateRoom({ videoUrl: freshUrl, videoType: 'direct', activityType: 'direct', isLive: false })
       await writePlayerState({ videoUrl: freshUrl, isPlaying: false, currentTime: 0 }, true)
       toast('Link refreshed — playing', { variant: 'success' })

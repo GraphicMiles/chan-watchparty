@@ -9,7 +9,12 @@ import { getCachedMkvCueIndex, clusterOffsetForTime } from '../server-lib/mkvCue
 // Each invocation must finish under the plan limit. Large files are served as
 // short byte-range CHUNKS; the browser re-requests the next range. Small files
 // stream in one shot. MKV remux is only attempted for small files.
-const HOBBY_MAX_DURATION_MS = 9_000
+// Deadline budget: Vercel Hobby hard-kills at ~10s, so keep the old strict
+// budget there. On self-hosted servers (Render/Express) there is no function
+// kill — use a generous budget so MKV remux streams are NOT cut mid-file.
+// Override with REMUX_DEADLINE_MS / PROXY_MAX_DURATION_MS env vars.
+const IS_VERCEL = process.env.VERCEL === '1' || Boolean(process.env.VERCEL)
+const HOBBY_MAX_DURATION_MS = Number(process.env.PROXY_MAX_DURATION_MS) || (IS_VERCEL ? 9_000 : 120_000)
 const UPSTREAM_CONNECT_MS = 4_000 // allow slightly slower CDNs without failing cold start
 const SEEK_CONNECT_MS = 5_000
 const PLAYLIST_FETCH_MS = 3_500
@@ -22,7 +27,7 @@ const FIRST_CHUNK_BYTES = 2 * 1024 * 1024 // 2 MiB cold-start window (TTFB / fir
 // fit in Hobby time. Browser plays fMP4 from the first fragments even if the
 // function ends early. Do NOT require the whole file to remux.
 const REMUX_MAX_INPUT_BYTES = 80 * 1024 * 1024 // soft cap per invocation
-const REMUX_DEADLINE_MS = 8_500
+const REMUX_DEADLINE_MS = Number(process.env.REMUX_DEADLINE_MS) || (IS_VERCEL ? 8_500 : 120_000)
 
 /** Read optional domain allow-list from env (JSON array of hostnames). */
 function getProxyDomainAllowlist() {
@@ -861,7 +866,7 @@ export default async function handler(req, res) {
         const abortController = new AbortController()
         let inputBytes = 0
         const remuxDeadline = setTimeout(() => {
-          console.error('Proxy: MKV remux Hobby deadline — ending early')
+          console.error('Proxy: MKV remux deadline reached — ending early (budget ' + REMUX_DEADLINE_MS + 'ms)')
           abortController.abort()
           try { remuxer.destroy() } catch { /* */ }
           try { res.end() } catch { /* */ }

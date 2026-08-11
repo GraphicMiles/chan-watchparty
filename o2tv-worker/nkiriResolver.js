@@ -12,9 +12,10 @@ import * as cheerio from 'cheerio'
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 const MEDIA_RE = /\.(mp4|mkv|m3u8|webm|mov|avi|flv|ts)(?:\?|#|$)/i
 const MAX_REDIRECTS = 5
-const MAX_FORM_STEPS = 4
+const MAX_FORM_STEPS = 6
 const REQUEST_MS = 8000
 const PROBE_MS = 4000
+const COUNTDOWN_MAX_WAIT_MS = 20000 // some XFileSharing pages require waiting out a JS countdown
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_MS) {
   const controller = new AbortController()
@@ -220,8 +221,30 @@ async function walkForms(startUrl, startHtml, startCookies) {
       const ok = live.filter(Boolean)
       if (ok.length) return { directUrls: ok }
     }
+    // JS countdown pages: the free link only appears after a timer. Detect a
+    // remaining countdown and wait it out instead of giving up, then loop so
+    // the freshly rendered form (new rand/fname) is re-read and re-POSTed.
+    if (after.length === 0) {
+      const waitSec = readCountdownSeconds(html)
+      if (waitSec > 0) {
+        const waitMs = Math.min(waitSec * 1000 + 500, COUNTDOWN_MAX_WAIT_MS)
+        await new Promise((resolve) => setTimeout(resolve, waitMs))
+      }
+    }
   }
   return { directUrls: [] }
+}
+
+/** Parse a JS/HTML countdown (seconds) from an XFileSharing page. */
+function readCountdownSeconds(html) {
+  if (!html) return 0
+  const inputMatch = html.match(/name=["']countdown["'][^>]*value=["'](\d+)["']/i)
+  if (inputMatch) return Math.max(0, parseInt(inputMatch[1], 10) || 0)
+  const jsMatch = html.match(/var\s+countdown\s*=\s*(\d+)/i)
+  if (jsMatch) return Math.max(0, parseInt(jsMatch[1], 10) || 0)
+  const textMatch = html.match(/countdown[^0-9]{0,40}(\d+)\s*(?:sec|second)/i)
+  if (textMatch) return Math.max(0, parseInt(textMatch[1], 10) || 0)
+  return 0
 }
 
 /**

@@ -63,6 +63,9 @@ export default function CreateRoomPage() {
   const presetShowSlug = searchParams.get('showSlug') || ''
   const presetShowName = searchParams.get('showName') || ''
   const presetIsLive = searchParams.get('isLive') === 'true' || presetType === 'iptv' || presetType === 'sports'
+  // Original episode page URL (DownloadWella etc.) — kept so re-resolve can
+  // regenerate a fresh CDN token instead of echoing a dead one.
+  const presetSourceUrl = searchParams.get('sourceUrl') || ''
 
   // ── Flow state ────────────────────────────────────────────────────────
   const [step, setStep] = useState(1) // 1 = pick content, 2 = room settings
@@ -123,6 +126,7 @@ export default function CreateRoomPage() {
         thumbnail: presetThumb,
         videoType: streamType,
         isLive: presetIsLive,
+        sourceUrl: presetSourceUrl || undefined,
       }, { advance: true })
       return
     }

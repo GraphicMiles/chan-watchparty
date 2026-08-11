@@ -55,18 +55,30 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
       throw new Error('Paste a direct video file link (.mp4 / .m3u8 / .mkv) or pick an episode')
     }
 
-    // DownloadWella / fsmc page URLs (even proxy-wrapped ones) expire fast and
-    // are HTML pages, not video — re-resolve fresh at create time via the
-    // dedicated nkiriResolve action so the room starts from a live CDN link.
+    // DownloadWella / fsmc links expire fast. Two rules:
+    //  1. If we still have the episode PAGE url (content.sourceUrl), ALWAYS
+    //     resolve fresh at create time — the room starts from a live token.
+    //  2. Otherwise, if the url itself is a downloadwella *page* (HTML), walk
+    //     the form now. Already-resolved CDN urls are left as-is.
     const rawVideoUrl = proxyTargetUrl(videoUrl)
-    if (isDownloadPageUrl(rawVideoUrl) || /downloadwella\.com|fsmc/i.test(rawVideoUrl)) {
+    const pageUrl = content?.sourceUrl ? proxyTargetUrl(content.sourceUrl) : ''
+    if (pageUrl && /downloadwella\.com|fsmc/i.test(pageUrl)) {
+      // We have the original episode page — always walk the form for a fresh token.
+      try {
+        videoUrl = await resolveDownloadLink(user, pageUrl, content?.title || 'Chan video')
+      } catch (err) {
+        if (/expired|resolve|download/i.test(err.message || '')) throw err
+        // Non-fatal: let the proxy attempt the existing url at playback time.
+      }
+    } else if (isDownloadPageUrl(rawVideoUrl)) {
+      // Page url only (no sourceUrl saved) — resolve it now.
       try {
         videoUrl = await resolveDownloadLink(user, rawVideoUrl, content?.title || 'Chan video')
       } catch (err) {
         if (/expired|resolve|download/i.test(err.message || '')) throw err
-        // Non-fatal: let the proxy attempt it at playback time.
       }
     }
+    // Already-resolved CDN url with no page url: leave as-is (can't refresh).
 
     if (isDownloadPageUrl(videoUrl)) {
       throw new Error('The download link is a page, not a video file — it may be expired. Go back and pick the episode again.')
@@ -115,6 +127,9 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
       roomData.isLive = false
     }
     if (content?.thumbnail) roomData.thumbnail = content.thumbnail
+    if (content?.sourceUrl && /downloadwella\.com|fsmc/i.test(proxyTargetUrl(content.sourceUrl))) {
+      roomData.sourceUrl = proxyTargetUrl(content.sourceUrl)
+    }
   }
 
   roomData.participantCount = 1

@@ -83,6 +83,7 @@ export default function UnifiedSearch() {
     if (content.title) params.set('title', content.title)
     if (content.thumbnail) params.set('thumbnail', content.thumbnail)
     if (content.videoType === 'iptv' || content.videoType === 'sports') params.set('isLive', 'true')
+    if (content.sourceUrl) params.set('sourceUrl', content.sourceUrl)
     navigate(`/create?${params.toString()}`, { state: { from: location.pathname } })
   }, [navigate, location.pathname])
 
