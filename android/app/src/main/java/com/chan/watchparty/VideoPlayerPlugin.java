@@ -95,7 +95,7 @@ public class VideoPlayerPlugin extends Plugin {
         @Override
         public void onReady() {
             if (overlay != null) overlay.hideStatus();
-            notify("ready", null);
+            emitPlaybackState("ready", null);
         }
 
         @Override
@@ -104,43 +104,47 @@ public class VideoPlayerPlugin extends Plugin {
                 overlay.showStatus(percent > 0 ? "Buffering… " + percent + "%" : "Buffering…", false);
             }
             JSObject data = new JSObject().put("percent", percent);
-            notify("buffering", data);
+            emitPlaybackState("buffering", data);
         }
 
         @Override
         public void onPlaying() {
             if (overlay != null) overlay.hideStatus();
-            notify("playing", null);
+            emitPlaybackState("playing", null);
         }
 
         @Override
         public void onPaused() {
-            notify("paused", null);
+            emitPlaybackState("paused", null);
         }
 
         @Override
         public void onEnded() {
             if (overlay != null) overlay.showStatus("Playback finished", false);
-            notify("ended", null);
+            emitPlaybackState("ended", null);
         }
 
         @Override
         public void onError(String friendlyMessage) {
             if (overlay != null) overlay.showStatus(friendlyMessage, true);
-            notify("error", new JSObject().put("message", friendlyMessage));
+            emitPlaybackState("error", new JSObject().put("message", friendlyMessage));
         }
 
         @Override
         public void onEngineSwitch(String engineName) {
             if (overlay != null) overlay.showVlc();
-            notify("engine", new JSObject().put("engine", engineName));
+            emitPlaybackState("engine", new JSObject().put("engine", engineName));
         }
     };
 
-    private void notify(String state, JSObject extra) {
+    private void emitPlaybackState(String state, JSObject extra) {
         JSObject data = new JSObject().put("state", state);
         if (extra != null) {
-            for (String key : extra.keys()) data.put(key, extra.get(key));
+            java.util.Iterator<String> keys = extra.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                data.put(key, extra.get(key));
+            }
         }
         try {
             notifyListeners("playbackState", data);
