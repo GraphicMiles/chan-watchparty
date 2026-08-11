@@ -150,7 +150,8 @@ public class RoomPlayerOverlayView extends FrameLayout {
         if (statusView == null) return;
         statusView.setText(text);
         statusView.setVisibility(VISIBLE);
-        if (!sticky) handler.removeCallbacksAndMessages(null);
+        // Don't remove the progress poller — status is cleared by the next
+        // ready/playing event (or stays visible when sticky).
     }
 
     public void hideStatus() {
