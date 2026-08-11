@@ -109,6 +109,7 @@ export default function VideoPlayer({
   onReResolve = null,
   media = null,
   onRefresh = null,
+  surfaceHidden = false, // room panels open -> hide native surface
 }) {
   const { user } = useAuth()
   const { toast } = useToast()
@@ -203,6 +204,8 @@ export default function VideoPlayer({
   const [videoFilter, setVideoFilter] = useState('none')
   const [brightnessMultiplier, setBrightnessMultiplier] = useState(1.0)
   const [showFilterMenu, setShowFilterMenu] = useState(false)
+  const [filterMenuUp, setFilterMenuUp] = useState(true)
+  const [qualityMenuUp, setQualityMenuUp] = useState(true)
   const [hlsLevels, setHlsLevels] = useState([])
   const [currentLevel, setCurrentLevel] = useState(-1)
   const [showQualityMenu, setShowQualityMenu] = useState(false)
@@ -1353,6 +1356,7 @@ export default function VideoPlayer({
             onApi={handleNativeApi}
             onControlsTap={handleNativeTap}
             onFullscreenChange={(v) => { setIsFullscreen(Boolean(v)) }}
+            visible={!surfaceHidden}
           />
         ) : isHls ? (
           <video
@@ -1929,14 +1933,14 @@ export default function VideoPlayer({
               <button
                 type="button"
                 className={styles.controlIconBtn}
-                onClick={(e) => { e.stopPropagation(); setShowFilterMenu(!showFilterMenu); setShowQualityMenu(false) }}
+                onClick={(e) => { e.stopPropagation(); setShowFilterMenu(!showFilterMenu); setShowQualityMenu(false); setFilterMenuUp((e.currentTarget.getBoundingClientRect().top) > 220) }}
                 title="Video LUT Filters"
               >
                 <Palette size={16} />
                 <span>{VIDEO_FILTERS[videoFilter]?.label || 'Filter'}</span>
               </button>
               {showFilterMenu && (
-                <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
+                <div className={`${styles.popupMenu} ${filterMenuUp ? styles.popupUp : ''}`} onClick={(e) => e.stopPropagation()}>
                   {Object.entries(VIDEO_FILTERS).map(([key, item]) => (
                     <button
                       key={key}
@@ -1958,14 +1962,14 @@ export default function VideoPlayer({
                 <button
                   type="button"
                   className={styles.controlIconBtn}
-                  onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); setShowFilterMenu(false) }}
+                  onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); setShowFilterMenu(false); setQualityMenuUp((e.currentTarget.getBoundingClientRect().top) > 220) }}
                   title="Stream Quality"
                 >
                   <Settings size={16} />
                   <span>{currentLevel === -1 ? 'Auto' : `${hlsLevels[currentLevel]?.height || 'HD'}p`}</span>
                 </button>
                 {showQualityMenu && (
-                  <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
+                  <div className={`${styles.popupMenu} ${qualityMenuUp ? styles.popupUp : ''}`} onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
                       className={`${styles.popupMenuItem} ${currentLevel === -1 ? styles.popupMenuItemActive : ''}`}

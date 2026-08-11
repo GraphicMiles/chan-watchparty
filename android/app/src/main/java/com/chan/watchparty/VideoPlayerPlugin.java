@@ -67,9 +67,8 @@ public class VideoPlayerPlugin extends Plugin {
         overlay = new RoomPlayerOverlayView(activity);
         engine = new ChanPlayerEngine(activity, engineListener);
         overlay.setEngine(engine);
-        overlay.setFullscreenListener(() -> setFullscreenUi(true));
+        overlay.setFullscreenListener(() -> setFullscreenUi(!fullscreen));
         overlay.setPipListener(this::enterPip);
-        overlay.setExitListener(() -> setFullscreenUi(false));
     }
 
     private void attachOverlay() {
@@ -426,6 +425,15 @@ public class VideoPlayerPlugin extends Plugin {
         Integer height = call.getInt("height", 0);
         if (engine != null) {
             engine.setVideoQuality(auto == null || auto, trackId == null ? -1 : trackId, height == null ? 0 : height);
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setVisible(PluginCall call) {
+        Boolean visible = call.getBoolean("visible", true);
+        if (overlay != null) {
+            getActivity().runOnUiThread(() -> overlay.setVisible(visible == null || visible));
         }
         call.resolve();
     }

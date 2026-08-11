@@ -297,6 +297,8 @@
   flex-direction: column;
   gap: var(--s-2);
   flex-shrink: 0;
+  /* Android safe-area: keep the input + send above the system nav bar */
+  padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
 }
 
 .replyPreview {

@@ -58,6 +58,12 @@ export default function RoomPage() {
 
   const [sidebarTab, setSidebarTab] = useState('chat')
   const [showChat, setShowChat] = useState(() => (typeof window !== 'undefined' ? window.innerWidth > 768 : true))
+  const [isNarrow, setIsNarrow] = useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false))
+  useEffect(() => {
+    const onResize = () => setIsNarrow(window.innerWidth <= 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
   const [newVideoUrl, setNewVideoUrl] = useState('')
   const [changeVideoOpen, setChangeVideoOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
@@ -618,6 +624,7 @@ export default function RoomPage() {
                   media={room?.media || null}
                   onReResolve={canControl ? reResolveVideo : null}
                   onRefresh={canControl ? reResolveVideo : null}
+                  surfaceHidden={Boolean(showChat && isNarrow)}
                 />
               </ErrorBoundary>
             ) : (

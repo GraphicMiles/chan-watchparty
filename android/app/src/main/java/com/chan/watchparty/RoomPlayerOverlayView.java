@@ -45,7 +45,6 @@ public class RoomPlayerOverlayView extends FrameLayout {
     private TextView timeTotal;
     private TextView btnFullscreen;
     private TextView btnPip;
-    private TextView btnExit;
 
     private ChanPlayerEngine engine;
     private boolean seeking = false;
@@ -250,18 +249,6 @@ public class RoomPlayerOverlayView extends FrameLayout {
             resetControlsTimer();
         });
 
-        btnExit = new TextView(context);
-        btnExit.setText("⤓");
-        btnExit.setTextColor(Color.WHITE);
-        btnExit.setTextSize(16f);
-        btnExit.setPadding(dp(8), dp(2), dp(6), dp(2));
-        btnExit.setContentDescription("Exit fullscreen");
-        btnExit.setVisibility(GONE); // fullscreen-only
-        btnExit.setOnClickListener(v -> {
-            if (exitListener != null) exitListener.onExit();
-            resetControlsTimer();
-        });
-
         bar.addView(btnPlayPause, new LinearLayout.LayoutParams(dp(40), dp(40)));
         bar.addView(timeCurrent, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -281,10 +268,6 @@ public class RoomPlayerOverlayView extends FrameLayout {
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
         bar.addView(btnPip, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        ));
-        bar.addView(btnExit, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
@@ -346,26 +329,31 @@ public class RoomPlayerOverlayView extends FrameLayout {
 
     public interface FullscreenListener { void onToggleFullscreen(); }
     public interface PipListener { void onEnterPip(); }
-    public interface ExitListener { void onExit(); }
     private FullscreenListener fullscreenListener;
     private PipListener pipListener;
-    private ExitListener exitListener;
     public void setFullscreenListener(FullscreenListener l) { fullscreenListener = l; }
     public void setPipListener(PipListener l) { pipListener = l; }
-    public void setExitListener(ExitListener l) { exitListener = l; }
 
     public void setFullscreenUi(boolean fullscreen) {
         isFullscreen = fullscreen;
+        // The SAME ⛶ icon toggles both ways: maximize ⇄ minimize.
+        if (btnFullscreen != null) {
+            btnFullscreen.setText(fullscreen ? "⤡" : "⛶");
+            btnFullscreen.setContentDescription(fullscreen ? "Minimize" : "Fullscreen");
+        }
         if (fullscreen) {
-            // Native chrome is visible in fullscreen (play/seek/time/PiP/Exit).
+            // Native chrome visible in fullscreen (play/seek/time/PiP/⛶-minimize).
             controlsBar.setVisibility(VISIBLE);
-            if (btnExit != null) btnExit.setVisibility(VISIBLE);
             setControlsVisible(true);
         } else {
-            if (btnExit != null) btnExit.setVisibility(GONE);
             // Back to embedded: restore interactive preference (set by plugin).
             controlsBar.setVisibility(interactive ? (controlsVisible ? VISIBLE : GONE) : GONE);
         }
+    }
+
+    /** Hide/show the whole native surface (panels must render above it). */
+    public void setVisible(boolean visible) {
+        setVisibility(visible ? VISIBLE : GONE);
     }
 
     // ── Teardown ─────────────────────────────────────────────────────────

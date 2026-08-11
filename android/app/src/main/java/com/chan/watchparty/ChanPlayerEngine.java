@@ -68,6 +68,11 @@ public class ChanPlayerEngine {
     // Current effect levels (for VLC adjust-filter re-apply)
     private float lastBrightness = 1f, lastContrast = 1f, lastSaturation = 1f, lastHue = 0f;
     private boolean effectsNeutral = true;
+    // Seek applied once the rebuilt VLC media is actually Playing (setTime
+    // right after play() is unreliable — media not open yet → restarts at 0).
+    private long pendingSeekMs = -1;
+    private final Runnable effectsDebounce = new Runnable() { public void run() { applyEffectsNow(); } };
+    private boolean effectsQueued = false;
 
     private ExoPlayer exoPlayer;
     private androidx.media3.ui.PlayerView exoView; // attached by the overlay
@@ -223,17 +228,27 @@ public class ChanPlayerEngine {
             }
             // libVLC 3.6.5 has no adjust-filter Java API — use media options
             // (:video-filter=adjust) and re-prepare the media, resuming at the
-            // current position (same pattern as the subtitle rebuild).
+            // current position (seek applied on Playing to avoid the restart).
             if (vlcPlayer != null) {
-                long pos = vlcPlayer.getTime();
-                vlcPlayer.stop();
-                rebuildVlcMedia(Math.max(0, pos));
+                if (!effectsQueued) {
+                    effectsQueued = true;
+                    mainHandler.postDelayed(effectsDebounce, 300);
+                }
             }
         });
     }
 
+    private void applyEffectsNow() {
+        effectsQueued = false;
+        if (vlcPlayer == null || disposed) return;
+        long pos = vlcPlayer.getTime();
+        pendingSeekMs = Math.max(0, pos);
+        vlcPlayer.stop();
+        rebuildVlcMedia();
+    }
+
     /** Rebuild the VLC media (after effect changes) applying the adjust filter. */
-    private void rebuildVlcMedia(long resumeMs) {
+    private void rebuildVlcMedia() {
         if (vlcPlayer == null || libVLC == null || lastUrl == null) return;
         try {
             Media media = new Media(libVLC, Uri.parse(lastUrl));
@@ -248,7 +263,8 @@ public class ChanPlayerEngine {
             vlcPlayer.setMedia(media);
             media.release();
             vlcPlayer.play();
-            if (resumeMs > 0) vlcPlayer.setTime(resumeMs);
+            // Resume applied in the Playing event (pendingSeekMs) — the media
+            // must be open before setTime is reliable.
         } catch (Exception e) {
             Log.e(TAG, "rebuildVlcMedia failed", e);
         }
@@ -594,6 +610,10 @@ public class ChanPlayerEngine {
                         listener.onBuffering(Math.round(event.getBuffering()));
                     }
                 } else if (event.type == MediaPlayer.Event.Playing) {
+                    if (pendingSeekMs > 0) {
+                        try { vlcPlayer.setTime(pendingSeekMs); } catch (Exception ignored) { }
+                        pendingSeekMs = -1;
+                    }
                     if (listener != null) {
                         listener.onReady();
                         listener.onPlaying();

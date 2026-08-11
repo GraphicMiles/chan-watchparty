@@ -84,6 +84,8 @@ export interface VideoPlayerPlugin {
   getVideoTracks(): Promise<{ tracks: VideoTrack[] }>
   /** Select quality: auto, or a specific track id / max height. */
   setVideoQuality(options: { auto: boolean; trackId?: number; height?: number }): Promise<void>
+  /** Hide/show the native surface (panels must render above it). */
+  setVisible(options: { visible: boolean }): Promise<void>
   /** Position the native surface (px on screen). */
   setRect(rect: Rect): Promise<void>
   play(): Promise<void>
