@@ -181,16 +181,23 @@ public class VideoPlayerPlugin extends Plugin {
         }
 
         try {
-            ensureOverlay();
-            overlay.showStatus("Fetching media…", false);
-            attachOverlay();
-            overlay.showExo();
-            engine.prepare(url, title, referer,
-                    (long) Math.max(0, startSeconds == null ? 0 : startSeconds * 1000),
-                    headers, container, codec);
-            call.resolve();
+            getActivity().runOnUiThread(() -> {
+                try {
+                    ensureOverlay();
+                    overlay.showStatus("Fetching media…", false);
+                    attachOverlay();
+                    overlay.showExo();
+                    engine.prepare(url, title, referer,
+                            (long) Math.max(0, startSeconds == null ? 0 : startSeconds * 1000),
+                            headers, container, codec);
+                    call.resolve();
+                } catch (Exception e) {
+                    Log.e(TAG, "showEmbedded failed", e);
+                    call.reject("Could not start the player: " + e.getMessage());
+                }
+            });
         } catch (Exception e) {
-            Log.e(TAG, "showEmbedded failed", e);
+            Log.e(TAG, "showEmbedded dispatch failed", e);
             call.reject("Could not start the player: " + e.getMessage());
         }
     }
@@ -261,10 +268,12 @@ public class VideoPlayerPlugin extends Plugin {
             lastRect = new FrameLayout.LayoutParams(w, h);
             lastRect.leftMargin = x;
             lastRect.topMargin = y;
-            ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
-            if (attached && overlay.getParent() == decor) {
-                overlay.setLayoutParams(lastRect);
-            }
+            getActivity().runOnUiThread(() -> {
+                ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
+                if (attached && overlay.getParent() == decor) {
+                    overlay.setLayoutParams(lastRect);
+                }
+            });
             call.resolve();
         } catch (Exception e) {
             call.resolve(); // non-fatal
@@ -317,19 +326,21 @@ public class VideoPlayerPlugin extends Plugin {
     private void setFullscreenUi(boolean value) {
         if (overlay == null || overlay.getParent() == null) return;
         fullscreen = value;
-        ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
-        if (fullscreen) {
-            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT
-            );
-            overlay.setLayoutParams(params);
-            hideSystemUi();
-        } else {
-            if (lastRect != null) overlay.setLayoutParams(lastRect);
-            showSystemUi();
-        }
-        overlay.setFullscreenUi(fullscreen);
+        getActivity().runOnUiThread(() -> {
+            ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
+            if (fullscreen) {
+                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                );
+                overlay.setLayoutParams(params);
+                hideSystemUi();
+            } else {
+                if (lastRect != null) overlay.setLayoutParams(lastRect);
+                showSystemUi();
+            }
+            overlay.setFullscreenUi(fullscreen);
+        });
     }
 
     @PluginMethod

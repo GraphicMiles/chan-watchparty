@@ -48,6 +48,7 @@ public class ChanPlayerEngine {
 
     private final Context context;
     private final Listener listener;
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
     private ExoPlayer exoPlayer;
     private androidx.media3.ui.PlayerView exoView; // attached by the overlay
@@ -321,7 +322,9 @@ public class ChanPlayerEngine {
             }
 
             final String fUrl = url;
-            vlcPlayer.setEventListener(event -> {
+            // VLC events arrive on VLC's own thread — marshal to the main thread
+            // before touching UI (overlay status) or emitting to JS.
+            vlcPlayer.setEventListener(event -> mainHandler.post(() -> {
                 if (disposed) return;
                 if (event.type == MediaPlayer.Event.Buffering) {
                     if (event.getBuffering() < 100f && listener != null) {
@@ -342,7 +345,7 @@ public class ChanPlayerEngine {
                         listener.onError(friendlyMessageFor("other"), "other");
                     }
                 }
-            });
+            }));
 
             Media media = new Media(libVLC, Uri.parse(url));
             media.setHWDecoderEnabled(true, false);
