@@ -100,11 +100,10 @@ public class VideoPlayerPlugin extends Plugin {
 
         @Override
         public void onBuffering(int percent) {
-            if (overlay != null) {
-                overlay.showStatus(percent > 0 ? "Buffering… " + percent + "%" : "Buffering…", false);
-            }
-            JSObject data = new JSObject().put("percent", percent);
-            emitPlaybackState("buffering", data);
+            // Requirement: buffering UI reflects live native state, shown by the
+            // app's own control bar — never native chrome. Clamp 1–99%.
+            int clamped = Math.max(1, Math.min(99, percent));
+            emitPlaybackState("buffering", new JSObject().put("percent", clamped));
         }
 
         @Override
@@ -115,6 +114,7 @@ public class VideoPlayerPlugin extends Plugin {
 
         @Override
         public void onPaused() {
+            if (overlay != null) overlay.hideStatus(); // never 'buffering' while paused
             emitPlaybackState("paused", null);
         }
 
@@ -168,6 +168,7 @@ public class VideoPlayerPlugin extends Plugin {
         String referer = call.getString("referer", "");
         String container = call.getString("container", "");
         String codec = call.getString("codec", "");
+        Boolean controls = call.getBoolean("controls", true);
         // Extra headers from the descriptor (merged over UA/Referer in the engine)
         java.util.Map<String, String> headers = new java.util.HashMap<>();
         JSObject h = call.getObject("headers");
@@ -184,6 +185,14 @@ public class VideoPlayerPlugin extends Plugin {
             getActivity().runOnUiThread(() -> {
                 try {
                     ensureOverlay();
+                    // Requirement: native chrome hidden — the app's own control
+                    // bar drives playback. Taps on the video surface notify JS
+                    // (controlsEvent) so the web bar can toggle instead.
+                    overlay.setTapListener(() -> {
+                        JSObject tap = new JSObject().put("type", "tap");
+                        try { notifyListeners("controlsEvent", tap); } catch (Exception ignored) { }
+                    });
+                    overlay.setInteractive(controls == null || controls);
                     overlay.showStatus("Fetching media…", false);
                     attachOverlay();
                     overlay.showExo();
@@ -301,7 +310,8 @@ public class VideoPlayerPlugin extends Plugin {
 
     @PluginMethod
     public void setVolume(PluginCall call) {
-        // Volume is handled by the native control path; kept for API parity.
+        Double volume = call.getDouble("volume", 1.0);
+        if (engine != null) engine.setVolume(volume == null ? 1.0f : volume.floatValue());
         call.resolve();
     }
 
@@ -341,6 +351,12 @@ public class VideoPlayerPlugin extends Plugin {
             }
             overlay.setFullscreenUi(fullscreen);
         });
+    }
+
+    @PluginMethod
+    public void enterPip(PluginCall call) {
+        enterPip();
+        call.resolve();
     }
 
     @PluginMethod

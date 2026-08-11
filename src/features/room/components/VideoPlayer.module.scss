@@ -734,3 +734,25 @@
   background: var(--pill-hover) !important;
   border-color: var(--text-muted-grey) !important;
 }
+
+/* Buffering tag inside the app's control bar (native mode) — driven by live
+   native buffering events only; hidden instantly on playing/pause. */
+.bufferingTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-body-grey);
+  white-space: nowrap;
+  animation: bufferingFade 0.15s ease;
+}
+
+@keyframes bufferingFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.spinSmall {
+  animation: spin 0.8s linear infinite;
+}

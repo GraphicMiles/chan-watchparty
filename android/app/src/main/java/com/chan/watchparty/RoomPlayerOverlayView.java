@@ -78,7 +78,13 @@ public class RoomPlayerOverlayView extends FrameLayout {
     private void init(Context context) {
         setBackgroundColor(Color.BLACK);
         setClickable(true);
-        setOnClickListener(v -> toggleControls());
+        setOnClickListener(v -> {
+            if (interactive) {
+                toggleControls();
+            } else if (tapListener != null) {
+                tapListener.onTap();
+            }
+        });
 
         // VLC surface (hidden until VLC engine is used)
         vlcLayout = new VLCVideoLayout(context);
@@ -308,10 +314,16 @@ public class RoomPlayerOverlayView extends FrameLayout {
 
     public void setInteractive(boolean interactive) {
         this.interactive = interactive;
+        // Requirement: NO native chrome when the app's own control bar drives
+        // playback. Controls bar fully hidden, never toggled back by taps.
         controlsBar.setVisibility(interactive ? (controlsVisible ? VISIBLE : GONE) : GONE);
     }
 
     public boolean isInteractive() { return interactive; }
+
+    public interface TapListener { void onTap(); }
+    private TapListener tapListener;
+    public void setTapListener(TapListener l) { tapListener = l; }
 
     public interface FullscreenListener { void onToggleFullscreen(); }
     public interface PipListener { void onEnterPip(); }

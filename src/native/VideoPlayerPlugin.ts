@@ -11,6 +11,8 @@ export interface ShowEmbeddedOptions {
   container?: string
   /** Codec hint from the descriptor: e.g. "hevc+aac", "avc+aac", null. */
   codec?: string | null
+  /** Hide native chrome; the app's own control bar drives playback. */
+  controls?: boolean
 }
 
 export interface Rect {
@@ -52,6 +54,8 @@ export type PlaybackStateEvent =
   | { state: 'error'; message: string; kind: ErrorKind }
   | { state: 'engine'; engine: string }
 
+export type ControlsEvent = { type: 'tap' }
+
 export interface VideoPlayerPlugin {
   /** Show the embedded native player over the room stage. */
   showEmbedded(options: ShowEmbeddedOptions): Promise<void>
@@ -60,9 +64,12 @@ export interface VideoPlayerPlugin {
   play(): Promise<void>
   pause(): Promise<void>
   seekTo(options: { positionMs: number }): Promise<void>
+  /** Real engine volume 0..1. */
   setVolume(options: { volume: number }): Promise<void>
   getPosition(): Promise<PlayerPosition>
   setFullscreen(options: { fullscreen: boolean }): Promise<void>
+  /** Enter Android Picture-in-Picture (from the app's control bar). */
+  enterPip(): Promise<void>
   /** Update the native overlay status text (used during recovery). */
   showStatus(options: { text: string }): Promise<void>
   /** Quick range probe of a media URL to classify failures. */
@@ -73,6 +80,11 @@ export interface VideoPlayerPlugin {
   addListener(
     eventName: 'playbackState',
     handler: (event: PlaybackStateEvent) => void
+  ): Promise<{ remove: () => void }>
+  /** Subscribe to control-surface events (e.g. tap on the video surface). */
+  addListener(
+    eventName: 'controlsEvent',
+    handler: (event: ControlsEvent) => void
   ): Promise<{ remove: () => void }>
 }
 
