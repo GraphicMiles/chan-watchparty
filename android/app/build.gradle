@@ -65,13 +65,15 @@ android {
     }
 
     // Allow mixed content (HTTP streams) — app uses HTTPS proxy but some CDN probes use HTTP
+    // Capacitor 8's capacitor.build.gradle (applied below) forces Java 21 —
+    // Kotlin must match or Gradle fails with "Inconsistent JVM-target compatibility".
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
     }
 
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = '21'
     }
 }
 
