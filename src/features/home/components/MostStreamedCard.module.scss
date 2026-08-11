@@ -44,7 +44,7 @@
 }
 
 .statIcon {
-  color: var(--accent-orange);
+  color: var(--text-black);
 }
 
 .statSep {
@@ -119,8 +119,8 @@
 }
 
 .dropdownMenu button:hover {
-  background: var(--accent-orange);
-  color: #fff;
+  background: var(--pill-black);
+  color: var(--pill-black-text);
 }
 
 .savedIcon {
@@ -195,24 +195,26 @@
   height: 44px;
   padding: 0 20px;
   border-radius: var(--radius-pill);
-  background: #fff;
-  color: #111;
+  background: var(--pill-black);
+  border: 1px solid var(--border-strong);
+  color: var(--pill-black-text);
   font-family: var(--font-body);
   font-weight: 700;
   font-size: 14px;
   text-decoration: none;
   transition: transform 0.15s ease, background 0.15s ease;
-  box-shadow: none !important;
+  box-shadow: var(--shadow-pill) !important;
   flex-shrink: 0;
   width: fit-content;
 }
 
 .watchNowBtn:hover {
-  background: #f0f0f0;
+  background: var(--pill-hover);
+  border-color: var(--text-muted-grey);
   transform: scale(1.04);
-  box-shadow: none !important;
+  box-shadow: var(--shadow-pill) !important;
   text-decoration: none;
-  color: #111;
+  color: var(--pill-black-text);
 }
 
 @media (max-width: 640px) {

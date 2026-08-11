@@ -14,71 +14,74 @@
   --s-16: 64px;
 
   /* ================================================================
-     BLACK / WHITE / GREY THEME (app-wide)
+     DARK MONOCHROME THEME (app-wide)
+     Surfaces are shades of near-black; text is white/grey.
      ================================================================ */
-  --bg: #050505;
-  --bg-light: #050505;
-  --bg-grid-line: #171717;
-  --surface-white: #151515;
-  --surface-light: #1f1f1f;
-  --bg-base: #050505;
-  --bg-surface: #151515;
+  --bg: #0A0A0C;
+  --bg-light: #0A0A0C;
+  --bg-grid-line: #17171A;
+  --surface-white: #141417;   /* base surface — cards, nav, inputs */
+  --surface-light: #1B1B1F;   /* raised surface */
+  --surface-hover: #232329;   /* hover surface */
+  --bg-base: #0A0A0C;
+  --bg-surface: #141417;
 
-  --text-black: #F5F5F5;
-  --text-body-grey: #B8B8B8;
-  --text-muted-grey: #777777;
-  --text-primary: #F5F5F5;
-  --text-secondary: #B8B8B8;
-  --text-muted: #777777;
+  --text-black: #F5F5F7;      /* primary text = white */
+  --text-body-grey: #A6A6B0;  /* secondary text */
+  --text-muted-grey: #6E6E78; /* muted text */
+  --text-primary: #F5F5F7;
+  --text-secondary: #A6A6B0;
+  --text-muted: #6E6E78;
 
-  --brand-green: #F5F5F5;
-  --accent: #F5F5F5;
-  --accent-orange: #F5F5F5;
-  --accent-hover: #D8D8D8;
-  --accent-muted: rgba(255, 255, 255, 0.10);
+  --brand-green: #6FCF8E;
+  --accent: #F5F5F7;
+  --accent-orange: #F5F5F7;
+  --accent-hover: #DCDCE2;
+  --accent-muted: rgba(255, 255, 255, 0.08);
 
-  --pill-black: #F5F5F5;
-  --pill-black-text: #050505;
-  --text-on-accent: #050505;
+  --pill-black: #26262C;      /* grey pill / button surface */
+  --pill-hover: #2F2F36;      /* grey pill hover */
+  --pill-black-text: #F5F5F7; /* white text on buttons */
+  --text-on-accent: #0A0A0C;
 
-  --live-red: #FF5C3E;
-  --danger: #FF5C3E;
-  --danger-hover: #e84d2e;
-  --danger-muted: rgba(255, 92, 62, 0.12);
+  --live-red: #FF5C4D;
+  --danger: #FF5C4D;
+  --danger-hover: #FF7A6D;
+  --danger-muted: rgba(255, 92, 77, 0.12);
   --text-on-danger: #FFFFFF;
 
-  --border-hairline: #2A2A2A;
-  --border: #2A2A2A;
-  --border-strong: #3A3A3A;
-  --border-focus: #F5F5F5;
+  --border-hairline: #232329;
+  --border: #232329;
+  --border-strong: #3A3A44;
+  --border-focus: #F5F5F7;
 
-  --success: #F5F5F5;
-  --success-muted: rgba(255, 255, 255, 0.10);
-  --text-on-success: #050505;
+  --success: #6FCF8E;
+  --success-muted: rgba(111, 207, 142, 0.12);
+  --text-on-success: #0A0A0C;
 
-  --warning: #F2B200;
-  --warning-muted: rgba(242, 178, 0, 0.12);
-  --text-on-warning: #0A0908;
+  --warning: #FFC24B;
+  --warning-muted: rgba(255, 194, 75, 0.12);
+  --text-on-warning: #0A0A0C;
 
   /* Neutral secondary accents */
-  --purple: #F5F5F5;
-  --purple-soft: #D8D8D8;
-  --purple-glow: rgba(255, 255, 255, 0.10);
+  --purple: #F5F5F7;
+  --purple-soft: #DCDCE2;
+  --purple-glow: rgba(255, 255, 255, 0.08);
 
   /* ================================================================
      DARK THEME (in-room view) - aliases for compatibility
      ================================================================ */
-  --room-bg: #050505;
-  --room-surface: #151515;
-  --room-surface-raised: #1F1F1F;
-  --room-avatar-bg: #242424;
-  --room-text-primary: #F5F5F5;
-  --room-text-secondary: #B8B8B8;
-  --room-divider: #2A2A2A;
-  --room-danger: #FF5C3E;
-  --room-danger-bg: rgba(255, 92, 62, 0.12);
-  --pulse-red-core: #FF5C3E;
-  --pulse-red-ring: rgba(255, 92, 62, 0.15);
+  --room-bg: #0A0A0C;
+  --room-surface: #141417;
+  --room-surface-raised: #1B1B1F;
+  --room-avatar-bg: #26262C;
+  --room-text-primary: #F5F5F7;
+  --room-text-secondary: #A6A6B0;
+  --room-divider: #232329;
+  --room-danger: #FF5C4D;
+  --room-danger-bg: rgba(255, 92, 77, 0.12);
+  --pulse-red-core: #FF5C4D;
+  --pulse-red-ring: rgba(255, 92, 77, 0.18);
 
   /* ================================================================
      SHAPE — single radius system
@@ -98,15 +101,15 @@
   --font-mono: 'IBM Plex Mono', monospace;
 
   /* ================================================================
-     SHADOWS — flat design, no shadows
+     SHADOWS — subtle depth on dark
      ================================================================ */
-  --shadow-card: none;
-  --shadow-card-hover: none;
-  --shadow-pill: none;
-  --shadow-nav: none;
-  --shadow-sm: none;
-  --shadow-md: none;
-  --shadow-lg: none;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-card-hover: 0 10px 28px rgba(0, 0, 0, 0.55);
+  --shadow-pill: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-nav: 0 4px 20px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
 
   /* ================================================================
      TOUCH TARGETS
@@ -117,7 +120,7 @@
   --btn-height-lg: 48px;
 
   /* ================================================================
-     GRADIENTS & GLOWS (disabled for flat design)
+     GRADIENTS & GLOWS
      ================================================================ */
   --gradient-cta: none;
   --inner-glow: none;
@@ -134,7 +137,7 @@
   --space-12: 48px; --space-16: 64px;
 }
 
-/* Room theme - now same as default (dark) */
+/* Room theme - same as default (dark) */
 body.room-theme {
   background: var(--room-bg);
   color: var(--room-text-primary);
@@ -145,9 +148,9 @@ body.room-theme::before {
 }
 
 .room-theme ::-webkit-scrollbar-thumb {
-  background: rgba(242, 239, 230, 0.15);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .room-theme ::-webkit-scrollbar-thumb:hover {
-  background: rgba(242, 239, 230, 0.25);
+  background: rgba(255, 255, 255, 0.2);
 }

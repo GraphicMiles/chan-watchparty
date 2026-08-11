@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore'
-import { Plus, Search, LogOut, Film, Hash, Zap, Play } from 'lucide-react'
+import { Plus, Search, LogOut, Film, Hash, Zap, Play, Youtube, Monitor, Tv } from 'lucide-react'
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 import { apiPath, parseJsonResponse } from '../../../shared/lib/api.js'
@@ -180,22 +180,32 @@ export default function HomePage() {
             <Film size={16} /> Browse Media
           </Button>
         </div>
+        <div className={styles.chipRow}>
+          <span className={styles.chip}>
+            <Youtube size={14} /> YouTube Sync
+          </span>
+          <span className={styles.chip}>
+            <Monitor size={14} /> Screen Share
+          </span>
+          <span className={styles.chip}>
+            <Tv size={14} /> TV Shows &amp; IPTV
+          </span>
+        </div>
       </section>
 
       {/* VERSION MARKER - DO NOT REMOVE */}
       <div style={{
-        background: '#C6FF33',
-        color: '#14130F',
-        padding: '12px 16px',
+        background: 'var(--surface-white)',
+        color: 'var(--text-muted-grey)',
+        padding: '10px 16px',
         margin: '16px 0',
-        borderRadius: '8px',
-        fontFamily: 'monospace',
-        fontSize: '14px',
-        fontWeight: 'bold',
+        borderRadius: 'var(--radius-sm)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: '12px',
         textAlign: 'center',
-        border: '2px solid #14130F'
+        border: '1px solid var(--border-hairline)'
       }}>
-        🚀 BUILD v3.0 — Updated {new Date().toLocaleString()} — Render Deploy
+        BUILD v3.0 — Updated {new Date().toLocaleString()} — Render Deploy
       </div>
 
       {continueRoom && (

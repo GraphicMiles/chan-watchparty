@@ -14,8 +14,9 @@
 }
 
 .button:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--surface-white);
   color: var(--text-black);
+  border: 1px solid var(--border-hairline);
 }
 
 .button:disabled {
@@ -24,13 +25,14 @@
 }
 
 .active {
-  background: var(--accent-orange);
-  color: #fff;
+  background: var(--pill-black);
+  color: var(--pill-black-text);
+  border: 1px solid var(--border-strong);
 }
 
 .active:hover:not(:disabled) {
-  background: #e85e22;
-  color: #fff;
+  background: var(--surface-hover);
+  color: var(--pill-black-text);
 }
 
 .room-theme .button {

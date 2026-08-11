@@ -104,7 +104,7 @@
   font-size: 11px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--accent-orange);
+  color: var(--text-body-grey);
   font-weight: 600;
   margin-bottom: 4px;
 }
@@ -174,10 +174,12 @@
   align-items: center;
   gap: 5px;
   white-space: nowrap;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
   box-shadow: var(--shadow-pill);
+  border: 1px solid var(--border-strong);
 }
 
 .card:hover .joinBtn {
-  background: #2a2a2a;
+  background: var(--pill-hover);
+  border-color: var(--text-muted-grey);
 }

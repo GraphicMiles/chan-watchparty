@@ -9,7 +9,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--surface-white);
+  background: rgba(20, 20, 23, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-radius: var(--radius-pill);
   padding: var(--s-1) var(--s-1) var(--s-1) var(--s-4);
   box-shadow: var(--shadow-nav);
@@ -49,7 +51,8 @@
   content: '';
   position: absolute;
   border-radius: var(--radius-pill);
-  background: var(--accent-orange);
+  background: var(--pill-black);
+  border: 1px solid var(--border-strong);
 }
 
 .logoDots::before {

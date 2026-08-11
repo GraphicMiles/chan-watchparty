@@ -81,7 +81,7 @@ a:hover {
 }
 
 ::selection {
-  background: rgba(255, 106, 43, 0.2);
+  background: rgba(255, 255, 255, 0.22);
   color: var(--text-black);
 }
 
@@ -153,12 +153,12 @@ a:hover {
 ::-webkit-scrollbar-track { background: transparent; }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-pill);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .room-theme ::-webkit-scrollbar-thumb {

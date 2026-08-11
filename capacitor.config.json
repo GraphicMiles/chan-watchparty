@@ -4,7 +4,13 @@
   "webDir": "dist",
   "server": {
     "androidScheme": "https",
-    "allowNavigation": ["*.vercel.app", "*.firebaseio.com", "*.googleapis.com", "*.gstatic.com", "*.google.com"]
+    "allowNavigation": [
+      "*.vercel.app",
+      "*.firebaseio.com",
+      "*.googleapis.com",
+      "*.gstatic.com",
+      "*.google.com"
+    ]
   },
   "android": {
     "allowMixedContent": true,
@@ -20,7 +26,7 @@
       "launchShowDuration": 2000,
       "backgroundColor": "#0a0a0f",
       "showSpinner": true,
-      "spinnerColor": "#FF6A2B"
+      "spinnerColor": "#26262C"
     },
     "Keyboard": {
       "resize": "body",

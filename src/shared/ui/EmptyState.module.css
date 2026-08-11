@@ -10,7 +10,8 @@
   width: 64px;
   height: 64px;
   border-radius: var(--radius-pill);
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--surface-white);
+  border: 1px solid var(--border-hairline);
   color: var(--text-muted-grey);
   margin-bottom: var(--s-5);
 }

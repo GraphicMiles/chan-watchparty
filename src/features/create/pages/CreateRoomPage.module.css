@@ -1,20 +1,29 @@
+/* ================================================================
+   CREATE ROOM FLOW — dark monochrome redesign
+   The whole flow (YouTube / TV-Show browser / settings) now sits
+   on dark surfaces with white text and grey accents.
+   ================================================================ */
+
 .page {
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: var(--s-6) var(--s-4);
+  padding: var(--s-8) var(--s-4) var(--s-12);
 }
 
 .card {
   width: 100%;
-  max-width: 560px;
-  padding: var(--s-6) !important;
+  max-width: 640px;
+  padding: var(--s-8) !important;
+  background: var(--surface-white);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
 }
 
 .title {
-  font-size: 24px;
+  font-size: 26px;
   margin-bottom: var(--s-1);
   letter-spacing: -0.02em;
   color: var(--text-black);
@@ -53,14 +62,15 @@
   padding: 0 22px !important;
 }
 
+/* Search results — dark panel */
 .results {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: var(--s-2);
-  max-height: 300px;
+  max-height: 320px;
   overflow-y: auto;
   padding: var(--s-2);
-  background: #FAF9F6;
+  background: var(--bg-base);
   border-radius: var(--radius-card);
   border: 1px solid var(--border-hairline);
 }
@@ -71,14 +81,14 @@
   cursor: pointer;
   background: transparent;
   border: 1px solid transparent;
-  color: inherit;
+  color: var(--text-black);
   border-radius: var(--radius-sm);
   transition: all 0.15s ease;
 }
 
 .result:hover {
-  background: var(--surface-white);
-  border-color: var(--border-hairline);
+  background: var(--surface-light);
+  border-color: var(--border-strong);
   box-shadow: var(--shadow-sm);
 }
 
@@ -87,7 +97,7 @@
   border-radius: var(--radius-sm);
   aspect-ratio: 16 / 9;
   object-fit: cover;
-  background: #0B0B0C;
+  background: var(--bg-base);
 }
 
 .resultTitle {
@@ -118,21 +128,22 @@
   margin: 0;
   padding: var(--s-3) var(--s-4);
   border-radius: var(--radius-sm);
-  background: rgba(242, 178, 0, 0.12);
-  border: 1px solid rgba(242, 178, 0, 0.25);
-  color: #8B6914;
+  background: var(--warning-muted);
+  border: 1px solid rgba(255, 194, 75, 0.25);
+  color: var(--warning);
   font-size: 13px;
   line-height: 1.4;
 }
 
+/* Selected video — monochrome highlight */
 .selected {
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  background: rgba(255, 106, 43, 0.06);
+  background: var(--surface-light);
   padding: var(--s-2) var(--s-3);
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(255, 106, 43, 0.15);
+  border: 1px solid var(--border-strong);
 }
 
 .selectedThumb {
@@ -179,7 +190,7 @@
 }
 
 .checkbox input[type="checkbox"] {
-  accent-color: var(--accent-orange);
+  accent-color: var(--text-black);
   width: 16px;
   height: 16px;
 }
@@ -193,11 +204,11 @@
 .error {
   margin-top: var(--s-2);
   padding: var(--s-3) var(--s-4);
-  background: rgba(234, 51, 35, 0.06);
+  background: var(--danger-muted);
   color: var(--live-red);
   border-radius: var(--radius-sm);
   font-size: 13px;
-  border: 1px solid rgba(234, 51, 35, 0.15);
+  border: 1px solid rgba(255, 92, 77, 0.25);
 }
 
 .footer {
@@ -215,9 +226,10 @@
   color: var(--text-black);
 }
 
+/* Source tabs — dark segmented control */
 .tabs {
   display: flex;
-  background: #FAF9F6;
+  background: var(--bg-base);
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-pill);
   padding: 4px;
@@ -242,6 +254,7 @@
 
 .tab:hover {
   color: var(--text-black);
+  background: var(--surface-white);
 }
 
 .tabActive {
@@ -249,9 +262,9 @@
   height: 36px;
   padding: 0 var(--s-3);
   background: var(--pill-black);
-  border: none;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-pill);
-  color: #fff;
+  color: var(--pill-black-text);
   font-size: 13px;
   cursor: pointer;
   font-weight: 600;
@@ -272,6 +285,10 @@
   cursor: pointer;
   font-family: var(--font-body);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.select:hover {
+  border-color: var(--border-strong);
 }
 
 .select:focus {
@@ -309,18 +326,18 @@
   }
 }
 
-/* O2TV / Nkiri hierarchical season + episode browser */
+/* O2TV / Nkiri hierarchical season + episode browser — dark */
 .nkiriSection {
   margin: 1.5rem 0;
   padding: 1rem 0;
-  border-top: 1px solid var(--border-color, #2a2a2a);
+  border-top: 1px solid var(--border-hairline);
 }
 
 .nkiriTitle {
   font-size: 1.1rem;
   font-weight: 600;
   margin-bottom: 0.25rem;
-  color: var(--text-primary, #fff);
+  color: var(--text-black);
 }
 
 .o2Header {
@@ -335,7 +352,8 @@
   height: 108px;
   object-fit: cover;
   border-radius: 8px;
-  background: var(--bg-secondary, #1a1a1a);
+  background: var(--surface-light);
+  border: 1px solid var(--border-hairline);
   flex-shrink: 0;
 }
 
@@ -347,33 +365,34 @@
 .o2Breadcrumb {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--text-secondary, #a1a1aa);
+  color: var(--text-body-grey);
 }
 
 .o2BackLink {
   background: none;
   border: none;
-  color: var(--accent, #6366f1);
+  color: var(--text-black);
   cursor: pointer;
   font: inherit;
   padding: 0;
   text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .o2BackLink:hover {
-  opacity: 0.85;
+  opacity: 0.8;
 }
 
 .o2Status {
   margin: 0.5rem 0 1rem;
   font-size: 0.9rem;
-  color: var(--text-secondary, #a1a1aa);
+  color: var(--text-body-grey);
 }
 
 .o2Resolving {
   margin-top: 0.35rem;
   font-size: 0.7rem;
-  color: var(--accent, #6366f1);
+  color: var(--text-body-grey);
 }
 
 .o2Ready {
@@ -382,9 +401,9 @@
   gap: 0.75rem;
   align-items: center;
   padding: 0.75rem 1rem;
-  background: var(--bg-secondary, #1a1a1a);
-  border-radius: var(--radius, 8px);
-  border: 1px solid var(--accent, #6366f1);
+  background: var(--surface-light);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
 }
 
 .episodeGrid {
@@ -393,33 +412,29 @@
   gap: 0.75rem;
 }
 
-@media (max-width: 768px) {
-  .episodeGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
 .episodeCard {
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 0.5rem;
-  background: var(--bg-secondary, #1a1a1a);
-  border: 2px solid transparent;
-  border-radius: var(--radius, 8px);
+  background: var(--surface-light);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s;
-  color: var(--text-primary, #fff);
+  color: var(--text-black);
 }
 
 .episodeCard:hover {
-  border-color: var(--accent, #6366f1);
+  border-color: var(--text-muted-grey);
+  background: var(--surface-hover);
   transform: translateY(-2px);
 }
 
 .episodeSelected {
-  border-color: var(--accent, #6366f1);
-  background: var(--bg-tertiary, #252525);
+  border-color: var(--text-black);
+  background: var(--surface-hover);
+  box-shadow: var(--shadow-sm);
 }
 
 .episodeThumb {
@@ -443,10 +458,10 @@
 
 .nkiriError {
   padding: 1rem;
-  background: var(--bg-error, rgba(239, 68, 68, 0.1));
-  border: 1px solid var(--border-error, #ef4444);
-  border-radius: var(--radius, 8px);
-  color: var(--text-error, #ef4444);
+  background: var(--danger-muted);
+  border: 1px solid rgba(255, 92, 77, 0.3);
+  border-radius: var(--radius-sm);
+  color: var(--live-red);
   text-align: center;
 }
 
@@ -456,28 +471,30 @@
 }
 
 .retryButton {
-  padding: 0.5rem 1rem;
-  background: var(--accent, #6366f1);
-  color: white;
-  border: none;
-  border-radius: var(--radius, 8px);
+  padding: 0.5rem 1.25rem;
+  background: var(--pill-black);
+  border: 1px solid var(--border-strong);
+  color: var(--pill-black-text);
+  border-radius: var(--radius-pill);
   cursor: pointer;
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .retryButton:hover {
-  background: var(--accent-hover, #4f46e5);
+  background: var(--pill-hover);
+  border-color: var(--text-muted-grey);
 }
 
 .cancelLink {
   background: none;
   border: none;
-  color: inherit;
+  color: var(--text-muted-grey);
   text-decoration: underline;
+  text-underline-offset: 3px;
   cursor: pointer;
   font: inherit;
   padding: 0;
   opacity: 0.85;
 }
-.cancelLink:hover { opacity: 1; }
+.cancelLink:hover { opacity: 1; color: var(--text-black); }

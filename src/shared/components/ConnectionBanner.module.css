@@ -7,13 +7,13 @@
   text-align: center;
   font-size: 13px;
   font-weight: 600;
-  color: #7A5C00;
-  background: #FFF3CD;
+  color: var(--warning);
+  background: var(--warning-muted);
+  border-bottom: 1px solid rgba(255, 194, 75, 0.18);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--s-2);
-  border-bottom: 1px solid rgba(242, 178, 0, 0.2);
 }
 
 .spin {

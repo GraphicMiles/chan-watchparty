@@ -1,10 +1,16 @@
+/* ================================================================
+   HOME PAGE — dark monochrome redesign
+   bg #0A0A0C · surfaces #141417 → #1B1B1F → #232329
+   white text · grey accents · grey pill buttons
+   ================================================================ */
+
 .hero {
   text-align: center;
-  padding: var(--s-8) 0 var(--s-6);
+  padding: var(--s-10) 0 var(--s-8);
 }
 
 .badgeRow {
-  margin-bottom: var(--s-4);
+  margin-bottom: var(--s-5);
 }
 
 .badgePill {
@@ -13,7 +19,7 @@
   gap: var(--s-2);
   background: var(--surface-white);
   border-radius: var(--radius-pill);
-  padding: 6px 14px;
+  padding: 7px 16px;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-body-grey);
@@ -28,12 +34,13 @@
   background: var(--live-red);
   display: inline-block;
   flex-shrink: 0;
+  box-shadow: 0 0 0 3px var(--danger-muted);
 }
 
 .heroTitle {
-  font-size: clamp(32px, 5.5vw, 52px);
-  line-height: 1.1;
-  margin: 0 0 var(--s-3);
+  font-size: clamp(34px, 6vw, 58px);
+  line-height: 1.08;
+  margin: 0 0 var(--s-4);
   letter-spacing: -0.03em;
   font-weight: 700;
 }
@@ -43,16 +50,17 @@
   color: var(--text-black);
 }
 
+/* Greyed accent line — keeps the two-line hero but in monochrome */
 .greenLine {
   display: block;
-  color: var(--text-black);
+  color: var(--text-muted-grey);
 }
 
 .heroSub {
   color: var(--text-body-grey);
   font-size: clamp(15px, 2.2vw, 17px);
   line-height: 1.55;
-  max-width: 420px;
+  max-width: 460px;
   margin: 0 auto var(--s-6);
 }
 
@@ -66,7 +74,34 @@
   margin: 0 auto var(--s-6);
 }
 
-/* Continue watching — neutral card layout */
+/* Feature chips — grey surface pills */
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-2);
+  margin: 0 auto var(--s-8);
+  max-width: 560px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--surface-white);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-body-grey);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 7px 14px;
+  border-radius: var(--radius-pill);
+}
+
+.chip svg {
+  color: var(--text-muted-grey);
+}
+
+/* Continue watching — dark surface card */
 .continue {
   display: flex;
   flex-direction: row;
@@ -75,10 +110,11 @@
   gap: 16px;
   padding: 16px 20px;
   margin-bottom: var(--s-6);
-  border-radius: var(--radius-pill);
-  background: linear-gradient(135deg, #1A1A1A 0%, #101010 100%);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #fff;
+  border-radius: var(--radius-lg);
+  background: var(--surface-white);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-card);
+  color: var(--text-black);
   max-width: 100%;
 }
 
@@ -93,13 +129,13 @@
 .continueIconBox {
   width: 40px;
   height: 40px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-card);
+  background: var(--surface-light);
+  border: 1px solid var(--border-hairline);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #F5F5F5;
+  color: var(--text-black);
   flex-shrink: 0;
 }
 
@@ -114,7 +150,7 @@
 .continueLabel {
   margin: 0;
   font-size: 11px;
-  color: #F5F5F5;
+  color: var(--text-muted-grey);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: 700;
@@ -125,7 +161,7 @@
   font-family: var(--font-display);
   font-size: 15px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-black);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -138,8 +174,9 @@
   height: 40px;
   padding: 0 20px;
   border-radius: var(--radius-pill);
-  background: #fff;
-  color: #1A1D2D;
+  background: var(--pill-black);
+  border: 1px solid var(--border-strong);
+  color: var(--pill-black-text);
   font-weight: 700;
   font-size: 13px;
   text-decoration: none;
@@ -149,9 +186,9 @@
 }
 
 .rejoinBtn:hover {
-  background: #E9D5FF;
-  color: #1A1D2D;
-  transform: scale(1.04);
+  background: var(--surface-hover);
+  color: var(--pill-black-text);
+  transform: scale(1.03);
   text-decoration: none;
 }
 
@@ -197,20 +234,22 @@
 }
 
 .tab:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--surface-white);
   color: var(--text-black);
+  border-color: var(--border-hairline);
 }
 
 .tabActive {
   background: var(--pill-black);
-  color: #fff;
+  color: var(--pill-black-text);
   font-weight: 600;
+  border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-pill);
 }
 
 .tabActive:hover {
-  background: #2a2a2a;
-  color: #fff;
+  background: var(--surface-hover);
+  color: var(--pill-black-text);
 }
 
 /* Controls bar */
@@ -325,7 +364,7 @@
 
 @media (min-width: 840px) {
   .hero {
-    padding: var(--s-10) 0 var(--s-8);
+    padding: var(--s-12) 0 var(--s-10);
   }
   .grid, .skeletonGrid {
     grid-template-columns: repeat(3, 1fr);
