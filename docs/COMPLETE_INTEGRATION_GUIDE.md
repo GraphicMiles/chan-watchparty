@@ -95,7 +95,7 @@
 
 ### 2. Add android.yml to GitHub
 
-1. Go to: https://github.com/GraphicMiles/Chan
+1. Go to: https://github.com/GraphicMiles/chan-watchparty
 2. Click **Add file** → **Create new file**
 3. Name: `.github/workflows/android.yml`
 4. Copy content from `android.yml` in repo root

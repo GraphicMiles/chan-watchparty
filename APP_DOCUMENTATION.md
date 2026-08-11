@@ -1,7 +1,7 @@
 # Chan (`Watch Together. Feel Together.`) — Master Architecture & Feature Documentation
 
 > **Last Updated:** July 13, 2026  
-> **Repository:** `https://github.com/GraphicMiles/Chan`  
+> **Repository:** `https://github.com/GraphicMiles/chan-watchparty`  
 > **Production Domain:** `https://chan-yz3p.vercel.app`
 
 ---
@@ -173,4 +173,4 @@ To make *Chan* (`Watch Together. Feel Together.`) the most interactive, intellig
 
 *   **Audit Status:** `All 64 files verified. Zero syntax errors, zero dead routes, zero unhandled promises.`
 *   **Build Status:** `npm run build` completed in `8.09s` (`1,807 modules transformed, total gzip ~520 kB`).
-*   **Git Commit & Push:** All upgrades and architecture cleanups are committed and pushed directly to `origin/main` (`https://github.com/GraphicMiles/Chan.git`) under git identity `rfarouq69 <rfarouq69@gmail.com>`, triggering immediate production deployment on Vercel.
+*   **Git Commit & Push:** All upgrades and architecture cleanups are committed and pushed directly to `origin/main` (`https://github.com/GraphicMiles/chan-watchparty.git`) under git identity `rfarouq69 <rfarouq69@gmail.com>`, triggering immediate production deployment on Vercel.

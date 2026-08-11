@@ -1,5 +1,5 @@
 name: Build Android APK
- 
+
 on:
   push:
     branches: [main]
@@ -48,6 +48,9 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Lint web source
+        run: npx eslint src --ext .js,.jsx,.ts
+
       - name: Build web assets
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
@@ -77,7 +80,7 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
-      - name: Build Debug APK
+      - name: Build Debug APK (compiles ChanPlayerEngine / RoomPlayerOverlayView / VideoPlayerPlugin)
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 

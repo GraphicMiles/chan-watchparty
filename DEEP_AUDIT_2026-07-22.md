@@ -1,7 +1,7 @@
 # Chan Deep Audit — 2026-07-22
 
 ## Scope
-Audited the `GraphicMiles/Chan` repository across:
+Audited the `GraphicMiles/chan-watchparty` repository across:
 
 - Web build/Vite/React
 - Android Capacitor/Gradle pipeline

@@ -1,7 +1,7 @@
 # Chan — Security Evaluation & Latency/Bandwidth Optimization Audit
 
 **Date:** 2026-07-14  
-**Repo:** `GraphicMiles/Chan`  
+**Repo:** `GraphicMiles/chan-watchparty`  
 **Auditor:** Arena.ai Agent Mode  
 **Status:** ✅ All identified issues have been remediated (see status markers)
 
