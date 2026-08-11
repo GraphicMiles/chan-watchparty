@@ -143,7 +143,8 @@ public class VideoPlayerPlugin extends Plugin {
             java.util.Iterator<String> keys = extra.keys();
             while (keys.hasNext()) {
                 String key = keys.next();
-                data.put(key, extra.get(key));
+                // opt() avoids the checked JSONException from get()
+                data.put(key, extra.opt(key));
             }
         }
         try {
