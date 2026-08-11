@@ -379,3 +379,125 @@ export async function searchNkiri(query) {
   })
   return shows.slice(0, 10)
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Phase A: stream descriptors — sniff real bytes, never guess.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Sniff container + codec from the first bytes of a media file. */
+export function sniffMedia(bytes) {
+  const out = { container: null, codec: null }
+  if (!bytes || bytes.length < 16) return out
+
+  if (bytes.subarray(4, 8).toString('latin1') === 'ftyp') out.container = 'mp4'
+  else if (bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) out.container = 'mkv'
+  else if (bytes.subarray(0, 4).toString('latin1') === 'RIFF') out.container = 'avi'
+  else if (bytes.subarray(0, 4).toString('latin1') === 'OggS') out.container = 'ogg'
+  else if (bytes.subarray(0, 4).toString('latin1') === 'FLV\x01') out.container = 'flv'
+  else if (bytes.toString('latin1', 4, 8) === 'ftyp') out.container = 'mp4'
+
+  const hay = bytes.toString('latin1') // latin1 = byte-preserving for ascii token scan
+  const mkvCodecs = [
+    ['V_MPEGH/ISO/HEVC', 'hevc'], ['V_MPEG4/ISO/AVC', 'avc'], ['V_VP9', 'vp9'],
+    ['V_AV1', 'av1'], ['V_VP8', 'vp8'], ['V_MPEG4/ISO/ASP', 'mpeg4'],
+    ['A_AAC', 'aac'], ['A_OPUS', 'opus'], ['A_AC3', 'ac3'], ['A_EAC3', 'eac3'], ['A_FLAC', 'flac'],
+  ]
+  for (const [token, id] of mkvCodecs) {
+    if (hay.includes(token)) out.codec = out.codec ? `${out.codec}+${id}` : id
+  }
+  if (out.container === 'mp4' && !out.codec) {
+    const mp4Codecs = [
+      ['avc1', 'avc'], ['hvc1', 'hevc'], ['hev1', 'hevc'], ['vp09', 'vp9'],
+      ['av01', 'av1'], ['mp4a', 'aac'], ['Opus', 'opus'], ['ec-3', 'eac3'], ['ac-3', 'ac3'],
+    ]
+    for (const [token, id] of mp4Codecs) {
+      if (hay.includes(token)) out.codec = out.codec ? `${out.codec}+${id}` : id
+    }
+  }
+  return out
+}
+
+/** Full probe of a media URL: range fetch + sniff. Never follows to HTML. */
+export async function probeStream(mediaUrl, referer = 'https://downloadwella.com/') {
+  const result = {
+    ok: false, url: mediaUrl, httpStatus: null, contentType: null,
+    ranged: false, sizeBytes: null, container: null, codec: null, error: null,
+  }
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), PROBE_MS)
+    const res = await fetch(mediaUrl, {
+      method: 'GET', redirect: 'follow', signal: controller.signal,
+      headers: {
+        'User-Agent': USER_AGENT, Accept: '*/*', Range: 'bytes=0-524287',
+        Referer: referer, Origin: 'https://downloadwella.com',
+      },
+    })
+    clearTimeout(timer)
+    result.httpStatus = res.status
+    if (!res.ok && res.status !== 206) {
+      result.error = `HTTP ${res.status}`
+      return result
+    }
+    const ct = res.headers.get('content-type') || ''
+    result.contentType = ct
+    result.ranged = res.status === 206
+    const cr = res.headers.get('content-range')
+    if (cr) {
+      const m = cr.match(/\/(\d+)$/)
+      if (m) result.sizeBytes = Number(m[1])
+    }
+    if (/text\/html|application\/json|text\/plain/i.test(ct)) {
+      result.error = 'not media (HTML/JSON)'
+      return result
+    }
+    const buf = await res.arrayBuffer()
+    const sniffed = sniffMedia(Buffer.from(buf.slice(0, 524288)))
+    result.container = sniffed.container
+    result.codec = sniffed.codec
+    result.ok = Boolean(sniffed.container || /^video\//i.test(ct) || /octet-stream/i.test(ct))
+    return result
+  } catch (err) {
+    result.error = err?.name === 'AbortError' ? 'timeout' : String(err?.message || 'network error')
+    return result
+  }
+}
+
+/**
+ * Build a stream descriptor from candidate direct URLs.
+ * The descriptor is the single source of truth for the player: which URL to
+ * open, with which headers, what codec/container, and how to refresh it.
+ */
+export async function buildStreamDescriptor({ streamUrls, sourceUrl, title, referer }) {
+  const list = (streamUrls || []).filter(Boolean)
+  const primary = list[0] || null
+  const probe = primary ? await probeStream(primary, referer) : null
+
+  let container = probe?.container || null
+  if (!container && primary) {
+    container = /\.mkv(\?|#|$)/i.test(primary) ? 'mkv'
+      : /\.mp4(\?|#|$)/i.test(primary) ? 'mp4'
+        : /\.m3u8(\?|#|$)/i.test(primary) ? 'hls'
+          : 'unknown'
+  }
+
+  return {
+    streamUrl: primary,
+    mirrors: list.slice(1),
+    referer,
+    headers: { 'User-Agent': USER_AGENT, Referer: referer },
+    container,
+    codec: probe?.codec || null,
+    sizeBytes: probe?.sizeBytes || null,
+    sourceUrl,
+    title: title || null,
+    probe: {
+      ok: probe?.ok === true,
+      httpStatus: probe?.httpStatus ?? null,
+      contentType: probe?.contentType ?? null,
+      ranged: probe?.ranged ?? false,
+      error: probe?.error ?? null,
+    },
+    resolvedAt: Date.now(),
+  }
+}
