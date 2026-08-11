@@ -322,7 +322,7 @@ public class ChanPlayerEngine {
                         m.put("id", t.getId());
                         m.put("description", String.valueOf(t.getDescription()));
                         int height = 0;
-                        java.util.regex.Matcher mm = java.util.regex.Pattern.compile("(\d{3,4})").matcher(String.valueOf(t.getDescription()));
+                        java.util.regex.Matcher mm = java.util.regex.Pattern.compile("(\\d{3,4})").matcher(String.valueOf(t.getDescription()));
                         if (mm.find()) {
                             try { height = Integer.parseInt(mm.group(1)); } catch (Exception ignored) { }
                         }
