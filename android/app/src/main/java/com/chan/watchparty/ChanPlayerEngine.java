@@ -5,11 +5,17 @@ import android.net.Uri;
 import android.util.Log;
 
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.TrackGroup;
+import androidx.media3.common.TrackGroupArray;
+import androidx.media3.common.Tracks;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.effect.RgbAdjustment;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 
 import org.videolan.libvlc.LibVLC;
 import org.videolan.libvlc.Media;
@@ -50,6 +56,14 @@ public class ChanPlayerEngine {
     private final Listener listener;
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
+    // Last prepared media (kept so subtitles/effects can re-apply cleanly)
+    private String lastUrl = null;
+    private String lastTitle = null;
+    private String lastReferer = null;
+    private long lastStartMs = 0;
+    private DefaultTrackSelector trackSelector;
+    private java.io.File subtitleFile;
+
     private ExoPlayer exoPlayer;
     private androidx.media3.ui.PlayerView exoView; // attached by the overlay
     private LibVLC libVLC;
@@ -87,6 +101,10 @@ public class ChanPlayerEngine {
                         Map<String, String> headers, String container, String codec) {
         if (disposed) return;
         ended = false;
+        lastUrl = playbackUrl;
+        lastTitle = title;
+        lastReferer = referer;
+        lastStartMs = startMs;
         extraHeaders = headers != null ? new HashMap<>(headers) : new HashMap<>();
         if (shouldPreferVlc(playbackUrl, container, codec)) {
             startVlcPlayer("Using VLC engine…", playbackUrl, title, referer, startMs);
@@ -163,6 +181,194 @@ public class ChanPlayerEngine {
     }
 
     public boolean isEnded() { return ended; }
+
+    /**
+     * Apply video adjustments to the active engine.
+     * multipliers: brightness/contrast/saturation ~1.0 neutral; hueDeg degrees (0 neutral).
+     * Exo → RgbAdjustment; VLC → libVLC adjust filter.
+     */
+    public void setVideoEffects(float brightness, float contrast, float saturation, float hueDeg) {
+        mainHandler.post(() -> {
+            boolean neutral = Math.abs(brightness - 1f) < 0.01f
+                    && Math.abs(contrast - 1f) < 0.01f
+                    && Math.abs(saturation - 1f) < 0.01f
+                    && Math.abs(hueDeg) < 0.5f;
+            if (exoPlayer != null) {
+                try {
+                    if (neutral) {
+                        exoPlayer.setVideoEffects(java.util.Collections.emptyList());
+                    } else {
+                        RgbAdjustment adj = new RgbAdjustment.Builder()
+                                .setBrightness(clampInt(Math.round(50 + (brightness - 1f) * 50), 0, 100))
+                                .setContrast(clampInt(Math.round(50 + (contrast - 1f) * 50), 0, 100))
+                                .setSaturation(clampInt(Math.round(50 + (saturation - 1f) * 50), 0, 100))
+                                .setHueRotation(clampInt(Math.round(hueDeg), 0, 360))
+                                .build();
+                        exoPlayer.setVideoEffects(java.util.Collections.singletonList(adj));
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Exo setVideoEffects failed", e);
+                }
+            }
+            if (vlcPlayer != null) {
+                try {
+                    vlcPlayer.setAdjustEnabled(!neutral);
+                    if (!neutral) {
+                        vlcPlayer.setAdjustInt(MediaPlayer.Adjust.Brightness, clampInt(Math.round(brightness * 100f), 0, 200));
+                        vlcPlayer.setAdjustInt(MediaPlayer.Adjust.Contrast, clampInt(Math.round(contrast * 100f), 0, 200));
+                        vlcPlayer.setAdjustInt(MediaPlayer.Adjust.Saturation, clampInt(Math.round(saturation * 100f), 0, 300));
+                        vlcPlayer.setAdjustInt(MediaPlayer.Adjust.Hue, clampInt(Math.round(hueDeg), 0, 360));
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "VLC setAdjust failed", e);
+                }
+            }
+        });
+    }
+
+    private int clampInt(int v, int lo, int hi) {
+        return Math.max(lo, Math.min(hi, v));
+    }
+
+    /**
+     * Attach a VTT subtitle track to the active engine. Empty/null detaches.
+     * Exo: MediaItem rebuilt with the subtitle config (resumes at position).
+     * VLC: addSlave / setSpuTrack(-1).
+     */
+    public void setSubtitles(String vttText) {
+        mainHandler.post(() -> {
+            try {
+                if (vttText == null || vttText.trim().isEmpty()) {
+                    if (vlcPlayer != null) {
+                        try { vlcPlayer.setSpuTrack(-1); } catch (Exception ignored) { }
+                    }
+                    if (exoPlayer != null) rebuildExoItem(null);
+                    return;
+                }
+                java.io.File dir = context.getCacheDir();
+                if (!dir.exists()) dir.mkdirs();
+                subtitleFile = new java.io.File(dir, "chan_subtitles.vtt");
+                java.io.FileOutputStream fos = new java.io.FileOutputStream(subtitleFile);
+                fos.write(vttText.getBytes("UTF-8"));
+                fos.close();
+
+                if (vlcPlayer != null) {
+                    vlcPlayer.addSlave(MediaPlayer.Slave.Type.Subtitle, subtitleFile.getAbsolutePath(), true);
+                }
+                if (exoPlayer != null) rebuildExoItem(subtitleFile);
+            } catch (Exception e) {
+                Log.e(TAG, "setSubtitles failed", e);
+            }
+        });
+    }
+
+    private void rebuildExoItem(java.io.File vttFile) {
+        if (exoPlayer == null || lastUrl == null) return;
+        try {
+            long pos = exoPlayer.getCurrentPosition();
+            MediaItem.Builder b = new MediaItem.Builder()
+                    .setUri(Uri.parse(lastUrl))
+                    .setMediaId(lastTitle != null ? lastTitle : lastUrl);
+            if (vttFile != null) {
+                b.setSubtitleConfigurations(java.util.Collections.singletonList(
+                        new MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(vttFile))
+                                .setMimeType(MimeTypes.TEXT_VTT)
+                                .setLanguage("en")
+                                .build()
+                ));
+            }
+            exoPlayer.setMediaItem(b.build(), pos);
+            exoPlayer.prepare();
+        } catch (Exception e) {
+            Log.e(TAG, "rebuildExoItem failed", e);
+        }
+    }
+
+    /**
+     * Enumerate video tracks (height/bitrate) for quality selection.
+     * Returns a list of maps: {id, height, width, bitrate, description}.
+     */
+    public java.util.List<java.util.Map<String, Object>> getVideoTracks() {
+        java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
+        if (exoPlayer != null) {
+            try {
+                Tracks tracks = exoPlayer.getCurrentTracks();
+                for (Tracks.Group group : tracks.getGroups()) {
+                    TrackGroup tg = group.getMediaTrackGroup();
+                    for (int i = 0; i < tg.length; i++) {
+                        androidx.media3.common.Format f = tg.getFormat(i);
+                        if (f.height > 0 || f.width > 0) {
+                            java.util.Map<String, Object> m = new HashMap<>();
+                            m.put("id", i);
+                            m.put("height", f.height > 0 ? f.height : 0);
+                            m.put("width", f.width > 0 ? f.width : 0);
+                            m.put("bitrate", f.bitrate > 0 ? f.bitrate : 0);
+                            m.put("description", "Track " + (i + 1));
+                            out.add(m);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Exo getVideoTracks failed", e);
+            }
+            return out;
+        }
+        if (vlcPlayer != null) {
+            try {
+                MediaPlayer.TrackInfo[] tracks = vlcPlayer.getTracks(MediaPlayer.Track.Type.Video);
+                if (tracks != null) {
+                    for (MediaPlayer.TrackInfo t : tracks) {
+                        java.util.Map<String, Object> m = new HashMap<>();
+                        m.put("id", t.getId());
+                        m.put("description", String.valueOf(t.getDescription()));
+                        int height = 0;
+                        java.util.regex.Matcher mm = java.util.regex.Pattern.compile("(\d{3,4})").matcher(String.valueOf(t.getDescription()));
+                        if (mm.find()) {
+                            try { height = Integer.parseInt(mm.group(1)); } catch (Exception ignored) { }
+                        }
+                        m.put("height", height);
+                        m.put("width", 0);
+                        m.put("bitrate", 0);
+                        out.add(m);
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "VLC getVideoTracks failed", e);
+            }
+            return out;
+        }
+        return out;
+    }
+
+    /** Set video quality: auto (true) or a specific track/height. */
+    public void setVideoQuality(boolean auto, int trackId, int height) {
+        mainHandler.post(() -> {
+            if (exoPlayer != null && trackSelector != null) {
+                try {
+                    DefaultTrackSelector.Parameters.Builder p = trackSelector.buildUponParameters();
+                    if (auto) {
+                        p.setMaxVideoSize(Integer.MAX_VALUE, Integer.MAX_VALUE);
+                    } else if (height > 0) {
+                        p.setMaxVideoSize(Integer.MAX_VALUE, height);
+                    }
+                    trackSelector.setParameters(p.build());
+                } catch (Exception e) {
+                    Log.e(TAG, "Exo setVideoQuality failed", e);
+                }
+            }
+            if (vlcPlayer != null) {
+                try {
+                    if (auto) {
+                        vlcPlayer.setTrack(-1);
+                    } else if (trackId >= 0) {
+                        vlcPlayer.setTrack(trackId);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "VLC setVideoQuality failed", e);
+                }
+            }
+        });
+    }
 
     /** Volume 0..1 — applied to whichever engine is active. */
     public void setVolume(float volume) {
@@ -251,8 +457,10 @@ public class ChanPlayerEngine {
                     .setReadTimeoutMs(30000)
                     .setDefaultRequestProperties(headersFor(referer, url));
 
+            trackSelector = new DefaultTrackSelector(context);
             exoPlayer = new ExoPlayer.Builder(context)
                     .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory))
+                    .setTrackSelector(trackSelector)
                     .build();
 
             // BUGFIX: bind the player to the overlay surface — without this the

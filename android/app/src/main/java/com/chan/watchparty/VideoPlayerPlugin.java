@@ -354,6 +354,56 @@ public class VideoPlayerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setVideoEffects(PluginCall call) {
+        Double brightness = call.getDouble("brightness", 1.0);
+        Double contrast = call.getDouble("contrast", 1.0);
+        Double saturation = call.getDouble("saturation", 1.0);
+        Double hue = call.getDouble("hue", 0.0);
+        if (engine != null) {
+            engine.setVideoEffects(
+                    brightness == null ? 1f : brightness.floatValue(),
+                    contrast == null ? 1f : contrast.floatValue(),
+                    saturation == null ? 1f : saturation.floatValue(),
+                    hue == null ? 0f : hue.floatValue());
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setSubtitles(PluginCall call) {
+        String vttText = call.getString("vttText", "");
+        if (engine != null) engine.setSubtitles(vttText);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void getVideoTracks(PluginCall call) {
+        JSObject result = new JSObject();
+        if (engine != null) {
+            java.util.List<java.util.Map<String, Object>> tracks = engine.getVideoTracks();
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (java.util.Map<String, Object> t : tracks) {
+                arr.put(new JSObject(t));
+            }
+            result.put("tracks", arr);
+        } else {
+            result.put("tracks", new org.json.JSONArray());
+        }
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void setVideoQuality(PluginCall call) {
+        Boolean auto = call.getBoolean("auto", true);
+        Integer trackId = call.getInt("trackId", -1);
+        Integer height = call.getInt("height", 0);
+        if (engine != null) {
+            engine.setVideoQuality(auto == null || auto, trackId == null ? -1 : trackId, height == null ? 0 : height);
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
     public void enterPip(PluginCall call) {
         enterPip();
         call.resolve();
