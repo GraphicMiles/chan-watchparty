@@ -58,6 +58,7 @@ export default function NativeEmbeddedPlayer({
   onApi = null, // exposes the native adapter for the app's control bar
   onControlsTap = null, // native surface tapped -> app toggles its control bar
   onFullscreenChange = null, // native fullscreen entered/exited (syncs JS state)
+  visible = true, // false when room panels must render above the video
 }) {
   const propsRef = useRef({ onProgress, onApi, onControlsTap, onFullscreenChange })
   useEffect(() => {
@@ -76,6 +77,12 @@ export default function NativeEmbeddedPlayer({
   useEffect(() => {
     controlsHeightRef.current = controlsHeight
   }, [controlsHeight])
+
+  const visibleRef = useRef(visible)
+  useEffect(() => {
+    visibleRef.current = visible
+    VideoPlayerPlugin.setVisible({ visible }).catch(() => {})
+  }, [visible])
 
   const [errorMsg, setErrorMsg] = useState(null)
   const [busyAction, setBusyAction] = useState(null) // 'retry' | 'reresolve'
@@ -364,18 +371,26 @@ export default function NativeEmbeddedPlayer({
         try {
           const dpr = window.devicePixelRatio || 1
           const r = el.getBoundingClientRect()
-          // Requirement: native surface covers ONLY the video frame — the strip
-          // where the app's control bar lives stays native-surface-free so the
-          // WebView underneath receives touches. The strip height is tracked
-          // live by the parent (ResizeObserver on the control bar).
-          const stripPx = Math.max(0, Math.round((controlsHeightRef.current || 0) * dpr))
-          const h = Math.max(0, Math.round(r.height * dpr) - stripPx)
-          VideoPlayerPlugin.setRect({
-            x: Math.round(r.left * dpr),
-            y: Math.round(r.top * dpr),
-            w: Math.round(r.width * dpr),
-            h,
-          }).catch(() => {})
+          const onScreen = r.bottom > 0 && r.top < (window.innerHeight || 800) && r.width > 0 && r.height > 0
+          const shouldShow = visibleRef.current && onScreen
+          // Panels/offscreen: hide the native surface so web UI renders above.
+          if (!shouldShow) {
+            VideoPlayerPlugin.setVisible({ visible: false }).catch(() => {})
+          } else {
+            VideoPlayerPlugin.setVisible({ visible: true }).catch(() => {})
+            // Requirement: native surface covers ONLY the video frame — the strip
+            // where the app's control bar lives stays native-surface-free so the
+            // WebView underneath receives touches. The strip height is tracked
+            // live by the parent (ResizeObserver on the control bar).
+            const stripPx = Math.max(0, Math.round((controlsHeightRef.current || 0) * dpr))
+            const h = Math.max(0, Math.round(r.height * dpr) - stripPx)
+            VideoPlayerPlugin.setRect({
+              x: Math.round(r.left * dpr),
+              y: Math.round(r.top * dpr),
+              w: Math.round(r.width * dpr),
+              h,
+            }).catch(() => {})
+          }
         } catch { /* keep last rect */ }
       }
       if (!cancelled) raf = requestAnimationFrame(measureAndSetRect)

@@ -756,3 +756,14 @@
 .spinSmall {
   animation: spin 0.8s linear infinite;
 }
+
+/* Popup menus: clamp to viewport, flip downward when near the top */
+.popupMenu {
+  max-height: min(45vh, 420px);
+  overflow-y: auto;
+}
+
+.popupUp {
+  bottom: auto;
+  top: calc(100% + 6px);
+}
