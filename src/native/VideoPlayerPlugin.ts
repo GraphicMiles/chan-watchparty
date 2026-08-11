@@ -56,9 +56,34 @@ export type PlaybackStateEvent =
 
 export type ControlsEvent = { type: 'tap' }
 
+export interface VideoTrack {
+  id: number
+  height: number
+  width: number
+  bitrate: number
+  description: string
+}
+
+export interface VideoEffects {
+  /** multipliers ~1.0 neutral */
+  brightness: number
+  contrast: number
+  saturation: number
+  /** degrees, 0 neutral */
+  hue: number
+}
+
 export interface VideoPlayerPlugin {
   /** Show the embedded native player over the room stage. */
   showEmbedded(options: ShowEmbeddedOptions): Promise<void>
+  /** Apply brightness/contrast/saturation/hue to the active native engine. */
+  setVideoEffects(options: VideoEffects): Promise<void>
+  /** Attach a VTT subtitle track (empty detaches). */
+  setSubtitles(options: { vttText: string }): Promise<void>
+  /** Enumerate native video tracks for the quality menu. */
+  getVideoTracks(): Promise<{ tracks: VideoTrack[] }>
+  /** Select quality: auto, or a specific track id / max height. */
+  setVideoQuality(options: { auto: boolean; trackId?: number; height?: number }): Promise<void>
   /** Position the native surface (px on screen). */
   setRect(rect: Rect): Promise<void>
   play(): Promise<void>
