@@ -165,7 +165,9 @@ class ManagedPlayer(
                 setPlayer(exo)
                 useController = false
                 setKeepScreenOn(true)
-                resizeMode = PlayerView.RESIZE_MODE_FIT
+                // media3 1.2 removed PlayerView.RESIZE_MODE_* — use the
+                // AspectRatioFrameLayout constant (FIT is the default anyway).
+                resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
             }
             exoView = view
             swapSurface(view)

@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -255,7 +254,6 @@ private fun PlayerCenterControls(
     onTogglePlay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow
     Box(
         modifier = modifier
             .size(76.dp)
@@ -263,12 +261,29 @@ private fun PlayerCenterControls(
             .clickable { onTogglePlay() },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = if (isPlaying) "Pause" else "Play",
-            tint = Color.White,
-            modifier = Modifier.size(40.dp),
-        )
+        if (isPlaying) {
+            // Pause glyph drawn directly (Icons.Filled.Pause lives in the large
+            // material-icons-extended artifact — not worth the APK weight).
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    Modifier
+                        .size(width = 9.dp, height = 28.dp)
+                        .background(Color.White, CircleShape)
+                )
+                Box(
+                    Modifier
+                        .size(width = 9.dp, height = 28.dp)
+                        .background(Color.White, CircleShape)
+                )
+            }
+        } else {
+            Icon(
+                imageVector = Icons.Filled.PlayArrow,
+                contentDescription = "Play",
+                tint = Color.White,
+                modifier = Modifier.size(44.dp),
+            )
+        }
     }
 }
 

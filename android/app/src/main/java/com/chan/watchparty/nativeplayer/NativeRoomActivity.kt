@@ -164,7 +164,7 @@ class NativeRoomActivity : ComponentActivity() {
 
     override fun onPictureInPictureModeChanged(
         isInPictureInPictureMode: Boolean,
-        newConfig: Configuration?,
+        newConfig: Configuration,
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         pipMode.value = isInPictureInPictureMode
