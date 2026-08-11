@@ -10,7 +10,7 @@ import { createRoom, isO2TvUrl } from '../../../shared/lib/createRoom.js'
 import { isSuitableThumbnail } from '../../../shared/lib/mediaHelper.js'
 import { Button, Input, Card, useToast } from '../../../shared/ui/index.js'
 import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
-import { Link2, ArrowLeft } from 'lucide-react'
+import { Link2 } from 'lucide-react'
 import styles from './CreateRoomPage.module.css'
 
 function parseShowSlugFromUrl(value) {
@@ -68,8 +68,7 @@ export default function CreateRoomPage() {
   const presetSourceUrl = searchParams.get('sourceUrl') || ''
 
   // ── Flow state ────────────────────────────────────────────────────────
-  const [step, setStep] = useState(1) // 1 = pick content, 2 = room settings
-  const [content, setContent] = useState(null)
+  const [content, setContent] = useState(null) // picked content OR null = browsing
   const [pasteUrl, setPasteUrl] = useState('')
   const [browserTask, setBrowserTask] = useState(null) // { type:'show', slug, name, thumb }
   const [title, setTitle] = useState(presetTitle)
@@ -78,14 +77,12 @@ export default function CreateRoomPage() {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
 
-  // Tapping a result only marks it as selected (inline, stays on step 1).
-  // The step switch to room settings happens when the user taps "Continue",
-  // or immediately for deep-link hand-offs (advance: true).
-  const pickContent = useCallback((next, { advance = false } = {}) => {
+  // Single-step flow (mockup): picking content shows the create panel
+  // (summary + settings + CTA) on the same screen. "Change" returns to browse.
+  const pickContent = useCallback((next) => {
     setContent(next)
     setError(null)
     setTitle((t) => t || (next?.title || ''))
-    if (advance) setStep(2)
   }, [])
 
   // ── Bootstrap from /media hand-off / deep link ───────────────────────
@@ -100,7 +97,7 @@ export default function CreateRoomPage() {
         title: presetTitle || 'YouTube video',
         thumbnail: presetThumb,
         videoType: 'youtube',
-      }, { advance: true })
+      })
       return
     }
     if (!presetVideoUrl) return
@@ -113,7 +110,7 @@ export default function CreateRoomPage() {
         title: presetTitle || 'YouTube video',
         thumbnail: presetThumb,
         videoType: 'youtube',
-      }, { advance: true })
+      })
       return
     }
     if (isDirectVideoUrl(presetVideoUrl) || /\/api\/proxy\?/i.test(presetVideoUrl)) {
@@ -127,7 +124,7 @@ export default function CreateRoomPage() {
         videoType: streamType,
         isLive: presetIsLive,
         sourceUrl: presetSourceUrl || undefined,
-      }, { advance: true })
+      })
       return
     }
     // O2TV show page / slug → open the browser at seasons (step 1)
@@ -228,74 +225,47 @@ export default function CreateRoomPage() {
   return (
     <div className={styles.page}>
       <Card className={styles.card}>
-        <h1 className={styles.title}>Start a Room</h1>
+        <h1 className={styles.title}>New room</h1>
         <p className={styles.subtitle}>
-          Pick a video, then set up your room — everyone watches in perfect sync.
+          Search a show, paste a link, or pick something to watch — everyone syncs instantly.
         </p>
 
-        {/* Progress rail */}
-        <div className={styles.rail}>
-          <div className={`${styles.railStep} ${step === 1 ? styles.railActive : styles.railDone}`}>
-            <span className={styles.railNum}>{step === 1 ? '1' : '✓'}</span>
-            <span className={styles.railLabel}>Pick content</span>
-          </div>
-          <span className={styles.railLine} />
-          <div className={`${styles.railStep} ${step === 2 ? styles.railActive : ''}`}>
-            <span className={styles.railNum}>2</span>
-            <span className={styles.railLabel}>Room settings</span>
-          </div>
-        </div>
-
-        <div className={step === 1 ? styles.stepPane : styles.stepPaneHidden}>
-        {step === 1 && (
-          <>
-            {/* Paste a link */}
-            <form className={styles.pasteRow} onSubmit={usePastedLink}>
-              <div className={styles.pasteWrap}>
-                <Link2 size={15} className={styles.pasteIcon} />
-                <Input
-                  placeholder="Paste a YouTube, .mp4 / .m3u8 / .mkv or TV-show page link…"
-                  value={pasteUrl}
-                  onChange={(e) => setPasteUrl(e.target.value)}
-                  className={styles.pasteInput}
-                />
-              </div>
-              <Button type="submit" variant="secondary" size="md">Use link</Button>
-            </form>
-
-            <div className={styles.divider}>
-              <span>or browse</span>
+        {/* Browse pane — hidden while content is picked (stays mounted so
+            browser state survives "Change") */}
+        <div className={content ? styles.paneHidden : styles.pane}>
+          {/* Paste a link */}
+          <form className={styles.pasteRow} onSubmit={usePastedLink}>
+            <div className={styles.pasteWrap}>
+              <Link2 size={15} className={styles.pasteIcon} />
+              <Input
+                placeholder="Paste a YouTube, .mp4 / .m3u8 / .mkv or TV-show page link…"
+                value={pasteUrl}
+                onChange={(e) => setPasteUrl(e.target.value)}
+                className={styles.pasteInput}
+              />
             </div>
+            <Button type="submit" variant="secondary" size="md">Use link</Button>
+          </form>
 
-            {/* The one browser (TV shows / YouTube) */}
-            <ShowBrowser ref={browserRef} onPick={pickContent} />
+          <div className={styles.divider}>
+            <span>or browse</span>
+          </div>
 
-            {/* Inline selection — stays on step 1 until "Continue" */}
-            {content && (
-              <div className={styles.selectedBar}>
-                <span className={styles.selectedTick}>✓</span>
-                <div className={styles.selectedInfo}>
-                  <span className={styles.selectedLabel}>Selected</span>
-                  <span className={styles.selectedTitle}>{content.title || 'Selected video'}</span>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => setContent(null)}>
-                  Change
-                </Button>
-                <Button variant="primary" size="md" onClick={() => setStep(2)}>
-                  Continue →
-                </Button>
-              </div>
-            )}
+          {/* The one browser (TV shows / YouTube) */}
+          <ShowBrowser ref={browserRef} onPick={pickContent} />
 
-            {error && <p className={styles.error}>{error}</p>}
-          </>
-        )}
+          {error && <p className={styles.error}>{error}</p>}
+
+          <p className={styles.footer}>
+            <button type="button" className={styles.cancelLink} onClick={goBack}>
+              Cancel
+            </button>
+          </p>
         </div>
 
-        <div className={step === 2 ? styles.stepPane : styles.stepPaneHidden}>
-        {step === 2 && (
-          <>
-            {/* Selected content summary */}
+        {/* Create panel — one step: picked summary + settings + CTA */}
+        {content && (
+          <div className={styles.pane}>
             <div className={styles.picked}>
               {(content.thumbnail || (content.kind === 'youtube' && content.videoId)) && (
                 <img
@@ -310,13 +280,9 @@ export default function CreateRoomPage() {
                 <h3 className={styles.pickedTitle}>{content.title || 'Selected video'}</h3>
                 {content.source && <span className={styles.pickedSource}>{content.source}</span>}
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => { setContent(null); setStep(1) }}
-              >
+              <button type="button" className={styles.changeLink} onClick={() => { setContent(null); setError(null) }}>
                 Change
-              </Button>
+              </button>
             </div>
 
             <form onSubmit={create} className={styles.form}>
@@ -328,53 +294,55 @@ export default function CreateRoomPage() {
                 maxLength={80}
               />
 
-              <div className={styles.settings}>
-                <label className={styles.setting}>
-                  <span className={styles.note}>Capacity</span>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={capacity}
-                    onChange={(e) => setCapacity(e.target.value)}
-                  />
-                </label>
-                <label className={styles.checkbox}>
-                  <input
-                    type="checkbox"
-                    checked={isPrivate}
-                    onChange={(e) => setIsPrivate(e.target.checked)}
-                  />
-                  Private room
-                </label>
+              <div className={styles.settingsRow}>
+                <span className={styles.settingsLabel}>Capacity</span>
+                <div className={styles.stepper}>
+                  <button
+                    type="button"
+                    className={styles.stepperBtn}
+                    aria-label="Decrease capacity"
+                    onClick={() => setCapacity((c) => Math.max(1, Number(c) - 1))}
+                  >
+                    –
+                  </button>
+                  <span className={styles.stepperValue}>{capacity}</span>
+                  <button
+                    type="button"
+                    className={styles.stepperBtn}
+                    aria-label="Increase capacity"
+                    onClick={() => setCapacity((c) => Math.min(12, Number(c) + 1))}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div className={styles.settingsRow}>
+                <span className={styles.settingsLabel}>Private room</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isPrivate}
+                  className={`${styles.toggle} ${isPrivate ? styles.toggleOn : ''}`}
+                  onClick={() => setIsPrivate((v) => !v)}
+                >
+                  <span className={styles.toggleKnob} />
+                </button>
               </div>
 
               <Button type="submit" loading={creating} fullWidth disabled={!canCreate} variant="cta">
-                Create Room
+                Create room &amp; start watching
               </Button>
             </form>
 
             {error && <p className={styles.error}>{error}</p>}
 
             <p className={styles.footer}>
-              <button type="button" className={styles.cancelLink} onClick={() => setStep(1)}>
-                <ArrowLeft size={13} /> Back to content
-              </button>
-              <span className={styles.footerSep}>·</span>
               <button type="button" className={styles.cancelLink} onClick={goBack}>
                 Cancel
               </button>
             </p>
-          </>
-        )}
-        </div>
-
-        {step === 1 && (
-          <p className={styles.footer}>
-            <button type="button" className={styles.cancelLink} onClick={goBack}>
-              Cancel
-            </button>
-          </p>
+          </div>
         )}
       </Card>
     </div>

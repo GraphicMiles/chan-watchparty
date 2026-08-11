@@ -1,5 +1,5 @@
-import { useState, useCallback, useMemo, useEffect } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Compass, PlayCircle, Link2, Tv, Trophy, ShieldAlert,
   Search, X, Loader2, Film, AlertCircle
@@ -12,13 +12,14 @@ import { Modal, Button, useToast } from '../../shared/ui/index.js'
 import { ShowBrowser } from '../../shared/components/ShowBrowser.jsx'
 import { apiPath, parseJsonResponse } from '../../shared/lib/api.js'
 
+// NSFW is intentionally NOT in the chips row — it's age-gated behind an
+// account-level setting (removed from the visible filter row per the redesign).
 const SEARCH_LAYERS = [
   { id: 'all', label: 'All Media', icon: Compass, description: 'Search across all sources' },
   { id: 'youtube', label: 'YouTube', icon: PlayCircle, description: 'Search YouTube videos' },
   { id: 'direct', label: 'Direct Links', icon: Link2, description: 'Nkiri shows via DownloadWella' },
   { id: 'iptv', label: 'IPTV', icon: Tv, description: 'Live TV channels' },
   { id: 'sports', label: 'Sports', icon: Trophy, description: 'Live sports events' },
-  { id: 'nsfw', label: 'NSFW', icon: ShieldAlert, description: 'Adult content — 18+ only', adult: true },
 ]
 
 const TRENDING = {
@@ -35,9 +36,17 @@ export default function UnifiedSearch() {
   const location = useLocation()
   const { toast } = useToast()
   const isMediaRoute = location.pathname === '/media'
+  const [searchParams] = useSearchParams()
 
-  const [activeLayer, setActiveLayer] = useState(isMediaRoute ? 'direct' : 'all')
-  const [query, setQuery] = useState('')
+  // Chips/Home hand-off: ?layer=direct&q=silo
+  const paramLayer = searchParams.get('layer') || ''
+  const paramQuery = searchParams.get('q') || ''
+
+  const [activeLayer, setActiveLayer] = useState(
+    SEARCH_LAYERS.some((l) => l.id === paramLayer) ? paramLayer : (isMediaRoute ? 'direct' : 'all')
+  )
+  const [query, setQuery] = useState(paramQuery)
+  const initialSearchDoneRef = useRef(false)
   const [adultVerified, setAdultVerified] = useState(false)
   const [showNsfwModal, setShowNsfwModal] = useState(false)
   const [pendingNsfwAction, setPendingNsfwAction] = useState(null)
@@ -47,6 +56,18 @@ export default function UnifiedSearch() {
   const currentLayer = useMemo(() => SEARCH_LAYERS.find(l => l.id === activeLayer), [activeLayer])
   const CurrentLayerIcon = currentLayer?.icon || Film
   const trending = TRENDING[activeLayer] || TRENDING.all
+
+  // Run once on mount if the home search bar handed us a query.
+  useEffect(() => {
+    if (!paramQuery || initialSearchDoneRef.current) return
+    initialSearchDoneRef.current = true
+    setQuery(paramQuery)
+    const t = setTimeout(() => { runSearchRef.current?.(paramQuery) }, 60)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const runSearchRef = useRef(null)
 
   const runSearch = useCallback(async (targetQuery = query.trim()) => {
     if (!targetQuery) {
@@ -64,6 +85,10 @@ export default function UnifiedSearch() {
       options: { adultVerified, resolve: activeLayer === 'nsfw' },
     })
   }, [activeLayer, query, search, adultVerified, toast])
+
+  useEffect(() => {
+    runSearchRef.current = runSearch
+  }, [runSearch])
 
   // Direct layer hands off to the shared ShowBrowser (P1: one browser).
   const handleDirectPick = useCallback((content) => {

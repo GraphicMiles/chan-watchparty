@@ -393,3 +393,115 @@
     flex: 1;
   }
 }
+
+/* ── Single-step create (mockup structure) ── */
+.pane {
+  display: block;
+}
+
+.paneHidden {
+  display: none;
+}
+
+.picked {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.changeLink {
+  font-size: 11.5px;
+  color: var(--text-muted-grey);
+  background: none;
+  border: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.changeLink:hover {
+  color: var(--text-black);
+}
+
+.settingsRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+}
+
+.settingsLabel {
+  font-size: 13px;
+  color: var(--text-body-grey);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-black);
+}
+
+.stepperBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--surface-light);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-black);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: var(--font-body);
+}
+
+.stepperBtn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.stepperValue {
+  min-width: 20px;
+  text-align: center;
+}
+
+.toggle {
+  width: 40px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-light);
+  border: 1px solid var(--border-hairline);
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.toggleKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-muted-grey);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.toggleOn {
+  background: var(--pill-black);
+  border-color: var(--border-strong);
+}
+
+.toggleOn .toggleKnob {
+  transform: translateX(16px);
+  background: var(--pill-black-text);
+}
