@@ -50,6 +50,7 @@ public class ChanPlayerEngine {
     private final Listener listener;
 
     private ExoPlayer exoPlayer;
+    private androidx.media3.ui.PlayerView exoView; // attached by the overlay
     private LibVLC libVLC;
     private MediaPlayer vlcPlayer;
     private VLCVideoLayout vlcLayout;
@@ -242,6 +243,12 @@ public class ChanPlayerEngine {
                     .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory))
                     .build();
 
+            // BUGFIX: bind the player to the overlay surface — without this the
+            // video never renders (black/blank) and some devices error out.
+            if (exoView != null) {
+                exoView.setPlayer(exoPlayer);
+            }
+
             exoPlayer.addListener(new Player.Listener() {
                 @Override
                 public void onPlaybackStateChanged(int state) {
@@ -375,6 +382,7 @@ public class ChanPlayerEngine {
     }
 
     private void releaseExo() {
+        if (exoView != null) exoView.setPlayer(null);
         if (exoPlayer != null) {
             exoPlayer.release();
             exoPlayer = null;
@@ -398,6 +406,11 @@ public class ChanPlayerEngine {
     /** Attach the VLC surface (called by the overlay view before prepare). */
     public void attachVlcLayout(VLCVideoLayout layout) {
         this.vlcLayout = layout;
+    }
+
+    /** Attach the ExoPlayer surface (called by the overlay view before prepare). */
+    public void attachExoView(androidx.media3.ui.PlayerView view) {
+        this.exoView = view;
     }
 
     /** True if ExoPlayer is the active engine. */
