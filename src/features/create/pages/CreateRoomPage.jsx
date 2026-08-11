@@ -72,7 +72,7 @@ export default function CreateRoomPage() {
   const [content, setContent] = useState(null) // picked content OR null = browsing
   const [pasteUrl, setPasteUrl] = useState('')
   const [browserTask, setBrowserTask] = useState(null) // { type:'show', slug, name, thumb }
-  const [title, setTitle] = useState(presetTitle)
+  const [title, setTitle] = useState(cleanMediaTitle(presetTitle) || presetTitle)
   const [capacity, setCapacity] = useState(12)
   const [isPrivate, setIsPrivate] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -83,7 +83,7 @@ export default function CreateRoomPage() {
   const pickContent = useCallback((next) => {
     setContent(next)
     setError(null)
-    setTitle((t) => t || cleanMediaTitle(next?.title || ''))
+    setTitle(cleanMediaTitle(next?.title || '') || title)
   }, [])
 
   // ── Bootstrap from /media hand-off / deep link ───────────────────────

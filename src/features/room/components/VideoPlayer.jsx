@@ -384,6 +384,10 @@ export default function VideoPlayer({
   }, [roomId])
 
   const currentTime = useCallback(() => {
+    // Native mode: the web players (videoRef/playerRef) are null — read the
+    // native adapter's position so ±10s, Pin bookmarks and AI CC use the
+    // REAL playback position instead of 0.
+    if (nativeApiRef.current) return nativeApiRef.current.getCurrentTime?.() ?? 0
     if (isHls) return videoRef.current?.currentTime || 0
     const local = playerRef.current?.getCurrentTime?.() || 0
     // Remux-from-t streams restart at 0; expose room-absolute time for sync
@@ -957,16 +961,10 @@ export default function VideoPlayer({
   }, [])
 
   const handleNativeTap = useCallback(() => {
-    // While native fullscreen the surface covers the whole screen — the only
-    // way out is a tap (relayed from the native overlay).
-    if (isNativeEmbedded && isFullscreen) {
-      setIsFullscreen(false)
-      VideoPlayerPlugin.setFullscreen({ fullscreen: false }).catch(() => {})
-      try { window.screen?.orientation?.unlock?.() } catch { /* */ }
-      return
-    }
+    // Taps on the video surface just reveal the app's controls (native chrome
+    // handles its own visibility in fullscreen). Tap never exits fullscreen.
     revealControls()
-  }, [isNativeEmbedded, isFullscreen, revealControls])
+  }, [revealControls])
 
   const handleMouseMove = useCallback(() => {
     setShowControls(true)
@@ -1354,6 +1352,7 @@ export default function VideoPlayer({
             onProgress={handleNativeProgress}
             onApi={handleNativeApi}
             onControlsTap={handleNativeTap}
+            onFullscreenChange={(v) => { setIsFullscreen(Boolean(v)) }}
           />
         ) : isHls ? (
           <video

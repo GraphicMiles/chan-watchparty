@@ -10,6 +10,7 @@ import { useAuth } from '../../shared/auth/hooks/useAuth.jsx'
 import { isDirectVideoUrl, normalizePlaybackUrl } from '../../shared/lib/youtube.js'
 import { Modal, Button, useToast } from '../../shared/ui/index.js'
 import { ShowBrowser } from '../../shared/components/ShowBrowser.jsx'
+import { cleanMediaTitle } from '../../shared/lib/titleFormat.js'
 import { apiPath, parseJsonResponse } from '../../shared/lib/api.js'
 
 // NSFW is intentionally NOT in the chips row — it's age-gated behind an
@@ -378,7 +379,7 @@ function ResultCard({ result, layer }) {
         {thumb ? (
           <>
             <div className={styles.thumbnailBg} style={{ backgroundImage: `url(${thumb})` }} />
-            <img src={thumb} alt={result.title} loading="lazy" className={styles.thumbnailImg} onError={(e) => { e.currentTarget.style.display = 'none' }} />
+            <img src={thumb} alt={cleanMediaTitle(result.title)} loading="lazy" className={styles.thumbnailImg} onError={(e) => { e.currentTarget.style.display = 'none' }} />
           </>
         ) : null}
         <div className={styles.noThumbnail} style={{ display: thumb ? 'none' : 'flex' }}>
@@ -389,7 +390,7 @@ function ResultCard({ result, layer }) {
         {result.quality && <span className={styles.qualityBadge}>{result.quality}</span>}
       </div>
       <div className={styles.info}>
-        <h3 className={styles.title}>{result.title}</h3>
+        <h3 className={styles.title}>{cleanMediaTitle(result.title)}</h3>
         <div className={styles.meta}>
           {result.views && <span>{parseInt(result.views).toLocaleString()} views</span>}
           {result.source && <span className={styles.source}>{result.source}</span>}
