@@ -3,7 +3,7 @@ import ReactPlayer from 'react-player'
 import { Capacitor } from '@capacitor/core'
 import { Hls, Events, ErrorTypes, isSupported } from 'hls.js'
 import {
-  AlertTriangle, Radio, Play, Pause, RotateCcw, RotateCw,
+  AlertTriangle, Radio, Play, Pause, RotateCcw, RotateCw, Loader2,
   Volume2, VolumeX, Maximize, Palette, PictureInPicture2, Bookmark, Settings, Sun, Eye, EyeOff, Cpu, FileText
 } from 'lucide-react'
 import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore'
@@ -16,6 +16,7 @@ import { VideoUpscaler } from './VideoUpscaler.jsx'
 import NativeEmbeddedPlayer from './NativeEmbeddedPlayer.jsx'
 import styles from './VideoPlayer.module.scss'
 import { apiPath } from '../../../shared/lib/api.js'
+import { VideoPlayerPlugin } from '../../../native/VideoPlayerPlugin'
 
 const RETRY_ATTEMPTS = 3
 const RETRY_DELAY = 3000
@@ -213,6 +214,11 @@ export default function VideoPlayer({
   const [targetVideoElement, setTargetVideoElement] = useState(null)
   
   const controlsTimeoutRef = useRef(null)
+  // ── Option A native wiring: the app's control bar drives the native engine ──
+  const nativeApiRef = useRef(null)
+  const controlsOverlayRef = useRef(null)
+  const [controlsHeight, setControlsHeight] = useState(0) // CSS px of the bar strip
+  const [nativeBuffering, setNativeBuffering] = useState(false)
   const lastTapTimeRef = useRef(0)
   const lastToggleTimeRef = useRef(0)
   const vlcAccumulatorRef = useRef(0)
@@ -460,8 +466,9 @@ export default function VideoPlayer({
   }, [subtitleBlobUrl, subtitlesEnabled, user, roomId, toast, currentTime])
 
   const adapter = useMemo(() => ({
-    getCurrentTime: () => currentTime(),
+    getCurrentTime: () => nativeApiRef.current?.getCurrentTime?.() ?? currentTime(),
     getDuration: () => {
+      if (nativeApiRef.current) return nativeApiRef.current.getDuration?.() || durationSec || 0
       if (isHls) return videoRef.current?.duration || durationSec || 0
       // Remux-from-t: player reports remaining length; prefer absolute durationSec
       if (isRemuxProxyUrl(currentUrl) && durationSec > 0) return durationSec
@@ -471,8 +478,14 @@ export default function VideoPlayer({
       }
       return local || durationSec || 0
     },
-    getPlayerState: () => playerState(),
+    getPlayerState: () => nativeApiRef.current?.getPlayerState?.() ?? playerState(),
     playVideo: () => {
+      if (nativeApiRef.current) {
+        nativeApiRef.current.playVideo?.()
+        playingRef.current = true
+        setIsPlayingState(true)
+        return
+      }
       // Show progress immediately while media catches up
       setIsBuffering(true)
       if (isHls) {
@@ -487,6 +500,12 @@ export default function VideoPlayer({
       setIsPlayingState(true)
     },
     pauseVideo: () => {
+      if (nativeApiRef.current) {
+        nativeApiRef.current.pauseVideo?.()
+        playingRef.current = false
+        setIsPlayingState(false)
+        return
+      }
       if (isHls) {
         videoRef.current?.pause()
       } else {
@@ -496,6 +515,10 @@ export default function VideoPlayer({
       setIsPlayingState(false)
     },
     seekTo: (value, type = 'seconds') => {
+      if (nativeApiRef.current) {
+        nativeApiRef.current.seekTo?.(value, type)
+        return
+      }
       const dur = (isHls ? videoRef.current?.duration : playerRef.current?.getDuration?.()) || durationSec || 0
       const seekType = type === true ? 'seconds' : type
       const targetSec = seekType === 'fraction' ? (value * (dur || 0)) : value
@@ -561,7 +584,7 @@ export default function VideoPlayer({
       }
     },
     // Never treat VOD HLS (nsfw/direct) as live — that freezes the seek bar UX
-    isLive: () => isLivePlayback(),
+    isLive: () => nativeApiRef.current?.isLive?.() ?? isLivePlayback(),
     loadVideoById: () => {},
   }), [currentTime, durationSec, isHls, isLive, playerState, currentUrl, videoType, isLivePlayback])
 
@@ -883,6 +906,60 @@ export default function VideoPlayer({
     setTargetVideoElement(el)
   }, [isHls, currentUrl, isReady])
 
+  // Track the control bar's live height so the native surface shrinks to the
+  // video frame only (never covers the app's bar). Re-measured on layout
+  // changes (secondary row, fullscreen, DPR) and when the bar shows/hides.
+  useEffect(() => {
+    const el = controlsOverlayRef.current
+    if (!el) return
+    const measure = () => {
+      try {
+        const h = el.getBoundingClientRect().height
+        setControlsHeight(Math.round(h) || 0)
+      } catch { /* keep last */ }
+    }
+    measure()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    ro?.observe(el)
+    return () => ro?.disconnect()
+  }, [showControls, isNativeEmbedded])
+
+  const revealControls = useCallback(() => {
+    setShowControls(true)
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (playingRef.current) {
+        setShowControls(false)
+        setShowFilterMenu(false)
+        setShowQualityMenu(false)
+      }
+    }, 3500)
+  }, [])
+
+  // Native playback state → app control bar (single surface requirement)
+  const handleNativeProgress = useCallback(({ currentSec: cs, durationSec: ds, playing: pl, buffering: bf, percent: pc }) => {
+    if (typeof cs === 'number' && Number.isFinite(cs)) setCurrentSec(cs)
+    if (typeof ds === 'number' && Number.isFinite(ds) && ds > 0) setDurationSec(ds)
+    if (typeof pl === 'boolean') {
+      playingRef.current = pl
+      setIsPlayingState(pl)
+      setIsBuffering(false)
+    }
+    if (typeof bf === 'boolean') {
+      setNativeBuffering(bf)
+      setIsBuffering(bf)
+      if (bf && typeof pc === 'number') setBufferingPercent(Math.max(1, Math.min(99, pc)))
+    }
+  }, [])
+
+  const handleNativeApi = useCallback((api) => {
+    nativeApiRef.current = api || null
+  }, [])
+
+  const handleNativeTap = useCallback(() => {
+    revealControls()
+  }, [revealControls])
+
   const handleMouseMove = useCallback(() => {
     setShowControls(true)
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
@@ -1071,6 +1148,12 @@ export default function VideoPlayer({
 
   const togglePiP = useCallback((e) => {
     e.stopPropagation()
+    if (isNativeEmbedded) {
+      VideoPlayerPlugin.enterPip().catch(() => {
+        toast('Could not enter Picture in Picture mode', { variant: 'error' })
+      })
+      return
+    }
     const video = videoRef.current || playerWrapperRef.current?.querySelector('video')
     if (!video) {
       toast('Picture in Picture only supported on direct streams / native video elements', { variant: 'warning' })
@@ -1083,7 +1166,7 @@ export default function VideoPlayer({
         toast('Could not enter Picture in Picture mode', { variant: 'error' })
       })
     }
-  }, [toast])
+  }, [isNativeEmbedded, toast])
 
   const addStagePin = useCallback(async (e) => {
     e.stopPropagation()
@@ -1109,6 +1192,12 @@ export default function VideoPlayer({
     e.stopPropagation()
     setLocalMuted((prev) => !prev)
   }, [])
+
+  // Native mode: volume/mute from the app bar → the native engine
+  useEffect(() => {
+    if (!isNativeEmbedded || !nativeApiRef.current) return
+    VideoPlayerPlugin.setVolume({ volume: localMuted ? 0 : localVolume }).catch(() => {})
+  }, [isNativeEmbedded, localVolume, localMuted])
 
   const handleVolumeChange = useCallback((e) => {
     e.stopPropagation()
@@ -1197,6 +1286,10 @@ export default function VideoPlayer({
             onEnded={onEnded}
             onError={onError}
             onRefresh={onRefresh}
+            controlsHeight={controlsHeight}
+            onProgress={handleNativeProgress}
+            onApi={handleNativeApi}
+            onControlsTap={handleNativeTap}
           />
         ) : isHls ? (
           <video
@@ -1352,6 +1445,7 @@ export default function VideoPlayer({
       {/* In Fullscreen/Landscape mode ONLY, render controls as a bottom overlay */}
       {isFullscreen && (
         <div
+          ref={controlsOverlayRef}
           className={`${styles.customControlsOverlay} ${showControls ? styles.controlsVisible : ''}`}
           onClick={handleToggleControls}
           onPointerDown={handlePointerTouch}
@@ -1603,7 +1697,7 @@ export default function VideoPlayer({
     {/* In Normal watch room view (`!isFullscreen`), render Main & Secondary control bars directly underneath the video player */}
     {!isFullscreen && (
       <>
-        <div className={styles.mainControlsBar} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+        <div ref={controlsOverlayRef} className={styles.mainControlsBar} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
           <button
             type="button"
             className={styles.overlayPlayBtn}
@@ -1615,6 +1709,12 @@ export default function VideoPlayer({
           </button>
 
           <span className={styles.timeText}>{formatTime(currentSec)}</span>
+          {nativeBuffering && (
+            <span className={styles.bufferingTag}>
+              <Loader2 size={13} className={styles.spinSmall} />
+              Buffering…
+            </span>
+          )}
 
           <div className={styles.seekbarContainer}>
             <div className={styles.seekbarTrack}>

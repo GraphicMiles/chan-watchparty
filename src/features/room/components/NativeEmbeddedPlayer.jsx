@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { VideoPlayerPlugin } from '../../../native/VideoPlayerPlugin'
-import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
 import styles from './NativeEmbeddedPlayer.module.scss'
 
 /** Friendly, jargon-free copy. Technical detail goes to logs only. */
@@ -53,7 +53,15 @@ export default function NativeEmbeddedPlayer({
   onEnded,
   onError,
   onRefresh = null, // async (sourceUrl) => descriptor
+  controlsHeight = 0, // CSS px of the app's control bar strip (native surface shrinks)
+  onProgress = null, // ({ currentSec, durationSec, playing, buffering, percent }) => void
+  onApi = null, // exposes the native adapter for the app's control bar
+  onControlsTap = null, // native surface tapped -> app toggles its control bar
 }) {
+  const propsRef = useRef({ onProgress, onApi, onControlsTap })
+  useEffect(() => {
+    propsRef.current = { onProgress, onApi, onControlsTap }
+  }, [onProgress, onApi, onControlsTap])
   const surfaceRef = useRef(null)
   const stateRef = useRef({ posSec: startSeconds || 0, durSec: 0, playing: false, ended: false, endedHandled: false })
   const callbacksRef = useRef({ onReady, onPlayerEvent, onEnded, onError })
@@ -63,9 +71,11 @@ export default function NativeEmbeddedPlayer({
   const mirrorIdxRef = useRef(0)
   const netRetryRef = useRef(0)
   const cfgRef = useRef({ url, title, referer, headers, container, codec })
+  const controlsHeightRef = useRef(controlsHeight)
+  useEffect(() => {
+    controlsHeightRef.current = controlsHeight
+  }, [controlsHeight])
 
-  const [phase, setPhase] = useState('fetching') // fetching|playing|paused|ended|recovering|error
-  const [statusText, setStatusText] = useState('Fetching media…')
   const [errorMsg, setErrorMsg] = useState(null)
   const [busyAction, setBusyAction] = useState(null) // 'retry' | 'reresolve'
 
@@ -126,6 +136,7 @@ export default function NativeEmbeddedPlayer({
         headers: cfg.headers || undefined,
         container: cfg.container || undefined,
         codec: cfg.codec || undefined,
+        controls: false, // app's own control bar drives playback — no native chrome
       })
     } catch (err) {
       if (sessionActiveRef.current) terminalError('other', err?.message)
@@ -136,7 +147,6 @@ export default function NativeEmbeddedPlayer({
     if (!sessionActiveRef.current) return
     sessionActiveRef.current = false
     clearTimers()
-    setPhase('error')
     setErrorMsg(friendlyError(kind, message))
     callbacksRef.current.onError?.(new Error(friendlyError(kind, message)))
     // Close the native overlay so the friendly card is visible
@@ -155,8 +165,7 @@ export default function NativeEmbeddedPlayer({
 
   const refreshAndPlay = async (posSec) => {
     if (!onRefresh || !sourceUrl) return false
-    setPhase('recovering')
-    setStatusText('Refreshing link…')
+    /* recovering */
     await VideoPlayerPlugin.showStatus({ text: 'Refreshing link…' }).catch(() => {})
     try {
       const desc = await onRefresh(sourceUrl, title)
@@ -189,8 +198,7 @@ export default function NativeEmbeddedPlayer({
       if (netRetryRef.current < NETWORK_RETRIES) {
         const attempt = netRetryRef.current
         netRetryRef.current += 1
-        setPhase('recovering')
-        setStatusText('Reconnecting…')
+        /* recovering */
         await VideoPlayerPlugin.showStatus({ text: 'Reconnecting…' }).catch(() => {})
         later(() => show(cfgRef.current, posSec), RETRY_BACKOFF_MS[attempt] || 3000)
         return
@@ -199,8 +207,7 @@ export default function NativeEmbeddedPlayer({
       if (m) {
         mirrorIdxRef.current += 1
         netRetryRef.current = 0
-        setPhase('recovering')
-        setStatusText('Trying another server…')
+        /* recovering */
         await VideoPlayerPlugin.showStatus({ text: 'Trying another server…' }).catch(() => {})
         await show({ ...cfgRef.current, url: m }, posSec)
         return
@@ -218,8 +225,7 @@ export default function NativeEmbeddedPlayer({
       const m = mirrors[mirrorIdxRef.current]
       if (m) {
         mirrorIdxRef.current += 1
-        setPhase('recovering')
-        setStatusText('Trying another version…')
+        /* recovering */
         await VideoPlayerPlugin.showStatus({ text: 'Trying another version…' }).catch(() => {})
         await show({ ...cfgRef.current, url: m }, posSec)
         return
@@ -254,7 +260,6 @@ export default function NativeEmbeddedPlayer({
     if (!e || !sessionActiveRef.current) return
     switch (e.state) {
       case 'ready':
-        setPhase('playing')
         setErrorMsg(null)
         if (!readySentRef.current) {
           readySentRef.current = true
@@ -262,24 +267,41 @@ export default function NativeEmbeddedPlayer({
         }
         break
       case 'buffering':
-        setPhase('fetching')
-        setStatusText('Buffering…')
+        /* buffering */
+        propsRef.current.onProgress?.({
+          currentSec: stateRef.current.posSec,
+          durationSec: stateRef.current.durSec,
+          playing: stateRef.current.playing,
+          buffering: true,
+          percent: Math.max(1, Math.min(99, e.percent || 0)),
+        })
         break
       case 'playing':
         stateRef.current.playing = true
-        setPhase('playing')
         setErrorMsg(null)
         callbacksRef.current.onPlayerEvent?.({ isPlaying: true, currentTime: stateRef.current.posSec })
+        propsRef.current.onProgress?.({
+          currentSec: stateRef.current.posSec,
+          durationSec: stateRef.current.durSec,
+          playing: true,
+          buffering: false,
+          percent: 0,
+        })
         break
       case 'paused':
         stateRef.current.playing = false
-        setPhase('paused')
         callbacksRef.current.onPlayerEvent?.({ isPlaying: false, currentTime: stateRef.current.posSec })
+        propsRef.current.onProgress?.({
+          currentSec: stateRef.current.posSec,
+          durationSec: stateRef.current.durSec,
+          playing: false,
+          buffering: false,
+          percent: 0,
+        })
         break
       case 'ended':
         stateRef.current.ended = true
         stateRef.current.playing = false
-        setPhase('ended')
         if (!stateRef.current.endedHandled) {
           stateRef.current.endedHandled = true
           callbacksRef.current.onEnded?.()
@@ -299,6 +321,35 @@ export default function NativeEmbeddedPlayer({
   const showRef = useRef(show)
   showRef.current = show
 
+  // Adapter for the app's control bar (set once, methods read live refs)
+  const apiRef = useRef(null)
+  if (!apiRef.current) {
+    apiRef.current = {
+      getCurrentTime: () => stateRef.current.posSec,
+      getDuration: () => stateRef.current.durSec,
+      getPlayerState: () => {
+        const st = stateRef.current
+        if (st.playing) return 1
+        if (st.durSec > 0) return 2
+        return 0
+      },
+      isLive: () => Boolean(isLive),
+      loadVideoById: () => {},
+      playVideo: () => { VideoPlayerPlugin.play().catch(() => {}) },
+      pauseVideo: () => { VideoPlayerPlugin.pause().catch(() => {}) },
+      seekTo: (value, type = 'seconds') => {
+        const dur = stateRef.current.durSec || 0
+        const targetSec = type === 'fraction' ? (value * (dur || 0)) : Number(value) || 0
+        VideoPlayerPlugin.seekTo({ positionMs: Math.max(0, Math.round(targetSec * 1000)) }).catch(() => {})
+      },
+    }
+  }
+
+  // Keep the parent's adapter ref fresh on every render
+  useEffect(() => {
+    propsRef.current.onApi?.(apiRef.current)
+  })
+
   // ── Lifecycle: show, measure, poll, close ────────────────────────────
   useEffect(() => {
     let cancelled = false
@@ -312,11 +363,17 @@ export default function NativeEmbeddedPlayer({
         try {
           const dpr = window.devicePixelRatio || 1
           const r = el.getBoundingClientRect()
+          // Requirement: native surface covers ONLY the video frame — the strip
+          // where the app's control bar lives stays native-surface-free so the
+          // WebView underneath receives touches. The strip height is tracked
+          // live by the parent (ResizeObserver on the control bar).
+          const stripPx = Math.max(0, Math.round((controlsHeightRef.current || 0) * dpr))
+          const h = Math.max(0, Math.round(r.height * dpr) - stripPx)
           VideoPlayerPlugin.setRect({
             x: Math.round(r.left * dpr),
             y: Math.round(r.top * dpr),
             w: Math.round(r.width * dpr),
-            h: Math.round(r.height * dpr),
+            h,
           }).catch(() => {})
         } catch { /* keep last rect */ }
       }
@@ -328,6 +385,15 @@ export default function NativeEmbeddedPlayer({
         listenerHandle = await VideoPlayerPlugin.addListener('playbackState', (e) => {
           if (!cancelled) handleEventRef.current?.(e)
         })
+        try {
+          const tapHandle = await VideoPlayerPlugin.addListener('controlsEvent', (e) => {
+            if (!cancelled && e?.type === 'tap') propsRef.current.onControlsTap?.()
+          })
+          if (tapHandle?.remove) {
+            const prevRemove = listenerHandle?.remove
+            listenerHandle = { remove: () => { try { tapHandle.remove?.() } catch { /* */ } try { prevRemove?.() } catch { /* */ } } }
+          }
+        } catch { /* tap relay optional */ }
         await showRef.current(cfgRef.current, stateRef.current.posSec || startSeconds)
         measureAndSetRect()
         poll = setInterval(async () => {
@@ -337,6 +403,13 @@ export default function NativeEmbeddedPlayer({
             if (p && !cancelled) {
               stateRef.current.posSec = (p.positionMs || 0) / 1000
               stateRef.current.durSec = (p.durationMs || 0) / 1000
+              propsRef.current.onProgress?.({
+                currentSec: stateRef.current.posSec,
+                durationSec: stateRef.current.durSec,
+                playing: stateRef.current.playing,
+                buffering: false,
+                percent: 0,
+              })
             }
           } catch { /* poll best-effort */ }
         }, 1000)
@@ -383,7 +456,6 @@ export default function NativeEmbeddedPlayer({
     setBusyAction('retry')
     setErrorMsg(null)
     sessionActiveRef.current = true
-    setPhase('fetching')
     try {
       await showRef.current(cfgRef.current, stateRef.current.posSec)
     } catch { /* handled inside show */ } finally {
@@ -396,7 +468,6 @@ export default function NativeEmbeddedPlayer({
     setBusyAction('reresolve')
     setErrorMsg(null)
     sessionActiveRef.current = true
-    setPhase('fetching')
     try {
       const desc = await onRefresh(sourceUrl, title)
       adoptDescriptor(desc)
@@ -410,12 +481,8 @@ export default function NativeEmbeddedPlayer({
 
   return (
     <div className={styles.surface} ref={surfaceRef} data-native-embedded>
-      {phase !== 'playing' && phase !== 'ended' && !errorMsg && (
-        <div className={styles.statusOverlay}>
-          <Loader2 size={20} className={styles.spin} />
-          <span>{statusText}</span>
-        </div>
-      )}
+      {/* No JS status overlay here: in native mode the video surface covers the
+          stage and the app's control bar (driven by onProgress) shows buffering. */}
       {errorMsg && (
         <div className={styles.errorOverlay}>
           <AlertTriangle size={22} />

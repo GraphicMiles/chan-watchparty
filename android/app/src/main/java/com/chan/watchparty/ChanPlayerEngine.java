@@ -164,6 +164,17 @@ public class ChanPlayerEngine {
 
     public boolean isEnded() { return ended; }
 
+    /** Volume 0..1 — applied to whichever engine is active. */
+    public void setVolume(float volume) {
+        float v = Math.max(0f, Math.min(1f, volume));
+        if (exoPlayer != null) {
+            try { exoPlayer.setVolume(v); } catch (Exception ignored) { }
+        }
+        if (vlcPlayer != null) {
+            try { vlcPlayer.setVolume(Math.round(v * 100f)); } catch (Exception ignored) { }
+        }
+    }
+
     public void release() {
         disposed = true;
         releaseExo();
