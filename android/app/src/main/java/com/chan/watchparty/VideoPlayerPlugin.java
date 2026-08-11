@@ -383,7 +383,13 @@ public class VideoPlayerPlugin extends Plugin {
             java.util.List<java.util.Map<String, Object>> tracks = engine.getVideoTracks();
             org.json.JSONArray arr = new org.json.JSONArray();
             for (java.util.Map<String, Object> t : tracks) {
-                arr.put(new JSObject(t));
+                JSObject o = new JSObject();
+                o.put("id", t.get("id") == null ? -1 : ((Number) t.get("id")).intValue());
+                o.put("height", t.get("height") == null ? 0 : ((Number) t.get("height")).intValue());
+                o.put("width", t.get("width") == null ? 0 : ((Number) t.get("width")).intValue());
+                o.put("bitrate", t.get("bitrate") == null ? 0 : ((Number) t.get("bitrate")).intValue());
+                o.put("description", String.valueOf(t.get("description") == null ? "" : t.get("description")));
+                arr.put(o);
             }
             result.put("tracks", arr);
         } else {

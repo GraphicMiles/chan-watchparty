@@ -9,10 +9,11 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.TrackGroup;
-import androidx.media3.common.TrackGroupArray;
 import androidx.media3.common.Tracks;
 import androidx.media3.datasource.DefaultHttpDataSource;
-import androidx.media3.effect.RgbAdjustment;
+import androidx.media3.effect.Brightness;
+import androidx.media3.effect.Contrast;
+import androidx.media3.effect.HslAdjustment;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
@@ -198,30 +199,23 @@ public class ChanPlayerEngine {
                     if (neutral) {
                         exoPlayer.setVideoEffects(java.util.Collections.emptyList());
                     } else {
-                        RgbAdjustment adj = new RgbAdjustment.Builder()
-                                .setBrightness(clampInt(Math.round(50 + (brightness - 1f) * 50), 0, 100))
-                                .setContrast(clampInt(Math.round(50 + (contrast - 1f) * 50), 0, 100))
-                                .setSaturation(clampInt(Math.round(50 + (saturation - 1f) * 50), 0, 100))
-                                .setHueRotation(clampInt(Math.round(hueDeg), 0, 360))
-                                .build();
-                        exoPlayer.setVideoEffects(java.util.Collections.singletonList(adj));
+                        java.util.List<androidx.media3.common.Effect> effects = new java.util.ArrayList<>();
+                        effects.add(new Brightness(brightness - 1f)); // -1..1, 0 neutral
+                        effects.add(new Contrast(contrast - 1f));     // -1..1, 0 neutral
+                        HslAdjustment.Builder hsl = new HslAdjustment.Builder()
+                                .adjustHue(hueDeg)
+                                .adjustSaturation((saturation - 1f) * 100f); // -100..100, 0 neutral
+                        effects.add(hsl.build());
+                        exoPlayer.setVideoEffects(effects);
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Exo setVideoEffects failed", e);
                 }
             }
+            // libVLC 3.6.5 has no adjust-filter API (no setAdjustInt) — effects
+            // apply to Exo (MP4/HLS/IPTV); VLC (MKV/HEVC) playback is unaffected.
             if (vlcPlayer != null) {
-                try {
-                    vlcPlayer.setAdjustEnabled(!neutral);
-                    if (!neutral) {
-                        vlcPlayer.setAdjustInt(MediaPlayer.Adjust.Brightness, clampInt(Math.round(brightness * 100f), 0, 200));
-                        vlcPlayer.setAdjustInt(MediaPlayer.Adjust.Contrast, clampInt(Math.round(contrast * 100f), 0, 200));
-                        vlcPlayer.setAdjustInt(MediaPlayer.Adjust.Saturation, clampInt(Math.round(saturation * 100f), 0, 300));
-                        vlcPlayer.setAdjustInt(MediaPlayer.Adjust.Hue, clampInt(Math.round(hueDeg), 0, 360));
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, "VLC setAdjust failed", e);
-                }
+                Log.d(TAG, "Video effects unsupported on libVLC 3.6.5 — skipped");
             }
         });
     }
@@ -253,7 +247,8 @@ public class ChanPlayerEngine {
                 fos.close();
 
                 if (vlcPlayer != null) {
-                    vlcPlayer.addSlave(MediaPlayer.Slave.Type.Subtitle, subtitleFile.getAbsolutePath(), true);
+                    // libVLC slave type: 0 = subtitle (libvlc_media_slave_type_subtitle)
+                    vlcPlayer.addSlave(0, Uri.fromFile(subtitleFile), true);
                 }
                 if (exoPlayer != null) rebuildExoItem(subtitleFile);
             } catch (Exception e) {
@@ -315,14 +310,15 @@ public class ChanPlayerEngine {
         }
         if (vlcPlayer != null) {
             try {
-                MediaPlayer.TrackInfo[] tracks = vlcPlayer.getTracks(MediaPlayer.Track.Type.Video);
+                MediaPlayer.TrackDescription[] tracks = vlcPlayer.getVideoTracks();
                 if (tracks != null) {
-                    for (MediaPlayer.TrackInfo t : tracks) {
+                    for (MediaPlayer.TrackDescription t : tracks) {
                         java.util.Map<String, Object> m = new HashMap<>();
-                        m.put("id", t.getId());
-                        m.put("description", String.valueOf(t.getDescription()));
+                        m.put("id", t.id);
+                        String name = t.name != null ? t.name : "";
+                        m.put("description", name);
                         int height = 0;
-                        java.util.regex.Matcher mm = java.util.regex.Pattern.compile("(\\d{3,4})").matcher(String.valueOf(t.getDescription()));
+                        java.util.regex.Matcher mm = java.util.regex.Pattern.compile("(\\d{3,4})").matcher(name);
                         if (mm.find()) {
                             try { height = Integer.parseInt(mm.group(1)); } catch (Exception ignored) { }
                         }
@@ -359,9 +355,9 @@ public class ChanPlayerEngine {
             if (vlcPlayer != null) {
                 try {
                     if (auto) {
-                        vlcPlayer.setTrack(-1);
+                        vlcPlayer.setVideoTrack(-1); // -1 = auto
                     } else if (trackId >= 0) {
-                        vlcPlayer.setTrack(trackId);
+                        vlcPlayer.setVideoTrack(trackId);
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "VLC setVideoQuality failed", e);
