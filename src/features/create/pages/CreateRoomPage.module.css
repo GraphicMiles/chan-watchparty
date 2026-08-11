@@ -1,7 +1,6 @@
 /* ================================================================
-   CREATE ROOM FLOW — dark monochrome redesign
-   The whole flow (YouTube / TV-Show browser / settings) now sits
-   on dark surfaces with white text and grey accents.
+   CREATE ROOM FLOW — P1 restructure
+   Guided two-step flow: 1) Pick content  2) Room settings
    ================================================================ */
 
 .page {
@@ -15,7 +14,7 @@
 
 .card {
   width: 100%;
-  max-width: 640px;
+  max-width: 680px;
   padding: var(--s-8) !important;
   background: var(--surface-white);
   border: 1px solid var(--border-strong);
@@ -38,130 +37,173 @@
   line-height: 1.5;
 }
 
-.form {
+/* ── Progress rail ─────────────────────────────────────────────── */
+.rail {
   display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
-}
-
-.row {
-  display: flex;
-  gap: var(--s-2);
   align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-6);
+  padding: 10px 14px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
 }
 
-.row > :first-child {
+.railStep {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted-grey);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.railActive {
+  color: var(--text-black);
+  font-weight: 600;
+}
+
+.railActive .railNum {
+  background: var(--pill-black);
+  border-color: var(--border-strong);
+  color: var(--pill-black-text);
+}
+
+.railDone {
+  color: var(--text-body-grey);
+}
+
+.railDone .railNum {
+  background: var(--surface-light);
+  border-color: var(--border-hairline);
+  color: var(--text-black);
+}
+
+.railNum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-white);
+  color: var(--text-muted-grey);
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.railLine {
+  flex: 1;
+  height: 1px;
+  background: var(--border-hairline);
+  min-width: 12px;
+}
+
+/* ── Step 1: paste link ────────────────────────────────────────── */
+.pasteRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: var(--s-3);
+}
+
+.pasteWrap {
+  position: relative;
   flex: 1;
   min-width: 0;
 }
 
-.searchButton {
-  flex: 0 0 auto;
-  height: 44px !important;
-  border-radius: 100px !important;
-  padding: 0 22px !important;
-}
-
-/* Search results — dark panel */
-.results {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: var(--s-2);
-  max-height: 320px;
-  overflow-y: auto;
-  padding: var(--s-2);
-  background: var(--bg-base);
-  border-radius: var(--radius-card);
-  border: 1px solid var(--border-hairline);
-}
-
-.result {
-  padding: var(--s-2);
-  text-align: left;
-  cursor: pointer;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-black);
-  border-radius: var(--radius-sm);
-  transition: all 0.15s ease;
-}
-
-.result:hover {
-  background: var(--surface-light);
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-sm);
-}
-
-.resultThumb {
-  width: 100%;
-  border-radius: var(--radius-sm);
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  background: var(--bg-base);
-}
-
-.resultTitle {
-  font-size: 12px;
-  margin-top: var(--s-1);
-  color: var(--text-black);
-  line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  font-weight: 600;
-  height: 2.7em;
-}
-
-.resultMuted {
-  opacity: 0.5;
-}
-
-.resultSource {
-  font-size: 11px;
+.pasteIcon {
+  position: absolute;
+  left: var(--s-3);
+  top: 50%;
+  transform: translateY(-50%);
   color: var(--text-muted-grey);
-  margin-top: 2px;
-  display: block;
+  pointer-events: none;
+  z-index: 1;
 }
 
-.warning {
-  margin: 0;
-  padding: var(--s-3) var(--s-4);
-  border-radius: var(--radius-sm);
-  background: var(--warning-muted);
-  border: 1px solid rgba(255, 194, 75, 0.25);
-  color: var(--warning);
-  font-size: 13px;
-  line-height: 1.4;
+.pasteInput {
+  padding-left: 38px !important;
 }
 
-/* Selected video — monochrome highlight */
-.selected {
+.divider {
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  background: var(--surface-light);
-  padding: var(--s-2) var(--s-3);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
+  margin: var(--s-4) 0 var(--s-4);
+  color: var(--text-muted-grey);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
-.selectedThumb {
-  width: 64px;
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-hairline);
+}
+
+/* ── Step 2: picked content summary ────────────────────────────── */
+.picked {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  background: var(--surface-light);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  margin-bottom: var(--s-5);
+}
+
+.pickedThumb {
+  width: 88px;
   border-radius: var(--radius-sm);
   aspect-ratio: 16 / 9;
   object-fit: cover;
+  background: var(--bg-base);
   flex-shrink: 0;
 }
 
-.selectedText {
-  color: var(--text-black);
-  font-size: 13px;
-  font-weight: 600;
+.pickedInfo {
+  flex: 1;
   min-width: 0;
+}
+
+.pickedLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted-grey);
+  font-weight: 700;
+}
+
+.pickedTitle {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-black);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.pickedSource {
+  font-size: 11px;
+  color: var(--text-muted-grey);
+}
+
+/* ── Form ──────────────────────────────────────────────────────── */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
 }
 
 .settings {
@@ -212,90 +254,34 @@
 }
 
 .footer {
-  margin-top: var(--s-4);
+  margin-top: var(--s-5);
   text-align: center;
-}
-
-.footer a {
-  color: var(--text-body-grey);
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.footer a:hover {
-  color: var(--text-black);
-}
-
-/* Source tabs — dark segmented control */
-.tabs {
   display: flex;
-  background: var(--bg-base);
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-pill);
-  padding: 4px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+}
+
+.footerSep {
+  color: var(--text-muted-grey);
+}
+
+.cancelLink {
+  background: none;
+  border: none;
+  color: var(--text-muted-grey);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 0;
+  opacity: 0.85;
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
 }
-
-.tab {
-  flex: 1;
-  height: 36px;
-  padding: 0 var(--s-3);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-pill);
-  color: var(--text-body-grey);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  font-family: var(--font-body);
-  font-weight: 500;
-  text-align: center;
-}
-
-.tab:hover {
-  color: var(--text-black);
-  background: var(--surface-white);
-}
-
-.tabActive {
-  flex: 1;
-  height: 36px;
-  padding: 0 var(--s-3);
-  background: var(--pill-black);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-pill);
-  color: var(--pill-black-text);
-  font-size: 13px;
-  cursor: pointer;
-  font-weight: 600;
-  font-family: var(--font-body);
-  text-align: center;
-  box-shadow: var(--shadow-pill);
-}
-
-.select {
-  width: 100%;
-  height: 44px;
-  padding: 0 var(--s-4);
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-pill);
-  background: var(--surface-white);
-  color: var(--text-black);
-  font-size: 14px;
-  cursor: pointer;
-  font-family: var(--font-body);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.select:hover {
-  border-color: var(--border-strong);
-}
-
-.select:focus {
-  border-color: var(--text-black);
-  outline: none !important;
-  box-shadow: none !important;
-}
+.cancelLink:hover { opacity: 1; color: var(--text-black); }
 
 @media (max-width: 640px) {
   .page {
@@ -316,185 +302,22 @@
     padding-bottom: 0;
   }
 
-  .row {
+  .pasteRow {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .searchButton {
+  .pasteRow .button,
+  .pasteRow button {
     width: 100%;
   }
 }
 
-/* O2TV / Nkiri hierarchical season + episode browser — dark */
-.nkiriSection {
-  margin: 1.5rem 0;
-  padding: 1rem 0;
-  border-top: 1px solid var(--border-hairline);
+/* Keep both steps mounted so browser search survives "Change" */
+.stepPane {
+  display: block;
 }
 
-.nkiriTitle {
-  font-size: 1.1rem;
-  font-weight: 600;
-  margin-bottom: 0.25rem;
-  color: var(--text-black);
+.stepPaneHidden {
+  display: none;
 }
-
-.o2Header {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-start;
-  margin-bottom: 1rem;
-}
-
-.o2Poster {
-  width: 72px;
-  height: 108px;
-  object-fit: cover;
-  border-radius: 8px;
-  background: var(--surface-light);
-  border: 1px solid var(--border-hairline);
-  flex-shrink: 0;
-}
-
-.o2HeaderText {
-  min-width: 0;
-  flex: 1;
-}
-
-.o2Breadcrumb {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--text-body-grey);
-}
-
-.o2BackLink {
-  background: none;
-  border: none;
-  color: var(--text-black);
-  cursor: pointer;
-  font: inherit;
-  padding: 0;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.o2BackLink:hover {
-  opacity: 0.8;
-}
-
-.o2Status {
-  margin: 0.5rem 0 1rem;
-  font-size: 0.9rem;
-  color: var(--text-body-grey);
-}
-
-.o2Resolving {
-  margin-top: 0.35rem;
-  font-size: 0.7rem;
-  color: var(--text-body-grey);
-}
-
-.o2Ready {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: center;
-  padding: 0.75rem 1rem;
-  background: var(--surface-light);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
-}
-
-.episodeGrid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.75rem;
-}
-
-.episodeCard {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 0.5rem;
-  background: var(--surface-light);
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all 0.2s;
-  color: var(--text-black);
-}
-
-.episodeCard:hover {
-  border-color: var(--text-muted-grey);
-  background: var(--surface-hover);
-  transform: translateY(-2px);
-}
-
-.episodeSelected {
-  border-color: var(--text-black);
-  background: var(--surface-hover);
-  box-shadow: var(--shadow-sm);
-}
-
-.episodeThumb {
-  width: 100%;
-  aspect-ratio: 16/9;
-  object-fit: cover;
-  border-radius: 4px;
-  margin-bottom: 0.5rem;
-}
-
-.episodeTitle {
-  font-size: 0.75rem;
-  text-align: center;
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.nkiriError {
-  padding: 1rem;
-  background: var(--danger-muted);
-  border: 1px solid rgba(255, 92, 77, 0.3);
-  border-radius: var(--radius-sm);
-  color: var(--live-red);
-  text-align: center;
-}
-
-.nkiriError p {
-  margin: 0 0 0.75rem 0;
-  font-size: 0.875rem;
-}
-
-.retryButton {
-  padding: 0.5rem 1.25rem;
-  background: var(--pill-black);
-  border: 1px solid var(--border-strong);
-  color: var(--pill-black-text);
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.retryButton:hover {
-  background: var(--pill-hover);
-  border-color: var(--text-muted-grey);
-}
-
-.cancelLink {
-  background: none;
-  border: none;
-  color: var(--text-muted-grey);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-  font: inherit;
-  padding: 0;
-  opacity: 0.85;
-}
-.cancelLink:hover { opacity: 1; color: var(--text-black); }

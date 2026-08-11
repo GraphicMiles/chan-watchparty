@@ -246,3 +246,20 @@ P0 items from the priority matrix are now implemented (uncommitted):
 | D3 (orange spinner) | ✅ | Splash spinner `#FF6A2B` → `#26262C`. `capacitor.config.json` |
 
 **Verification:** web build passes (`npm run build` ✓, eslint clean). Android Java was reviewed by hand (no Android SDK in the sandbox) — **must compile/install via `npm run android:build` / Android Studio on a machine with the SDK** before shipping.
+
+---
+
+## 9. P1 Implementation Log (2026-08-11, after this audit)
+
+| Audit ID | Status | Change |
+|----------|--------|--------|
+| A1 (create monolith) | ✅ | `CreateRoomPage.jsx` cut from **1,216 → ~370 lines**. Two-step guided flow with a progress rail (1. Pick content → 2. Room settings). Pick logic moved to the shared ShowBrowser; room creation moved to `src/shared/lib/createRoom.js` service. |
+| A2 (3 copies of show→episode browsing) | ✅ | One shared **`ShowBrowser`** component (`src/shared/components/ShowBrowser.jsx`) now powers /create, /media (direct layer) and the room's Change Video modal. CreateRoomPage's O2TV/Nkiri browser, UnifiedSearch's `searchDirect`/`fetchSeasons`/`fetchEpisodes`/`fetchNkiriEpisodes`/`handleEpisodeClick`, RoomPage's `searchVideos`/`fetchEpisodesForChange`, and **`EpisodesModal.jsx` (deleted, 279 lines)** are all gone. |
+| A3 (two scrapers) | ✅ (partially) | Direct browsing now uses the **server API only** via shared `mediaPost()` (`src/shared/lib/mediaApi.js`); the native `O2TvPlugin` direct-search path is no longer wired into the UI (legacy code remains in `android/` for removal later). |
+| F1/F2 (double browse, hand-off context loss) | ✅ | `/media → /create` hand-off now lands on **step 2 with content pre-picked** (no re-browse, no double resolve). YouTube `?video=` deep links handled too. |
+| F3 (downloadwella expiry) | ✅ | `createRoom()` re-resolves DownloadWella/fsmc URLs fresh at create time; RoomPage's change-video resolves them upfront; ShowBrowser marks Nkiri picks with `pendingResolve`. |
+| A5 (room monolith) | ⏳ | RoomPage slimmed (~200 lines removed) — Change Video now a modal with the shared browser. Further decomposition (queue/reactions/chat extraction) left for a later pass. |
+
+**New shared files:** `src/shared/lib/mediaApi.js` (authed media POST), `src/shared/lib/createRoom.js` (content contract + room creation incl. downloadwella re-resolve), `src/shared/components/ShowBrowser.jsx` + `.module.css` (search → show → seasons → episodes → onPick).
+
+**Net line change:** −1,741 lines across 8 files (EpisodesModal deleted, CreateRoomPage −846, UnifiedSearch −526, RoomPage −211, +558 added).

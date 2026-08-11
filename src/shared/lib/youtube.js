@@ -246,6 +246,10 @@ export function isMixedContentUrl(url) {
     && /^http:\/\//i.test(url || '')
 }
 
+export function isO2TvUrl(value) {
+  return /tvshows4mobile\.org|o2tvseries|o2tv\.org/i.test(String(value || ''))
+}
+
 export function isYouTubeUrl(url) {
   return !!extractVideoId(url)
 }

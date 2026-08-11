@@ -730,3 +730,30 @@
   margin-bottom: 0.25rem;
   font-size: 0.875rem;
 }
+
+/* P1: Change Video modal */
+.changeVideoBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.changeDivider {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin: var(--s-1) 0;
+  color: var(--text-muted-grey);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.changeDivider::before,
+.changeDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-hairline);
+}

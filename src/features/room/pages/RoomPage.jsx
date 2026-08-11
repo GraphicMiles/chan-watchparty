@@ -23,7 +23,8 @@ import { Button, Input, Card, IconButton, Modal, Badge, useToast } from '../../.
 import { Layout } from '../../../shared/layout/index.js'
 import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
-import { apiPath } from '../../../shared/lib/api.js'
+import { mediaPost } from '../../../shared/lib/mediaApi.js'
+import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
 
 const SOUND_FX_URLS = {
   airhorn: 'https://cdn.freesound.org/previews/435/435255_8863641-lq.mp3',
@@ -57,11 +58,7 @@ export default function RoomPage() {
   const [sidebarTab, setSidebarTab] = useState('chat')
   const [showChat, setShowChat] = useState(() => (typeof window !== 'undefined' ? window.innerWidth > 768 : true))
   const [newVideoUrl, setNewVideoUrl] = useState('')
-  const [showVideoInput, setShowVideoInput] = useState(false)
-  const [videoSearchQuery, setVideoSearchQuery] = useState('')
-  const [videoSearchResults, setVideoSearchResults] = useState([])
-  const [expandedSeasons, setExpandedSeasons] = useState({})
-  const [loadingEpisodes, setLoadingEpisodes] = useState({})
+  const [changeVideoOpen, setChangeVideoOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [endConfirmOpen, setEndConfirmOpen] = useState(false)
@@ -231,68 +228,55 @@ export default function RoomPage() {
   // previously lived AFTER the `if (!user)` early return, which made them
   // conditional hooks (rules-of-hooks violation). They are declared here, with
   // all other hooks, so call order is stable across renders.
-  const searchVideos = useCallback(async () => {
-    if (!videoSearchQuery.trim()) return
+  // P1: change video from the shared browser content contract
+  const changeVideoContent = useCallback(async (content) => {
+    if (!content) return
     setBusy(true)
     try {
-      const token = await user.getIdToken()
-      const res = await fetch(apiPath('/api/media'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          action: 'search',
-          layer: 'direct',
-          query: videoSearchQuery.trim(),
-          options: { limit: 20 },
-        }),
-      })
-      const data = await res.json()
-      setVideoSearchResults(data.results || [])
+      if (content.kind === 'youtube' && content.videoId) {
+        await updateRoom({
+          videoId: content.videoId,
+          videoUrl: null,
+          videoType: 'youtube',
+          activityType: 'youtube',
+          isLive: false,
+          title: content.title || room.title,
+        })
+        await writePlayerState({ videoId: content.videoId, videoUrl: null, isPlaying: false, currentTime: 0 })
+      } else if (content.url) {
+        let playUrl = content.url
+        // DownloadWella page links expire fast — resolve fresh before switching
+        if (content.pendingResolve && /downloadwella\.com|fsmc/i.test(playUrl) && !/\/api\/proxy\?/i.test(playUrl)) {
+          toast('Resolving episode link…', { variant: 'info' })
+          const data = await mediaPost(user, { action: 'scrape', url: playUrl, options: { resolve: true } })
+          const best = (data.results || []).find((r) => r.isDirect || r.playableInRoom || /\/api\/proxy\?/i.test(r.url || ''))
+            || (data.results || [])[0]
+          if (!best?.url) throw new Error('Could not resolve this episode link. Try another episode.')
+          playUrl = normalizePlaybackUrl(best.url)
+        }
+        const nextType = content.videoType || (/\.m3u8(\?|#|$)/i.test(playUrl) ? 'iptv' : 'direct')
+        await updateRoom({
+          videoId: null,
+          videoUrl: playUrl,
+          videoType: nextType,
+          activityType: nextType,
+          isLive: nextType === 'iptv' || nextType === 'sports',
+          title: content.title || room.title,
+        })
+        await writePlayerState({ videoId: null, videoUrl: playUrl, isPlaying: false, currentTime: 0 })
+      } else {
+        toast('No playable link for that pick', { variant: 'error' })
+        return
+      }
+      setChangeVideoOpen(false)
+      setNewVideoUrl('')
+      toast('Video updated', { variant: 'success' })
     } catch (err) {
-      console.error('Search failed:', err)
-      toast('Search failed', { variant: 'error' })
+      toast(err.message || 'Could not update video', { variant: 'error' })
     } finally {
       setBusy(false)
     }
-  }, [videoSearchQuery, user, toast])
-
-  const fetchEpisodesForChange = useCallback(async (seasonUrl) => {
-    if (expandedSeasons[seasonUrl]) {
-      setExpandedSeasons(prev => {
-        const next = { ...prev }
-        delete next[seasonUrl]
-        return next
-      })
-      return
-    }
-
-    setLoadingEpisodes(prev => ({ ...prev, [seasonUrl]: true }))
-    try {
-      const token = await user.getIdToken()
-      const res = await fetch(apiPath('/api/media'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ action: 'scrape', url: seasonUrl }),
-      })
-      const data = await res.json()
-      if (data.results && data.results.length > 0) {
-        setExpandedSeasons(prev => ({ ...prev, [seasonUrl]: data.results }))
-      } else {
-        toast('No episodes found', { variant: 'error' })
-      }
-    } catch (err) {
-      console.error('Failed to fetch episodes:', err)
-      toast('Failed to load episodes', { variant: 'error' })
-    } finally {
-      setLoadingEpisodes(prev => ({ ...prev, [seasonUrl]: false }))
-    }
-  }, [expandedSeasons, user, toast])
+  }, [user, room, updateRoom, writePlayerState, toast])
 
   if (!user) {
     return (
@@ -321,17 +305,11 @@ export default function RoomPage() {
     }
   }
 
-  const changeVideo = async (e, episode = null) => {
+  const changeVideo = async (e) => {
     e?.preventDefault()
-    let trimmedUrl = newVideoUrl.trim()
-    let itemTitle = episode?.title || ''
-    
-    // If episode provided, use episode data
-    if (episode) {
-      trimmedUrl = episode.url
-      itemTitle = episode.title
-    }
-    
+    const trimmedUrl = newVideoUrl.trim()
+    const itemTitle = ''
+
     const id = extractVideoId(trimmedUrl)
     const isDirect = isDirectVideoUrl(trimmedUrl) || /\.(mp4|m3u8|mkv|avi|mov|webm|flv|ts)(\?|#|$)/i.test(trimmedUrl)
     const isM3u8 = /\.m3u8(\?|#|$)/i.test(trimmedUrl)
@@ -367,7 +345,7 @@ export default function RoomPage() {
       }
       
       setNewVideoUrl('')
-      setShowVideoInput(false)
+      setChangeVideoOpen(false)
       toast('Video updated', { variant: 'success' })
     } catch (err) {
       toast(err.message || 'Could not update video', { variant: 'error' })
@@ -618,7 +596,7 @@ export default function RoomPage() {
           {canControl && (
             <Card className={styles.controlsCard}>
               <div className={styles.controls}>
-                <Button variant="secondary" size="sm" onClick={() => setShowVideoInput((s) => !s)}>
+                <Button variant="secondary" size="sm" onClick={() => setChangeVideoOpen(true)}>
                   <Film size={14} />
                   Change Video
                 </Button>
@@ -667,72 +645,6 @@ export default function RoomPage() {
                 <div className={styles.controlsFooter}>
                   <Monitor size={13} />
                   <span>Screen share requires a desktop browser</span>
-                </div>
-              )}
-              {showVideoInput && (
-                <div className={styles.videoChangeSection}>
-                  <div className={styles.searchRow}>
-                    <Input
-                      placeholder="Search for movies/shows (e.g. Silo) or paste URL"
-                      value={videoSearchQuery}
-                      onChange={(e) => setVideoSearchQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && searchVideos()}
-                    />
-                    <Button onClick={searchVideos} loading={busy}>Search</Button>
-                  </div>
-                  
-                  {videoSearchResults.length > 0 && (
-                    <div className={styles.searchResults}>
-                      <div className={styles.resultsHeader}>
-                        <span>Found {videoSearchResults.length} result(s)</span>
-                        <button onClick={() => setVideoSearchResults([])} className={styles.clearBtn}>Clear</button>
-                      </div>
-                      {videoSearchResults.map((item, idx) => {
-                        const isNkiri = /thenkiri\.com|nkiri\.com/i.test(item.url || '')
-                        const isExpanded = expandedSeasons[item.url]
-                        const isLoading = loadingEpisodes[item.url]
-
-                        return (
-                          <div key={idx} className={styles.resultItem}>
-                            <div className={styles.resultInfo}>
-                              <strong>{item.title}</strong>
-                              <span className={styles.source}>{item.source}</span>
-                            </div>
-                            {isNkiri ? (
-                              <Button 
-                                size="sm" 
-                                onClick={() => fetchEpisodesForChange(item.url)}
-                                loading={isLoading}
-                              >
-                                {isExpanded ? 'Hide' : 'Episodes'}
-                              </Button>
-                            ) : (
-                              <Button 
-                                size="sm" 
-                                onClick={() => changeVideo(null, item)}
-                              >
-                                Play
-                              </Button>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  
-                  {/* Expanded Episodes */}
-                  {Object.entries(expandedSeasons).map(([seasonUrl, episodes]) => (
-                    <div key={seasonUrl} className={styles.episodesList}>
-                      {episodes.map((ep, epIdx) => (
-                        <div key={epIdx} className={styles.episodeItem}>
-                          <span>{ep.title}</span>
-                          <Button size="sm" onClick={() => changeVideo(null, ep)}>
-                            Play
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
                 </div>
               )}
             </Card>
@@ -864,6 +776,27 @@ export default function RoomPage() {
           </>
         )}
       </div>
+
+      {/* P1: Change Video — shared browser in a modal */}
+      <Modal open={changeVideoOpen} title="Change Video" icon={Film} onClose={() => setChangeVideoOpen(false)}>
+        <div className={styles.changeVideoBody}>
+          <form
+            className={styles.searchRow}
+            onSubmit={(e) => { e.preventDefault(); if (newVideoUrl.trim()) { changeVideo(e) } }}
+          >
+            <Input
+              placeholder="Paste YouTube URL or direct .mp4 / .m3u8 / .mkv link"
+              value={newVideoUrl}
+              onChange={(e) => setNewVideoUrl(e.target.value)}
+            />
+            <Button type="submit" size="sm">Use link</Button>
+          </form>
+          <div className={styles.changeDivider}>
+            <span>or browse</span>
+          </div>
+          <ShowBrowser onPick={changeVideoContent} initialMode="tv" compact />
+        </div>
+      </Modal>
 
       <ShareRoom room={room} roomId={roomId} open={shareOpen} onClose={() => setShareOpen(false)} />
 
