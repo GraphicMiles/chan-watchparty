@@ -286,6 +286,7 @@ export default function CreateRoomPage() {
             {error && <p className={styles.error}>{error}</p>}
           </>
         )}
+        </div>
 
         <div className={step === 2 ? styles.stepPane : styles.stepPaneHidden}>
         {step === 2 && (
@@ -371,7 +372,6 @@ export default function CreateRoomPage() {
             </button>
           </p>
         )}
-        </div>
       </Card>
     </div>
   )
