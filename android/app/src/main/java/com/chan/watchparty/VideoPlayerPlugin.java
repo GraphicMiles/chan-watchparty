@@ -166,6 +166,19 @@ public class VideoPlayerPlugin extends Plugin {
         String title = call.getString("title", "Chan Video");
         Double startSeconds = call.getDouble("startSeconds");
         String referer = call.getString("referer", "");
+        String container = call.getString("container", "");
+        String codec = call.getString("codec", "");
+        // Extra headers from the descriptor (merged over UA/Referer in the engine)
+        java.util.Map<String, String> headers = new java.util.HashMap<>();
+        JSObject h = call.getObject("headers");
+        if (h != null) {
+            java.util.Iterator<String> it = h.keys();
+            while (it.hasNext()) {
+                String key = it.next();
+                Object v = h.opt(key);
+                if (v != null) headers.put(key, String.valueOf(v));
+            }
+        }
 
         try {
             ensureOverlay();
@@ -173,12 +186,61 @@ public class VideoPlayerPlugin extends Plugin {
             attachOverlay();
             overlay.showExo();
             engine.prepare(url, title, referer,
-                    (long) Math.max(0, startSeconds == null ? 0 : startSeconds * 1000));
+                    (long) Math.max(0, startSeconds == null ? 0 : startSeconds * 1000),
+                    headers, container, codec);
             call.resolve();
         } catch (Exception e) {
             Log.e(TAG, "showEmbedded failed", e);
             call.reject("Could not start the player: " + e.getMessage());
         }
+    }
+
+    /** Update the native overlay status text (used during JS-driven recovery). */
+    @PluginMethod
+    public void showStatus(PluginCall call) {
+        String text = call.getString("text", "");
+        if (overlay != null && !text.isEmpty()) overlay.showStatus(text, false);
+        call.resolve();
+    }
+
+    /** Quick range probe of a media URL — lets JS classify failures precisely. */
+    @PluginMethod
+    public void probeStatus(PluginCall call) {
+        String url = call.getString("url");
+        String referer = call.getString("referer", "");
+        JSObject result = new JSObject().put("ok", false);
+        if (url == null || url.trim().isEmpty()) {
+            call.resolve(result);
+            return;
+        }
+        new Thread(() -> {
+            java.net.HttpURLConnection conn = null;
+            try {
+                java.net.URL u = new java.net.URL(url);
+                conn = (java.net.HttpURLConnection) u.openConnection();
+                conn.setConnectTimeout(8000);
+                conn.setReadTimeout(8000);
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36");
+                if (referer != null && !referer.isEmpty()) conn.setRequestProperty("Referer", referer);
+                conn.setRequestProperty("Range", "bytes=0-1");
+                conn.setInstanceFollowRedirects(true);
+                int status = conn.getResponseCode();
+                String ct = conn.getContentType();
+                result.put("status", status);
+                result.put("contentType", ct == null ? "" : ct);
+                result.put("ok", (status == 200 || status == 206) && ct != null
+                        && !ct.toLowerCase().contains("text/html")
+                        && !ct.toLowerCase().contains("application/json"));
+                result.put("ranged", status == 206);
+                try { conn.getInputStream().close(); } catch (Exception ignored) { }
+            } catch (Exception e) {
+                result.put("error", String.valueOf(e.getMessage()));
+            } finally {
+                if (conn != null) conn.disconnect();
+                getActivity().runOnUiThread(() -> call.resolve(result));
+            }
+        }).start();
     }
 
     @PluginMethod

@@ -106,6 +106,8 @@ export default function VideoPlayer({
   isLive = false,
   subtitleVtt = null,
   onReResolve = null,
+  media = null,
+  onRefresh = null,
 }) {
   const { user } = useAuth()
   const { toast } = useToast()
@@ -158,14 +160,14 @@ export default function VideoPlayer({
     return false
   }, [currentUrl, videoType, isLive])
 
-  // Phase 2/3: on Android, ALL non-YouTube content plays through the single
-  // embedded native engine — no choice screen, no fallback UI. If the native
-  // engine cannot start, we silently fall back to the web player.
-  const [embeddedFailed, setEmbeddedFailed] = useState(false)
+  // Phase B: on Android, ALL non-YouTube content plays through the single
+  // embedded native engine — no choice screen, no web fallback, ever. If the
+  // native engine cannot play a stream, the recovery state machine resolves a
+  // better stream or fails honestly. (YouTube stays on the web embed.)
   const isNativeEmbedded = useMemo(() => {
-    if (embeddedFailed || !isNativeAndroid || !currentUrl || videoType === 'youtube') return false
+    if (!isNativeAndroid || !currentUrl || videoType === 'youtube') return false
     return true // direct / iptv / sports / nsfw / HLS → native engine (ExoPlayer/VLC)
-  }, [embeddedFailed, isNativeAndroid, currentUrl, videoType])
+  }, [isNativeAndroid, currentUrl, videoType])
 
   const isMixedContent = useMemo(
     () => typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(currentUrl),
@@ -217,11 +219,6 @@ export default function VideoPlayer({
   const vlcSideRef = useRef(null)
   const vlcTimerRef = useRef(null)
   const singleTapTimerRef = useRef(null)
-
-  // Reset the silent web fallback when the media changes.
-  useEffect(() => {
-    setEmbeddedFailed(false)
-  }, [currentUrl])
 
   const subtitleBlobUrl = useMemo(() => {
     if (!subtitleVtt) return null
@@ -1185,16 +1182,21 @@ export default function VideoPlayer({
       >
         {isNativeEmbedded ? (
           <NativeEmbeddedPlayer
-            url={nativePlaybackUrl(currentUrl)}
+            url={media?.streamUrl || nativePlaybackUrl(currentUrl)}
             title="Chan Video"
             startSeconds={currentSec || played || 0}
-            referer={/downloadwella/i.test(currentUrl) ? 'https://downloadwella.com/' : undefined}
+            referer={media?.referer || (/downloadwella/i.test(currentUrl) ? 'https://downloadwella.com/' : undefined)}
+            headers={media?.headers || undefined}
+            container={media?.container || undefined}
+            codec={media?.codec || undefined}
+            sourceUrl={media?.sourceUrl || undefined}
+            mirrors={media?.mirrors || []}
             isLive={isLive || videoType === 'iptv' || videoType === 'sports'}
             onReady={onReady}
             onPlayerEvent={onPlayerEvent}
             onEnded={onEnded}
-            onError={() => setEmbeddedFailed(true)}
-            onReResolve={onReResolve}
+            onError={onError}
+            onRefresh={onRefresh}
           />
         ) : isHls ? (
           <video

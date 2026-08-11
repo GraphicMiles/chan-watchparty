@@ -41,7 +41,8 @@ public class ChanPlayerEngine {
         void onPlaying();
         void onPaused();
         void onEnded();
-        void onError(String friendlyMessage);
+        /** kind: expired | network | decode | other */
+        void onError(String friendlyMessage, String kind);
         void onEngineSwitch(String engineName);
     }
 
@@ -64,8 +65,12 @@ public class ChanPlayerEngine {
 
     // ── Public API ───────────────────────────────────────────────────────
 
-    public boolean shouldPreferVlc(String url) {
+    public boolean shouldPreferVlc(String url, String container, String codec) {
         String lower = String.valueOf(url).toLowerCase();
+        String c = String.valueOf(container).toLowerCase();
+        String k = String.valueOf(codec).toLowerCase();
+        if (c.contains("mkv")) return true;
+        if (k.contains("hevc") || k.contains("x265") || k.contains("vp9") || k.contains("av1") || k.contains("vp8")) return true;
         return lower.contains(".mkv")
                 || lower.contains("downloadwella")
                 || lower.contains("fsmc")
@@ -74,14 +79,22 @@ public class ChanPlayerEngine {
                 || lower.contains("h265");
     }
 
-    public void prepare(String playbackUrl, String title, String referer, long startMs) {
+    private Map<String, String> extraHeaders = new HashMap<>();
+
+    public void prepare(String playbackUrl, String title, String referer, long startMs,
+                        Map<String, String> headers, String container, String codec) {
         if (disposed) return;
         ended = false;
-        if (shouldPreferVlc(playbackUrl)) {
+        extraHeaders = headers != null ? new HashMap<>(headers) : new HashMap<>();
+        if (shouldPreferVlc(playbackUrl, container, codec)) {
             startVlcPlayer("Using VLC engine…", playbackUrl, title, referer, startMs);
         } else {
             startExoPlayer(playbackUrl, title, referer, startMs);
         }
+    }
+
+    public void prepare(String playbackUrl, String title, String referer, long startMs) {
+        prepare(playbackUrl, title, referer, startMs, null, null, null);
     }
 
     public void play() {
@@ -155,6 +168,49 @@ public class ChanPlayerEngine {
         releaseVlc();
     }
 
+    // ── Error classification ─────────────────────────────────────────────
+
+    /** Map a PlaybackException to a recovery kind: expired | network | decode | other. */
+    private String classifyExoError(PlaybackException error) {
+        String codeName = String.valueOf(error.errorCodeName);
+        Throwable cause = error.getCause();
+        if (cause != null) {
+            String c = cause.toString();
+            // Media3 wraps HTTP failures in InvalidResponseCodeException with a responseCode
+            int status = httpStatusFromCause(cause);
+            if (status == 403 || status == 404 || status == 410) return "expired";
+            if (status >= 400) return "network";
+            if (c.contains("UnknownHost") || c.contains("ConnectException") || c.contains("SocketTimeout")
+                    || c.contains("InterruptedIOException") || c.contains("timeout")) return "network";
+        }
+        if (codeName.contains("Decoder") || codeName.contains("Decoding")
+                || codeName.contains("Format") || codeName.contains("Unsupported")) return "decode";
+        if (codeName.contains("IO") || codeName.contains("Network") || codeName.contains("Source")) return "network";
+        return "other";
+    }
+
+    private int httpStatusFromCause(Throwable cause) {
+        Throwable c = cause;
+        int depth = 0;
+        while (c != null && depth < 6) {
+            String n = c.getClass().getSimpleName();
+            if (n.contains("InvalidResponseCode") || n.contains("Http")) {
+                java.lang.reflect.Field f;
+                try {
+                    f = c.getClass().getField("responseCode");
+                    if (f != null) return f.getInt(c);
+                } catch (Exception ignored) {
+                    // try message regex
+                }
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d{3})").matcher(String.valueOf(c.getMessage()));
+                if (m.find()) return Integer.parseInt(m.group(1));
+            }
+            c = c.getCause();
+            depth += 1;
+        }
+        return 0;
+    }
+
     // ── Engine implementations ───────────────────────────────────────────
 
     private Map<String, String> headersFor(String referer, String url) {
@@ -164,6 +220,9 @@ public class ChanPlayerEngine {
             headers.put("Referer", referer.trim());
         } else if (url != null && url.toLowerCase().contains("downloadwella")) {
             headers.put("Referer", "https://downloadwella.com/");
+        }
+        for (Map.Entry<String, String> e : extraHeaders.entrySet()) {
+            if (e.getKey() != null && e.getValue() != null) headers.put(e.getKey(), e.getValue());
         }
         return headers;
     }
@@ -206,9 +265,15 @@ public class ChanPlayerEngine {
 
                 @Override
                 public void onPlayerError(PlaybackException error) {
-                    Log.e(TAG, "ExoPlayer error; falling back to LibVLC", error);
-                    if (!disposed) {
+                    String kind = classifyExoError(error);
+                    Log.e(TAG, "ExoPlayer error (" + kind + "); falling back to LibVLC", error);
+                    // Decode/unsupported-format failures: switch engine. Network/expired
+                    // failures are surfaced to JS so the recovery state machine can act
+                    // (retry/refresh) — Exo rarely plays them better via VLC, but try once.
+                    if (kind.equals("decode") && !disposed) {
                         startVlcPlayer("Switching engines…", url, title, referer, startMs);
+                    } else if (!disposed && listener != null) {
+                        listener.onError(friendlyMessageFor(kind), kind);
                     }
                 }
             });
@@ -267,7 +332,7 @@ public class ChanPlayerEngine {
                     if (listener != null) listener.onEnded();
                 } else if (event.type == MediaPlayer.Event.EncounteredError) {
                     if (listener != null) {
-                        listener.onError("Couldn't play this video. It may be unavailable or expired.");
+                        listener.onError(friendlyMessageFor("other"), "other");
                     }
                 }
             });
@@ -290,8 +355,22 @@ public class ChanPlayerEngine {
         } catch (Exception e) {
             Log.e(TAG, "Could not start LibVLC", e);
             if (listener != null) {
-                listener.onError("Couldn't play this video. It may be unavailable or expired.");
+                listener.onError(friendlyMessageFor("other"), "other");
             }
+        }
+    }
+
+    /** Friendly copy per kind — shown in the native overlay status. */
+    private String friendlyMessageFor(String kind) {
+        switch (kind) {
+            case "expired":
+                return "This link has expired. Refreshing…";
+            case "network":
+                return "Network issue. Retrying…";
+            case "decode":
+                return "This video uses a format your device can't play. Trying another engine…";
+            default:
+                return "Couldn't play this video. It may be unavailable or expired.";
         }
     }
 

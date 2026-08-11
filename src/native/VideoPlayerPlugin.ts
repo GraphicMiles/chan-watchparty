@@ -5,6 +5,12 @@ export interface ShowEmbeddedOptions {
   title?: string
   startSeconds?: number
   referer?: string
+  /** Extra headers from the stream descriptor (merged over UA/Referer). */
+  headers?: Record<string, string>
+  /** Container hint from the descriptor: mkv | mp4 | hls | unknown. */
+  container?: string
+  /** Codec hint from the descriptor: e.g. "hevc+aac", "avc+aac", null. */
+  codec?: string | null
 }
 
 export interface Rect {
@@ -27,13 +33,23 @@ export interface CloseResult {
   wasPlaying?: boolean
 }
 
+export type ErrorKind = 'expired' | 'network' | 'decode' | 'other'
+
+export interface ProbeResult {
+  ok: boolean
+  status?: number
+  contentType?: string
+  ranged?: boolean
+  error?: string
+}
+
 export type PlaybackStateEvent =
   | { state: 'ready' }
   | { state: 'buffering'; percent: number }
   | { state: 'playing' }
   | { state: 'paused' }
   | { state: 'ended' }
-  | { state: 'error'; message: string }
+  | { state: 'error'; message: string; kind: ErrorKind }
   | { state: 'engine'; engine: string }
 
 export interface VideoPlayerPlugin {
@@ -47,6 +63,10 @@ export interface VideoPlayerPlugin {
   setVolume(options: { volume: number }): Promise<void>
   getPosition(): Promise<PlayerPosition>
   setFullscreen(options: { fullscreen: boolean }): Promise<void>
+  /** Update the native overlay status text (used during recovery). */
+  showStatus(options: { text: string }): Promise<void>
+  /** Quick range probe of a media URL to classify failures. */
+  probeStatus(options: { url: string; referer?: string }): Promise<ProbeResult>
   /** Close the embedded player; resolves with the playback result. */
   closeEmbedded(): Promise<CloseResult>
   /** Subscribe to playback state events. */
