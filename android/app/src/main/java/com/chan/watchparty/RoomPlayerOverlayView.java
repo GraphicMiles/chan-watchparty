@@ -97,12 +97,11 @@ public class RoomPlayerOverlayView extends FrameLayout {
         ));
 
         // Exo surface (controls handled by our bar, not Exo's)
-        exoView = new PlayerView(context);
-        exoView.setUseController(false);
-        // GL-backed surface so Media3 video effects (Brightness/Contrast/Hsl)
-        // actually render — plain SurfaceView silently ignores them.
-        exoView.setUseTextureView(true);
-        exoView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        // Inflate from XML: surface_type="texture_view" gives a GL-backed
+        // surface so Media3 video effects (Brightness/Contrast/HslAdjustment)
+        // actually render — a plain SurfaceView silently ignores them.
+        exoView = (PlayerView) android.view.LayoutInflater.from(context)
+                .inflate(R.layout.chan_player_view, this, false);
         exoView.setKeepScreenOn(true);
         addView(exoView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
