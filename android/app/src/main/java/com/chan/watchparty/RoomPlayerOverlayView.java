@@ -128,6 +128,7 @@ public class RoomPlayerOverlayView extends FrameLayout {
     public void setEngine(ChanPlayerEngine engine) {
         this.engine = engine;
         engine.attachVlcLayout(vlcLayout);
+        engine.attachExoView(exoView);
         handler.post(progressRunnable);
     }
 
