@@ -55,6 +55,7 @@ public class VideoPlayerPlugin extends Plugin {
     private boolean fullscreen = false;
     private boolean attached = false;
     private boolean wasPlayingBeforePip = false;
+    private boolean chromeEnabled = true; // from showEmbedded controls flag
 
     private BroadcastReceiver piPReceiver;
 
@@ -68,6 +69,7 @@ public class VideoPlayerPlugin extends Plugin {
         overlay.setEngine(engine);
         overlay.setFullscreenListener(() -> setFullscreenUi(true));
         overlay.setPipListener(this::enterPip);
+        overlay.setExitListener(() -> setFullscreenUi(false));
     }
 
     private void attachOverlay() {
@@ -192,7 +194,8 @@ public class VideoPlayerPlugin extends Plugin {
                         JSObject tap = new JSObject().put("type", "tap");
                         try { notifyListeners("controlsEvent", tap); } catch (Exception ignored) { }
                     });
-                    overlay.setInteractive(controls == null || controls);
+                    chromeEnabled = controls == null || controls;
+                    overlay.setInteractive(chromeEnabled);
                     overlay.showStatus("Fetching media…", false);
                     attachOverlay();
                     overlay.showExo();
@@ -344,13 +347,31 @@ public class VideoPlayerPlugin extends Plugin {
                         FrameLayout.LayoutParams.MATCH_PARENT
                 );
                 overlay.setLayoutParams(params);
+                // Native chrome ON in fullscreen: bar + Exit button visible.
+                overlay.setInteractive(true);
                 hideSystemUi();
             } else {
+                // Restore the embedded stage rect (re-anchors the surface back
+                // into the room bounds, NOT just a boolean flip), restore the
+                // chrome preference, and restore system UI.
                 if (lastRect != null) overlay.setLayoutParams(lastRect);
+                overlay.setInteractive(chromeEnabled);
                 showSystemUi();
             }
             overlay.setFullscreenUi(fullscreen);
+            // Keep JS in sync both directions
+            JSObject evt = new JSObject().put("type", "fullscreenchange").put("fullscreen", fullscreen);
+            try { notifyListeners("controlsEvent", evt); } catch (Exception ignored) { }
         });
+    }
+
+    /** Called by MainActivity on back press — exit fullscreen first. */
+    public boolean consumeBackIfFullscreen() {
+        if (fullscreen) {
+            setFullscreenUi(false);
+            return true;
+        }
+        return false;
     }
 
     @PluginMethod

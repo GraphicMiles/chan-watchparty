@@ -13,4 +13,16 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(VideoPlayerPlugin.class);
         super.onCreate(savedInstanceState);
     }
+
+    // Back button while the native player is fullscreen → exit fullscreen
+    // first (restores the embedded surface), otherwise default behavior.
+    @Override
+    public void onBackPressed() {
+        try {
+            VideoPlayerPlugin plugin = (VideoPlayerPlugin) getBridge()
+                    .getPlugin("VideoPlayerPlugin").getInstance();
+            if (plugin != null && plugin.consumeBackIfFullscreen()) return;
+        } catch (Exception ignored) { }
+        super.onBackPressed();
+    }
 }

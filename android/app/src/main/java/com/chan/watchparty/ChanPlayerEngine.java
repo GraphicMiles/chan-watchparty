@@ -65,6 +65,10 @@ public class ChanPlayerEngine {
     private DefaultTrackSelector trackSelector;
     private java.io.File subtitleFile;
 
+    // Current effect levels (for VLC adjust-filter re-apply)
+    private float lastBrightness = 1f, lastContrast = 1f, lastSaturation = 1f, lastHue = 0f;
+    private boolean effectsNeutral = true;
+
     private ExoPlayer exoPlayer;
     private androidx.media3.ui.PlayerView exoView; // attached by the overlay
     private LibVLC libVLC;
@@ -190,10 +194,15 @@ public class ChanPlayerEngine {
      */
     public void setVideoEffects(float brightness, float contrast, float saturation, float hueDeg) {
         mainHandler.post(() -> {
-            boolean neutral = Math.abs(brightness - 1f) < 0.01f
+            lastBrightness = brightness;
+            lastContrast = contrast;
+            lastSaturation = saturation;
+            lastHue = hueDeg;
+            effectsNeutral = Math.abs(brightness - 1f) < 0.01f
                     && Math.abs(contrast - 1f) < 0.01f
                     && Math.abs(saturation - 1f) < 0.01f
                     && Math.abs(hueDeg) < 0.5f;
+            boolean neutral = effectsNeutral;
             if (exoPlayer != null) {
                 try {
                     if (neutral) {
@@ -212,12 +221,51 @@ public class ChanPlayerEngine {
                     Log.e(TAG, "Exo setVideoEffects failed", e);
                 }
             }
-            // libVLC 3.6.5 has no adjust-filter API (no setAdjustInt) — effects
-            // apply to Exo (MP4/HLS/IPTV); VLC (MKV/HEVC) playback is unaffected.
+            // libVLC 3.6.5 has no adjust-filter Java API — use media options
+            // (:video-filter=adjust) and re-prepare the media, resuming at the
+            // current position (same pattern as the subtitle rebuild).
             if (vlcPlayer != null) {
-                Log.d(TAG, "Video effects unsupported on libVLC 3.6.5 — skipped");
+                long pos = vlcPlayer.getTime();
+                vlcPlayer.stop();
+                rebuildVlcMedia(Math.max(0, pos));
             }
         });
+    }
+
+    /** Rebuild the VLC media (after effect changes) applying the adjust filter. */
+    private void rebuildVlcMedia(long resumeMs) {
+        if (vlcPlayer == null || libVLC == null || lastUrl == null) return;
+        try {
+            Media media = new Media(libVLC, Uri.parse(lastUrl));
+            media.setHWDecoderEnabled(true, false);
+            media.addOption(":network-caching=2500");
+            media.addOption(":http-reconnect");
+            media.addOption(":http-user-agent=Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36");
+            String ref = (lastReferer != null && !lastReferer.trim().isEmpty()) ? lastReferer
+                    : (lastUrl.toLowerCase().contains("downloadwella") ? "https://downloadwella.com/" : null);
+            if (ref != null) media.addOption(":http-referrer=" + ref);
+            addAdjustOptions(media);
+            vlcPlayer.setMedia(media);
+            media.release();
+            vlcPlayer.play();
+            if (resumeMs > 0) vlcPlayer.setTime(resumeMs);
+        } catch (Exception e) {
+            Log.e(TAG, "rebuildVlcMedia failed", e);
+        }
+    }
+
+    /** Apply the adjust filter via libVLC media options when effects are active. */
+    private void addAdjustOptions(Media media) {
+        if (effectsNeutral || media == null) return;
+        try {
+            media.addOption(":video-filter=adjust");
+            media.addOption(":adjust-brightness=" + Math.max(0f, Math.min(2f, lastBrightness)));
+            media.addOption(":adjust-contrast=" + Math.max(0f, Math.min(2f, lastContrast)));
+            media.addOption(":adjust-saturation=" + Math.max(0f, Math.min(3f, lastSaturation)));
+            media.addOption(":adjust-hue=" + (((lastHue % 360f) + 360f) % 360f));
+        } catch (Exception e) {
+            Log.e(TAG, "addAdjustOptions failed", e);
+        }
     }
 
     private int clampInt(int v, int lo, int hi) {
@@ -570,6 +618,7 @@ public class ChanPlayerEngine {
             String ref = (referer != null && !referer.trim().isEmpty()) ? referer
                     : (url.toLowerCase().contains("downloadwella") ? "https://downloadwella.com/" : null);
             if (ref != null) media.addOption(":http-referrer=" + ref);
+            addAdjustOptions(media);
 
             vlcPlayer.setMedia(media);
             media.release();

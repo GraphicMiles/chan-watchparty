@@ -57,11 +57,12 @@ export default function NativeEmbeddedPlayer({
   onProgress = null, // ({ currentSec, durationSec, playing, buffering, percent }) => void
   onApi = null, // exposes the native adapter for the app's control bar
   onControlsTap = null, // native surface tapped -> app toggles its control bar
+  onFullscreenChange = null, // native fullscreen entered/exited (syncs JS state)
 }) {
-  const propsRef = useRef({ onProgress, onApi, onControlsTap })
+  const propsRef = useRef({ onProgress, onApi, onControlsTap, onFullscreenChange })
   useEffect(() => {
-    propsRef.current = { onProgress, onApi, onControlsTap }
-  }, [onProgress, onApi, onControlsTap])
+    propsRef.current = { onProgress, onApi, onControlsTap, onFullscreenChange }
+  }, [onProgress, onApi, onControlsTap, onFullscreenChange])
   const surfaceRef = useRef(null)
   const stateRef = useRef({ posSec: startSeconds || 0, durSec: 0, playing: false, ended: false, endedHandled: false })
   const callbacksRef = useRef({ onReady, onPlayerEvent, onEnded, onError })
@@ -387,7 +388,10 @@ export default function NativeEmbeddedPlayer({
         })
         try {
           const tapHandle = await VideoPlayerPlugin.addListener('controlsEvent', (e) => {
-            if (!cancelled && e?.type === 'tap') propsRef.current.onControlsTap?.()
+            if (!cancelled) {
+              if (e?.type === 'tap') propsRef.current.onControlsTap?.()
+              else if (e?.type === 'fullscreenchange') propsRef.current.onFullscreenChange?.(Boolean(e.fullscreen))
+            }
           })
           if (tapHandle?.remove) {
             const prevRemove = listenerHandle?.remove
