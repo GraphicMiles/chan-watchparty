@@ -125,9 +125,9 @@ public class VideoPlayerPlugin extends Plugin {
         }
 
         @Override
-        public void onError(String friendlyMessage) {
+        public void onError(String friendlyMessage, String kind) {
             if (overlay != null) overlay.showStatus(friendlyMessage, true);
-            emitPlaybackState("error", new JSObject().put("message", friendlyMessage));
+            emitPlaybackState("error", new JSObject().put("message", friendlyMessage).put("kind", kind == null ? "other" : kind));
         }
 
         @Override

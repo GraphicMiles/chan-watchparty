@@ -172,7 +172,7 @@ public class ChanPlayerEngine {
 
     /** Map a PlaybackException to a recovery kind: expired | network | decode | other. */
     private String classifyExoError(PlaybackException error) {
-        String codeName = String.valueOf(error.errorCodeName);
+        String codeName = String.valueOf(error.getErrorCodeName());
         Throwable cause = error.getCause();
         if (cause != null) {
             String c = cause.toString();
