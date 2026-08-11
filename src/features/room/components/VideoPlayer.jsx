@@ -10,6 +10,7 @@ import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp 
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 import { normalizePlaybackUrl, isRemuxProxyUrl, withRemuxSeekTime, getRemuxSeekTime } from '../../../shared/lib/youtube.js'
+import { proxyTargetUrl } from '../../../shared/lib/mediaApi.js'
 import { useToast } from '../../../shared/ui/index.js'
 import { VideoUpscaler } from './VideoUpscaler.jsx'
 import styles from './VideoPlayer.module.scss'
@@ -104,6 +105,7 @@ export default function VideoPlayer({
   onError,
   isLive = false,
   subtitleVtt = null,
+  onReResolve = null,
 }) {
   const { user } = useAuth()
   const { toast } = useToast()
@@ -1222,9 +1224,27 @@ export default function VideoPlayer({
                 : error}
         </p>
         {!isHevcError && (
-          <button type="button" onClick={() => { setError(null); retryCountRef.current = 0; setCurrentUrl(resolvedUrl) }}>
-            Retry
-          </button>
+          <>
+            {onReResolve && /downloadwella|fsmc/i.test(proxyTargetUrl(currentUrl) || '') && (
+              <button
+                type="button"
+                className={styles.errorReResolve}
+                onClick={async () => {
+                  setError(null)
+                  try {
+                    await onReResolve(currentUrl)
+                  } catch (err) {
+                    setError(err?.message || 'Could not re-resolve the link')
+                  }
+                }}
+              >
+                Re-resolve link
+              </button>
+            )}
+            <button type="button" onClick={() => { setError(null); retryCountRef.current = 0; setCurrentUrl(resolvedUrl) }}>
+              Retry
+            </button>
+          </>
         )}
       </div>
     )

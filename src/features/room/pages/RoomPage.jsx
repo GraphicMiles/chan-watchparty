@@ -23,7 +23,7 @@ import { Button, Input, Card, IconButton, Modal, Badge, useToast } from '../../.
 import { Layout } from '../../../shared/layout/index.js'
 import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
-import { mediaPost } from '../../../shared/lib/mediaApi.js'
+import { proxyTargetUrl, resolveDownloadLink } from '../../../shared/lib/mediaApi.js'
 import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
 
 const SOUND_FX_URLS = {
@@ -228,6 +228,28 @@ export default function RoomPage() {
   // previously lived AFTER the `if (!user)` early return, which made them
   // conditional hooks (rules-of-hooks violation). They are declared here, with
   // all other hooks, so call order is stable across renders.
+  // Re-resolve a stale/expired DownloadWella page link and update the room so
+  // every viewer gets the fresh CDN URL (wired to the player's error card).
+  const reResolveVideo = useCallback(async (staleUrl) => {
+    if (!canControl) {
+      toast('Only the host or a co-host can re-resolve the link', { variant: 'warning' })
+      return
+    }
+    setBusy(true)
+    try {
+      toast('Re-resolving link…', { variant: 'info' })
+      const freshUrl = await resolveDownloadLink(user, staleUrl, room?.title || 'Chan video')
+      await updateRoom({ videoUrl: freshUrl, videoType: 'direct', activityType: 'direct', isLive: false })
+      await writePlayerState({ videoUrl: freshUrl, isPlaying: false, currentTime: 0 }, true)
+      toast('Link refreshed — playing', { variant: 'success' })
+    } catch (err) {
+      toast(err.message || 'Could not re-resolve the link', { variant: 'error' })
+      throw err
+    } finally {
+      setBusy(false)
+    }
+  }, [canControl, user, room, updateRoom, writePlayerState, toast])
+
   // P1: change video from the shared browser content contract
   const changeVideoContent = useCallback(async (content) => {
     if (!content) return
@@ -245,14 +267,11 @@ export default function RoomPage() {
         await writePlayerState({ videoId: content.videoId, videoUrl: null, isPlaying: false, currentTime: 0 })
       } else if (content.url) {
         let playUrl = content.url
-        // DownloadWella page links expire fast — resolve fresh before switching
-        if (content.pendingResolve && /downloadwella\.com|fsmc/i.test(playUrl) && !/\/api\/proxy\?/i.test(playUrl)) {
+        // DownloadWella page links expire fast — resolve fresh via nkiriResolve
+        // (form-walk to the CDN file) before switching the room's video.
+        if (content.pendingResolve && /downloadwella\.com|fsmc/i.test(proxyTargetUrl(playUrl))) {
           toast('Resolving episode link…', { variant: 'info' })
-          const data = await mediaPost(user, { action: 'scrape', url: playUrl, options: { resolve: true } })
-          const best = (data.results || []).find((r) => r.isDirect || r.playableInRoom || /\/api\/proxy\?/i.test(r.url || ''))
-            || (data.results || [])[0]
-          if (!best?.url) throw new Error('Could not resolve this episode link. Try another episode.')
-          playUrl = normalizePlaybackUrl(best.url)
+          playUrl = await resolveDownloadLink(user, playUrl, content.title)
         }
         const nextType = content.videoType || (/\.m3u8(\?|#|$)/i.test(playUrl) ? 'iptv' : 'direct')
         await updateRoom({
@@ -566,6 +585,7 @@ export default function RoomPage() {
                     || (room.isLive && room.videoType !== 'nsfw' && room.videoType !== 'direct' && room.videoType !== 'youtube')
                   )}
                   subtitleVtt={room.subtitleVtt}
+                  onReResolve={canControl ? reResolveVideo : null}
                 />
               </ErrorBoundary>
             ) : (

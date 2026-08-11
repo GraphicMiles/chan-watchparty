@@ -1,8 +1,8 @@
 import { doc, setDoc, deleteDoc, serverTimestamp, collection } from 'firebase/firestore'
 import { db } from './firebase.js'
 import { apiPath, parseJsonResponse } from './api.js'
-import { isDirectVideoUrl, normalizePlaybackUrl, checkEmbeddable } from './youtube.js'
-import { mediaPost } from './mediaApi.js'
+import { isDirectVideoUrl, checkEmbeddable } from './youtube.js'
+import { proxyTargetUrl, isDownloadPageUrl, resolveDownloadLink } from './mediaApi.js'
 
 export function isO2TvUrl(value) {
   return /tvshows4mobile\.org|o2tvseries|o2tv\.org/i.test(String(value || ''))
@@ -55,26 +55,21 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
       throw new Error('Paste a direct video file link (.mp4 / .m3u8 / .mkv) or pick an episode')
     }
 
-    // DownloadWella / fsmc page URLs expire fast — re-resolve fresh at create
-    // time so the room starts from a live CDN link, not a stale one.
-    if (/downloadwella\.com|fsmc/i.test(videoUrl) && !/\/api\/proxy\?/i.test(videoUrl)) {
+    // DownloadWella / fsmc page URLs (even proxy-wrapped ones) expire fast and
+    // are HTML pages, not video — re-resolve fresh at create time via the
+    // dedicated nkiriResolve action so the room starts from a live CDN link.
+    const rawVideoUrl = proxyTargetUrl(videoUrl)
+    if (isDownloadPageUrl(rawVideoUrl) || /downloadwella\.com|fsmc/i.test(rawVideoUrl)) {
       try {
-        const data = await mediaPost(user, {
-          action: 'scrape',
-          url: videoUrl,
-          options: { resolve: true },
-        })
-        const list = data.results || []
-        const best = list.find((r) => r.isDirect || r.playableInRoom || /\/api\/proxy\?/i.test(r.url || '')) || list[0]
-        if (best?.url) {
-          videoUrl = normalizePlaybackUrl(best.url)
-        } else if (data.expired) {
-          throw new Error('The download link expired. Go back and pick the episode again.')
-        }
+        videoUrl = await resolveDownloadLink(user, rawVideoUrl, content?.title || 'Chan video')
       } catch (err) {
         if (/expired|resolve|download/i.test(err.message || '')) throw err
         // Non-fatal: let the proxy attempt it at playback time.
       }
+    }
+
+    if (isDownloadPageUrl(videoUrl)) {
+      throw new Error('The download link is a page, not a video file — it may be expired. Go back and pick the episode again.')
     }
   }
 

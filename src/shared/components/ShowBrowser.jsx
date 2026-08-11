@@ -6,6 +6,7 @@ import { useAuth } from '../auth/hooks/useAuth.jsx'
 import { mediaPost } from '../lib/mediaApi.js'
 import { isO2TvUrl, isDirectVideoUrl, normalizePlaybackUrl, getThumbnail } from '../lib/youtube.js'
 import { isSuitableThumbnail } from '../lib/mediaHelper.js'
+import { resolveDownloadLink } from '../lib/mediaApi.js'
 import { useToast } from '../ui/index.js'
 
 function parseShowSlugFromUrl(value) {
@@ -346,25 +347,19 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       return
     }
 
-    // DownloadWella episode link → resolve immediately
-    if (/downloadwella\.com|fsmc/i.test(candidateStr) && !/\/api\/proxy\?/i.test(candidateStr)) {
+    // DownloadWella episode link → resolve immediately (form-walk to the CDN file)
+    if (/downloadwella\.com|fsmc/i.test(candidateStr)) {
       setResolvingIdx(-1)
       try {
-        const data = await mediaPost(user, { action: 'scrape', url: candidateStr })
-        const list = data.results || []
-        const best = list.find((r) => r.isDirect || r.playableInRoom || /\/api\/proxy\?/i.test(r.url || '')) || list[0]
-        if (best?.url) {
-          emit({
-            kind: 'direct',
-            url: normalizePlaybackUrl(best.url),
-            title: best.title || itemTitle || 'Direct video',
-            thumbnail: safeThumb(best.thumbnail || item.thumbnail || item.image),
-            videoType: 'direct',
-            source: 'nkiri',
-          })
-          return
-        }
-        toast('Could not resolve this episode link', { variant: 'error' })
+        const playUrl = await resolveDownloadLink(user, candidateStr, itemTitle)
+        emit({
+          kind: 'direct',
+          url: playUrl,
+          title: itemTitle || 'Direct video',
+          thumbnail: safeThumb(item.thumbnail || item.image),
+          videoType: 'direct',
+          source: 'nkiri',
+        })
       } catch (err) {
         toast(err.message || 'Failed to resolve episode', { variant: 'error' })
       } finally {

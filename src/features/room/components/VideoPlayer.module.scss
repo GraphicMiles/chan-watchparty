@@ -723,3 +723,14 @@
   font-size: 12px;
   color: rgba(255, 255, 255, 0.4);
 }
+
+.errorReResolve {
+  border: 1px solid var(--border-strong) !important;
+  background: var(--pill-black) !important;
+  color: var(--pill-black-text) !important;
+}
+
+.errorReResolve:hover {
+  background: var(--pill-hover) !important;
+  border-color: var(--text-muted-grey) !important;
+}
