@@ -665,3 +665,61 @@
   0% { transform: scale(0.65); opacity: 0; }
   100% { transform: scale(1); opacity: 1; }
 }
+
+/* ─── P0: Native-vs-Web choice panel (dark theme) ─────────────────── */
+.nativeFallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+  background: radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 40%), #050505;
+  color: #f4f1ea;
+}
+
+.nativeHint {
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.62);
+  max-width: 520px;
+  line-height: 1.55;
+}
+
+.nativeOpenBtn {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 13px 22px;
+  font-weight: 800;
+  background: var(--pill-black);
+  color: var(--pill-black-text);
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.nativeOpenBtn:hover {
+  background: var(--pill-hover);
+  border-color: var(--text-muted-grey);
+}
+
+.nativeWebBtn {
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 650;
+  cursor: pointer;
+  padding: 8px 12px;
+  font-family: var(--font-body);
+}
+
+.nativeWebBtn:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.nativeRemembered {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}

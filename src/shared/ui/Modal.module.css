@@ -21,8 +21,8 @@
   background: var(--surface-white);
   border-radius: var(--radius-card);
   padding: var(--s-6);
-  box-shadow: none;
-  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-strong);
 }
 
 .header {
@@ -45,8 +45,9 @@
   width: 40px;
   height: 40px;
   border-radius: var(--radius-card);
-  background: rgba(234, 51, 35, 0.08);
-  color: var(--live-red);
+  background: var(--surface-light);
+  color: var(--text-black);
+  border: 1px solid var(--border-hairline);
 }
 
 .title {

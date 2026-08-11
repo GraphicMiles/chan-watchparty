@@ -7,7 +7,7 @@
   border: none;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.1s ease, opacity 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.1s ease, opacity 0.15s ease, background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
   font-family: var(--font-body);
   line-height: 1;
   white-space: nowrap;
@@ -26,27 +26,29 @@
   transform: scale(0.97);
 }
 
-/* Primary = black pill */
+/* Primary = grey surface pill with white text */
 .primary {
   background: var(--pill-black);
   color: var(--pill-black-text);
+  border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-pill);
 }
 
 .primary:hover:not(:disabled) {
-  background: #2a2a2a;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  background: var(--pill-hover);
+  border-color: var(--text-muted-grey);
 }
 
-/* Secondary = white with hairline border */
+/* Secondary = dark surface with hairline border */
 .secondary {
   background: var(--surface-white);
   color: var(--text-black);
-  border: 1px solid var(--border-hairline);
+  border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-pill);
 }
 
 .secondary:hover:not(:disabled) {
+  background: var(--pill-hover);
   border-color: var(--text-muted-grey);
 }
 
@@ -58,29 +60,33 @@
 }
 
 .danger:hover:not(:disabled) {
-  background: rgba(234, 51, 35, 0.06);
+  background: var(--danger-muted);
 }
 
 /* Ghost */
 .ghost {
   background: transparent;
   color: var(--text-body-grey);
+  border: 1px solid transparent;
 }
 
 .ghost:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--surface-white);
   color: var(--text-black);
+  border-color: var(--border-hairline);
 }
 
-/* CTA = solid brand color without gradient or shadow */
+/* CTA = solid grey pill, white text */
 .cta {
   background: var(--pill-black);
-  color: #fff;
-  box-shadow: none;
+  color: var(--pill-black-text);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-pill);
 }
 
 .cta:hover:not(:disabled) {
-  background: #2a2a2a;
+  background: var(--pill-hover);
+  border-color: var(--text-muted-grey);
 }
 
 /* Sizes — exact 20px padding and fit sizing */

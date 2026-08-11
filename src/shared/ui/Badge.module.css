@@ -19,12 +19,14 @@
 }
 
 .accent {
-  background: var(--accent-orange);
-  color: #fff;
+  background: var(--pill-black);
+  border: 1px solid var(--border-strong);
+  color: var(--pill-black-text);
 }
 
 .muted {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--surface-white);
+  border: 1px solid var(--border-hairline);
   color: var(--text-body-grey);
 }
 

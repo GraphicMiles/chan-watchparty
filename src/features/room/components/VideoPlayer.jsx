@@ -186,6 +186,7 @@ export default function VideoPlayer({
   const playingRef = useRef(Boolean(playing))
   const onReadyRef = useRef(onReady)
   const onPlayerEventRef = useRef(onPlayerEvent)
+  const onEndedRef = useRef(onEnded)
 
   const [error, setError] = useState(null)
   const [isReady, setIsReady] = useState(false)
@@ -221,22 +222,67 @@ export default function VideoPlayer({
   const vlcTimerRef = useRef(null)
   const singleTapTimerRef = useRef(null)
 
+  // ─── P0: explicit native/web choice, remembered per room ──────────────
+  // The native player no longer hijacks the screen automatically. If the user
+  // picks "native" for a room, it re-opens automatically on the next visit to
+  // that same room; otherwise the fallback panel stays as an explicit choice.
+  const [nativeChoice, setNativeChoice] = useState(() => {
+    if (!roomId) return null
+    try {
+      return window.localStorage.getItem(`chan:native-choice:${roomId}`)
+    } catch {
+      return null
+    }
+  })
+
+  const rememberNativeChoice = useCallback((choice) => {
+    setNativeChoice(choice)
+    if (roomId) {
+      try {
+        window.localStorage.setItem(`chan:native-choice:${roomId}`, choice)
+      } catch {
+        /* storage unavailable */
+      }
+    }
+  }, [roomId])
+
+  const applyNativeResult = useCallback((result) => {
+    if (!result) return
+    const posMs = typeof result.positionMs === 'number' ? result.positionMs : 0
+    const durMs = typeof result.durationMs === 'number' ? result.durationMs : 0
+    const ended = Boolean(result.ended)
+    if (durMs > 0) setDurationSec(durMs / 1000)
+    const posSec = posMs > 0 ? posMs / 1000 : 0
+    if (ended) {
+      // Hand the room the final position + end signal so the queue can
+      // auto-advance and every viewer resyncs to the same state.
+      if (posSec > 0) onPlayerEventRef.current?.({ isPlaying: false, currentTime: posSec })
+      onEndedRef.current?.()
+    } else if (posSec > 0) {
+      // Resume the room where native playback left off.
+      setCurrentSec(posSec)
+      onPlayerEventRef.current?.({ isPlaying: false, currentTime: posSec })
+    }
+  }, [])
+
   const openNativePlayer = useCallback(async () => {
     if (!currentUrl) return
     try {
       const nativeUrl = nativePlaybackUrl(currentUrl)
-      await VideoPlayerPlugin.openNative({
+      // Resolves when the native player closes, with the playback result.
+      const result = await VideoPlayerPlugin.openNative({
         url: nativeUrl,
         title: 'Chan Video',
         startSeconds: currentSec || played || 0,
         referer: /downloadwella/i.test(nativeUrl) ? 'https://downloadwella.com/' : undefined,
       })
       setError(null)
+      applyNativeResult(result)
     } catch (err) {
       console.error('Native player failed:', err)
       setError(err?.message || 'Native Android player failed to open')
     }
-  }, [currentUrl, currentSec, played])
+  }, [currentUrl, currentSec, played, applyNativeResult])
 
   useEffect(() => {
     nativeAutoOpenedRef.current = false
@@ -244,11 +290,12 @@ export default function VideoPlayer({
   }, [currentUrl])
 
   useEffect(() => {
-    if (!isNativeMkvLike || nativeAutoOpenedRef.current) return
+    if (!isNativeMkvLike || nativeAutoOpenedRef.current || forceWebPlayer) return
+    if (nativeChoice !== 'native') return
     if (!playing && !isPlayingState) return
     nativeAutoOpenedRef.current = true
     openNativePlayer()
-  }, [isNativeMkvLike, isPlayingState, openNativePlayer, playing])
+  }, [isNativeMkvLike, nativeChoice, forceWebPlayer, isPlayingState, openNativePlayer, playing])
 
 
   const subtitleBlobUrl = useMemo(() => {
@@ -383,7 +430,8 @@ export default function VideoPlayer({
   useEffect(() => {
     onReadyRef.current = onReady
     onPlayerEventRef.current = onPlayerEvent
-  }, [onReady, onPlayerEvent])
+    onEndedRef.current = onEnded
+  }, [onReady, onPlayerEvent, onEnded])
 
   useEffect(() => {
     if (playing !== undefined) {
@@ -1193,46 +1241,39 @@ export default function VideoPlayer({
         onContextMenu={(e) => e.preventDefault()}
       >
         {isNativeMkvLike ? (
-          <div
-            className={styles.nativeFallback}
-            style={{
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 14,
-              padding: 24,
-              textAlign: 'center',
-              background: 'radial-gradient(circle at top, rgba(255,255,255,0.08), transparent 40%), #050505',
-              color: '#f4f1ea',
-            }}
-          >
-            <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.62)', maxWidth: 520, lineHeight: 1.55 }}>
-              This Nkiri file is MKV/HEVC. Android WebView may reject it, so Chan will play it with the native Android media engine.
+          <div className={styles.nativeFallback}>
+            <div className={styles.nativeHint}>
+              This Nkiri file is MKV/HEVC. Android WebView may reject it, so Chan can play it with the native Android media engine.
             </div>
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); openNativePlayer() }}
-              style={{
-                border: 0,
-                borderRadius: 999,
-                padding: '13px 22px',
-                fontWeight: 800,
-                background: '#f4f1ea',
-                color: '#050505',
+              className={styles.nativeOpenBtn}
+              onClick={(e) => {
+                e.stopPropagation()
+                rememberNativeChoice('native')
+                openNativePlayer()
               }}
             >
               Open Native Player
             </button>
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); setError(null); setForceWebPlayer(true); setCurrentUrl(resolvedUrl) }}
-              style={{ border: 0, background: 'transparent', color: 'rgba(255,255,255,0.55)', fontWeight: 650 }}
+              className={styles.nativeWebBtn}
+              onClick={(e) => {
+                e.stopPropagation()
+                rememberNativeChoice('web')
+                setError(null)
+                setForceWebPlayer(true)
+                setCurrentUrl(resolvedUrl)
+              }}
             >
               Try Web Player Anyway
             </button>
+            {nativeChoice === 'native' && (
+              <span className={styles.nativeRemembered}>
+                Native player will open automatically for this room.
+              </span>
+            )}
           </div>
         ) : isHls ? (
           <video
