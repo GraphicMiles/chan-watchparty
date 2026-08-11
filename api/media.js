@@ -16,7 +16,9 @@ import { searchO2Tv, getO2TvSeasons, getO2TvEpisodes, resolveO2TvEpisode, probeA
 import { checkIptvChannel, getIptvChannels, getPlaylistChannels, probeIptvChannel } from '../server-lib/iptv.js'
 import { searchNsfwProvider } from '../server-lib/nsfw.js'
 import { resolveNsfwVideoUrl, isNsfwProviderUrl } from '../server-lib/nsfwResolver.js'
-import { searchNkiri, getNkiriEpisodes, resolveDownloadwellaPage } from '../o2tv-worker/nkiriResolver.js'
+import { createHash, randomUUID } from 'node:crypto'
+import { searchNkiri, getNkiriEpisodes, resolveDownloadwellaPage, buildStreamDescriptor } from '../o2tv-worker/nkiriResolver.js'
+import { cacheKeyFor, cacheGet, cacheSet, cacheDelete, negativeGet, negativeSet, cacheStats } from '../server-lib/resolveCache.js'
 
 const ALLOWED_ACTIONS = [
   'search',
@@ -26,10 +28,30 @@ const ALLOWED_ACTIONS = [
   'o2tvResolve',
   'nkiriEpisodes',
   'nkiriResolve',
+  'nkiriRefresh',
+  'resolveLog',
   'solveCaptchaImage',
   'probeIptv',
   'refreshCatalog',
 ]
+
+// ─── Resolve audit log (Phase A) ───
+// Structured, in-memory ring buffer (last 200) + structured console lines.
+// Exposed read-only via action=resolveLog (guarded by CRON_SECRET).
+const resolveLogBuffer = []
+function auditResolve(entry) {
+  const rec = { t: new Date().toISOString(), ...entry }
+  resolveLogBuffer.push(rec)
+  if (resolveLogBuffer.length > 200) resolveLogBuffer.shift()
+  console.log(`[resolve] ${JSON.stringify(rec)}`)
+}
+function hostOf(url) {
+  try { return new URL(String(url || '')).hostname } catch { return String(url || '').slice(0, 60) }
+}
+function isDownloadPageLike(url) {
+  return /downloadwella\.com|fsmc/i.test(String(url || ''))
+    && !/\.(mp4|mkv|m3u8|webm|mov|avi|flv|ts)(\?|#|$)/i.test(String(url || ''))
+}
 
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY
 const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY
@@ -293,33 +315,15 @@ async function handleNkiriEpisodes({ url, title }) {
   }
 }
 
-async function handleNkiriResolve({ url, title }) {
-  const episodeUrl = String(url || '').trim()
-  if (!episodeUrl) throw Object.assign(new Error('Nkiri episode URL required'), { status: 400 })
-
-  const resolved = await Promise.race([
-    resolveDownloadwellaPage(episodeUrl),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Nkiri resolve timed out')), 55_000)),
-  ])
-
-  const streamUrl = resolved?.directUrls?.[0]
-  if (!streamUrl) {
-    throw Object.assign(new Error(resolved?.error || 'Could not create DownloadWella link'), { status: 404 })
-  }
-
-  const container = /\.mkv(\?|#|$)/i.test(streamUrl) ? 'mkv'
-    : /\.mp4(\?|#|$)/i.test(streamUrl) ? 'mp4'
-      : /\.m3u8(\?|#|$)/i.test(streamUrl) ? 'hls'
-        : 'unknown'
-
-  const playUrl = toProxiedUrl(streamUrl, { referer: 'https://downloadwella.com/' })
-
+/** Shape a descriptor into the API response (backward-compatible: url stays proxied). */
+function shapeResolveResponse(descriptor, title) {
+  const playUrl = toProxiedUrl(descriptor.streamUrl, { referer: descriptor.referer })
   return {
     results: [{
-      title: title || 'Nkiri Video',
+      title: title || descriptor.title || 'Nkiri Video',
       url: playUrl,
       link: playUrl,
-      rawUrl: streamUrl,
+      rawUrl: descriptor.streamUrl,
       source: 'nkiri',
       provider: 'downloadwella',
       type: 'direct',
@@ -327,16 +331,104 @@ async function handleNkiriResolve({ url, title }) {
       playableInRoom: true,
       requiresResolve: false,
       o2tvKind: 'nkiri-direct',
-      container,
-      format: container,
+      container: descriptor.container,
+      format: descriptor.container,
+      codec: descriptor.codec,
       quality: 'HD',
       videoType: 'direct',
+      // Phase A: descriptor metadata for the player
+      referer: descriptor.referer,
+      headers: descriptor.headers,
+      sourceUrl: descriptor.sourceUrl,
+      mirrors: descriptor.mirrors,
+      sizeBytes: descriptor.sizeBytes,
+      probe: descriptor.probe,
     }],
     count: 1,
     directCount: 1,
     resolved: true,
     stage: 'resolved',
+    // Full descriptor for Phase B native playback (direct CDN + headers)
+    descriptor,
   }
+}
+
+async function handleNkiriResolve({ url, title, force = false }) {
+  const episodeUrl = String(url || '').trim()
+  if (!episodeUrl) throw Object.assign(new Error('Nkiri episode URL required'), { status: 400 })
+
+  const resolveId = randomUUID ? randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const started = Date.now()
+  const key = cacheKeyFor(episodeUrl)
+
+  if (!force) {
+    const cached = cacheGet(key)
+    if (cached && cached.streamUrl) {
+      auditResolve({ resolveId, host: hostOf(episodeUrl), outcome: 'cache-hit', ms: Date.now() - started })
+      return { ...shapeResolveResponse(cached, title), cache: 'hit' }
+    }
+    const neg = negativeGet(key)
+    if (neg) {
+      throw Object.assign(new Error(neg.error || 'Download link temporarily unavailable — try again in a few minutes'), { status: 429 })
+    }
+  }
+
+  try {
+    const resolved = await Promise.race([
+      resolveDownloadwellaPage(episodeUrl),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Nkiri resolve timed out')), 55_000)),
+    ])
+
+    const streamUrls = resolved?.directUrls || []
+    if (!streamUrls.length) {
+      const message = resolved?.error || 'Could not create DownloadWella link'
+      negativeSet(key, { error: message })
+      auditResolve({ resolveId, host: hostOf(episodeUrl), outcome: 'error', ms: Date.now() - started, error: message })
+      throw Object.assign(new Error(message), { status: 404 })
+    }
+
+    const referer = 'https://downloadwella.com/'
+    const descriptor = await buildStreamDescriptor({
+      streamUrls,
+      sourceUrl: episodeUrl,
+      title: title || 'Nkiri Video',
+      referer,
+    })
+
+    if (!descriptor.streamUrl) {
+      throw Object.assign(new Error('No playable stream found'), { status: 404 })
+    }
+    if (!descriptor.probe.ok && !descriptor.probe.error) {
+      // probe never ran — keep the descriptor but log it
+      auditResolve({ resolveId, host: hostOf(episodeUrl), outcome: 'resolved-noprobe', ms: Date.now() - started })
+    }
+
+    cacheSet(key, descriptor)
+    auditResolve({
+      resolveId, host: hostOf(episodeUrl), outcome: force ? 'refreshed' : 'resolved',
+      ms: Date.now() - started, container: descriptor.container, codec: descriptor.codec,
+      probeOk: descriptor.probe.ok, probeError: descriptor.probe.error,
+    })
+    return shapeResolveResponse(descriptor, title)
+  } catch (err) {
+    auditResolve({ resolveId, host: hostOf(episodeUrl), outcome: 'error', ms: Date.now() - started, error: String(err?.message || err).slice(0, 200) })
+    throw err
+  }
+}
+
+/**
+ * Refresh a DownloadWella episode link with a FRESH token.
+ * Requires the episode PAGE url (…mkv.html) — a CDN url alone cannot be
+ * refreshed (the form-walk regenerates the token from the page).
+ */
+async function handleNkiriRefresh({ url, title }) {
+  const pageUrl = String(url || '').trim()
+  if (!pageUrl) throw Object.assign(new Error('Episode page URL required'), { status: 400 })
+  if (!isDownloadPageLike(pageUrl)) {
+    throw Object.assign(new Error('Provide the DownloadWella episode page URL (…mkv.html) to refresh the link — a CDN URL alone cannot be refreshed'), { status: 400 })
+  }
+  cacheDelete(cacheKeyFor(pageUrl))
+  return handleNkiriResolve({ url: pageUrl, title, force: true })
 }
 
 // ─── O2TV Hierarchical ───
@@ -716,6 +808,18 @@ export default async function handler(req, res) {
         url: body.url || body.episodeUrl || options.url || options.episodeUrl,
         title: body.title || options.title,
       }))
+    }
+    if (action === 'nkiriRefresh') {
+      return ok(res, await handleNkiriRefresh({
+        url: body.url || body.episodeUrl || body.sourceUrl || options.url || options.episodeUrl,
+        title: body.title || options.title,
+      }))
+    }
+    if (action === 'resolveLog') {
+      const expected = process.env.CRON_SECRET
+      const actual = req.headers?.['x-cron-secret'] || req.headers?.['X-Cron-Secret'] || ''
+      if (!expected || actual !== expected) return fail(res, 403, 'Forbidden')
+      return ok(res, { log: resolveLogBuffer.slice(), stats: cacheStats() })
     }
 
     // ─── O2TV hierarchical actions ───
