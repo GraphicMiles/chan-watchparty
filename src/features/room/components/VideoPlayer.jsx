@@ -13,9 +13,9 @@ import { normalizePlaybackUrl, isRemuxProxyUrl, withRemuxSeekTime, getRemuxSeekT
 import { proxyTargetUrl } from '../../../shared/lib/mediaApi.js'
 import { useToast } from '../../../shared/ui/index.js'
 import { VideoUpscaler } from './VideoUpscaler.jsx'
+import NativeEmbeddedPlayer from './NativeEmbeddedPlayer.jsx'
 import styles from './VideoPlayer.module.scss'
 import { apiPath } from '../../../shared/lib/api.js'
-import { VideoPlayerPlugin } from '../../../native/VideoPlayerPlugin'
 
 const RETRY_ATTEMPTS = 3
 const RETRY_DELAY = 3000
@@ -114,7 +114,6 @@ export default function VideoPlayer({
   const isNativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
   // Allow runtime proxy fallback if direct playback fails (e.g. missing CORS headers)
   const [currentUrl, setCurrentUrl] = useState(resolvedUrl)
-  const [forceWebPlayer, setForceWebPlayer] = useState(false)
   const proxyFallbackAttemptedRef = useRef(false)
   // Logical timeline origin for MKV seek-by-time remux (player clock restarts at 0)
   const remuxBaseTimeRef = useRef(0)
@@ -159,18 +158,14 @@ export default function VideoPlayer({
     return false
   }, [currentUrl, videoType, isLive])
 
-  const isNativeMkvLike = useMemo(() => {
-    if (forceWebPlayer || !isNativeAndroid || !currentUrl || videoType === 'youtube' || isHls) return false
-    if (isRemuxProxyUrl(currentUrl)) return true
-    try {
-      const u = new URL(currentUrl, typeof window !== 'undefined' ? window.location.origin : 'https://chan.invalid')
-      const target = u.searchParams.get('url') || currentUrl
-      const decoded = decodeURIComponent(target)
-      return /\.mkv(\?|#|$)/i.test(decoded) || /downloadwella/i.test(decoded)
-    } catch {
-      return /\.mkv(\?|#|$)/i.test(currentUrl) || /downloadwella/i.test(currentUrl)
-    }
-  }, [currentUrl, forceWebPlayer, isHls, isNativeAndroid, videoType])
+  // Phase 2/3: on Android, ALL non-YouTube content plays through the single
+  // embedded native engine — no choice screen, no fallback UI. If the native
+  // engine cannot start, we silently fall back to the web player.
+  const [embeddedFailed, setEmbeddedFailed] = useState(false)
+  const isNativeEmbedded = useMemo(() => {
+    if (embeddedFailed || !isNativeAndroid || !currentUrl || videoType === 'youtube') return false
+    return true // direct / iptv / sports / nsfw / HLS → native engine (ExoPlayer/VLC)
+  }, [embeddedFailed, isNativeAndroid, currentUrl, videoType])
 
   const isMixedContent = useMemo(
     () => typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(currentUrl),
@@ -184,7 +179,6 @@ export default function VideoPlayer({
   const retryCountRef = useRef(0)
   const hlsErrorCountRef = useRef(0)
   const retryTimeoutRef = useRef(null)
-  const nativeAutoOpenedRef = useRef(false)
   const playingRef = useRef(Boolean(playing))
   const onReadyRef = useRef(onReady)
   const onPlayerEventRef = useRef(onPlayerEvent)
@@ -224,81 +218,10 @@ export default function VideoPlayer({
   const vlcTimerRef = useRef(null)
   const singleTapTimerRef = useRef(null)
 
-  // ─── P0: explicit native/web choice, remembered per room ──────────────
-  // The native player no longer hijacks the screen automatically. If the user
-  // picks "native" for a room, it re-opens automatically on the next visit to
-  // that same room; otherwise the fallback panel stays as an explicit choice.
-  const [nativeChoice, setNativeChoice] = useState(() => {
-    if (!roomId) return null
-    try {
-      return window.localStorage.getItem(`chan:native-choice:${roomId}`)
-    } catch {
-      return null
-    }
-  })
-
-  const rememberNativeChoice = useCallback((choice) => {
-    setNativeChoice(choice)
-    if (roomId) {
-      try {
-        window.localStorage.setItem(`chan:native-choice:${roomId}`, choice)
-      } catch {
-        /* storage unavailable */
-      }
-    }
-  }, [roomId])
-
-  const applyNativeResult = useCallback((result) => {
-    if (!result) return
-    const posMs = typeof result.positionMs === 'number' ? result.positionMs : 0
-    const durMs = typeof result.durationMs === 'number' ? result.durationMs : 0
-    const ended = Boolean(result.ended)
-    if (durMs > 0) setDurationSec(durMs / 1000)
-    const posSec = posMs > 0 ? posMs / 1000 : 0
-    if (ended) {
-      // Hand the room the final position + end signal so the queue can
-      // auto-advance and every viewer resyncs to the same state.
-      if (posSec > 0) onPlayerEventRef.current?.({ isPlaying: false, currentTime: posSec })
-      onEndedRef.current?.()
-    } else if (posSec > 0) {
-      // Resume the room where native playback left off.
-      setCurrentSec(posSec)
-      onPlayerEventRef.current?.({ isPlaying: false, currentTime: posSec })
-    }
-  }, [])
-
-  const openNativePlayer = useCallback(async () => {
-    if (!currentUrl) return
-    try {
-      const nativeUrl = nativePlaybackUrl(currentUrl)
-      // Resolves when the native player closes, with the playback result.
-      const result = await VideoPlayerPlugin.openNative({
-        url: nativeUrl,
-        title: 'Chan Video',
-        startSeconds: currentSec || played || 0,
-        referer: /downloadwella/i.test(nativeUrl) ? 'https://downloadwella.com/' : undefined,
-      })
-      setError(null)
-      applyNativeResult(result)
-    } catch (err) {
-      console.error('Native player failed:', err)
-      setError(err?.message || 'Native Android player failed to open')
-    }
-  }, [currentUrl, currentSec, played, applyNativeResult])
-
+  // Reset the silent web fallback when the media changes.
   useEffect(() => {
-    nativeAutoOpenedRef.current = false
-    setForceWebPlayer(false)
+    setEmbeddedFailed(false)
   }, [currentUrl])
-
-  useEffect(() => {
-    if (!isNativeMkvLike || nativeAutoOpenedRef.current || forceWebPlayer) return
-    if (nativeChoice !== 'native') return
-    if (!playing && !isPlayingState) return
-    nativeAutoOpenedRef.current = true
-    openNativePlayer()
-  }, [isNativeMkvLike, nativeChoice, forceWebPlayer, isPlayingState, openNativePlayer, playing])
-
 
   const subtitleBlobUrl = useMemo(() => {
     if (!subtitleVtt) return null
@@ -1260,41 +1183,18 @@ export default function VideoPlayer({
         onPointerDown={handlePointerTouch}
         onContextMenu={(e) => e.preventDefault()}
       >
-        {isNativeMkvLike ? (
-          <div className={styles.nativeFallback}>
-            <div className={styles.nativeHint}>
-              This Nkiri file is MKV/HEVC. Android WebView may reject it, so Chan can play it with the native Android media engine.
-            </div>
-            <button
-              type="button"
-              className={styles.nativeOpenBtn}
-              onClick={(e) => {
-                e.stopPropagation()
-                rememberNativeChoice('native')
-                openNativePlayer()
-              }}
-            >
-              Open Native Player
-            </button>
-            <button
-              type="button"
-              className={styles.nativeWebBtn}
-              onClick={(e) => {
-                e.stopPropagation()
-                rememberNativeChoice('web')
-                setError(null)
-                setForceWebPlayer(true)
-                setCurrentUrl(resolvedUrl)
-              }}
-            >
-              Try Web Player Anyway
-            </button>
-            {nativeChoice === 'native' && (
-              <span className={styles.nativeRemembered}>
-                Native player will open automatically for this room.
-              </span>
-            )}
-          </div>
+        {isNativeEmbedded ? (
+          <NativeEmbeddedPlayer
+            url={nativePlaybackUrl(currentUrl)}
+            title="Chan Video"
+            startSeconds={currentSec || played || 0}
+            referer={/downloadwella/i.test(currentUrl) ? 'https://downloadwella.com/' : undefined}
+            isLive={isLive || videoType === 'iptv' || videoType === 'sports'}
+            onReady={onReady}
+            onPlayerEvent={onPlayerEvent}
+            onEnded={onEnded}
+            onError={() => setEmbeddedFailed(true)}
+          />
         ) : isHls ? (
           <video
             ref={videoRef}
@@ -1400,14 +1300,16 @@ export default function VideoPlayer({
       />
 
       {/* Transparent touch layer to ensure 1st tap toggles controls reliably & blocks long press context menu */}
-      <div
-        className={styles.touchCatcher}
-        onClick={handleToggleControls}
-        onPointerDown={handlePointerTouch}
-        onContextMenu={(e) => e.preventDefault()}
-      />
+      {!isNativeEmbedded && (
+        <div
+          className={styles.touchCatcher}
+          onClick={handleToggleControls}
+          onPointerDown={handlePointerTouch}
+          onContextMenu={(e) => e.preventDefault()}
+        />
+      )}
 
-      {(!isReady || isBuffering) && !error && !isMixedContent && !isNativeMkvLike && (
+      {!isNativeEmbedded && (!isReady || isBuffering) && !error && !isMixedContent && (
         <div className={styles.loadingOverlay}>
           <div className={styles.loadingSpinner} />
           <div className={styles.loadingText}>

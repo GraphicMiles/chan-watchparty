@@ -1,74 +1,408 @@
 package com.chan.watchparty;
 
 import android.app.Activity;
+import android.app.PendingIntent;
+import android.app.PictureInPictureParams;
+import android.app.RemoteAction;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.res.Configuration;
+import androidx.core.graphics.drawable.IconCompat;
 import android.util.Log;
-
-import androidx.activity.result.ActivityResult;
+import android.util.Rational;
+import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.WebView;
+import android.widget.FrameLayout;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
-import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 /**
- * Native Video Player Plugin
+ * VideoPlayerPlugin — the ONE embedded native player (Phases 2–4).
  *
- * Launches NativeVideoPlayerActivity for MKV/HEVC/DownloadWella streams and
- * resolves the call when the player closes, returning the playback result so
- * the room can resync and continue the queue.
+ * Instead of launching a fullscreen activity, the plugin hosts a
+ * RoomPlayerOverlayView inside the activity's decor, positioned over the
+ * room's stage rect (measured by the JS layer). The rest of the room UI
+ * (chat, queue, controls) stays visible around it.
  *
- * Result payload (P0):
- *   { positionMs, durationMs, ended, wasPlaying }
+ * API:
+ *   showEmbedded({url,title,startSeconds,referer})
+ *   setRect({x,y,w,h})            // px on screen
+ *   play() / pause() / seekTo({positionMs}) / setVolume({volume})
+ *   getPosition() → {positionMs,durationMs,isPlaying}
+ *   setFullscreen({fullscreen})
+ *   closeEmbedded() → {positionMs,durationMs,ended,wasPlaying}
  *
- * Uses Capacitor 8's modern activity-result flow: startActivityForResult with
- * a callback NAME, and an @ActivityCallback method that receives the result.
+ * Events (notifyListeners 'playbackState'):
+ *   {state:'ready'} {state:'buffering',percent} {state:'playing'}
+ *   {state:'paused'} {state:'ended'} {state:'error',message}
+ *   {state:'engine',engine:'vlc'}
  */
 @CapacitorPlugin(name = "VideoPlayerPlugin")
 public class VideoPlayerPlugin extends Plugin {
     private static final String TAG = "VideoPlayer";
+    private static final String ACTION_TOGGLE_PLAY = "com.chan.watchparty.TOGGLE_PLAY";
+
+    private RoomPlayerOverlayView overlay;
+    private ChanPlayerEngine engine;
+    private FrameLayout.LayoutParams lastRect;   // px
+    private boolean fullscreen = false;
+    private boolean attached = false;
+    private boolean wasPlayingBeforePip = false;
+
+    private BroadcastReceiver piPReceiver;
+
+    // ── Lifecycle of the overlay ─────────────────────────────────────────
+
+    private void ensureOverlay() {
+        if (overlay != null) return;
+        Activity activity = getActivity();
+        overlay = new RoomPlayerOverlayView(activity);
+        engine = new ChanPlayerEngine(activity, engineListener);
+        overlay.setEngine(engine);
+        overlay.setFullscreenListener(() -> setFullscreenUi(true));
+        overlay.setPipListener(this::enterPip);
+    }
+
+    private void attachOverlay() {
+        if (attached || overlay == null) return;
+        ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        );
+        decor.addView(overlay, params);
+        attached = true;
+    }
+
+    private void detachOverlay() {
+        if (!attached || overlay == null) return;
+        try {
+            ((ViewGroup) getActivity().getWindow().getDecorView()).removeView(overlay);
+        } catch (Exception ignored) { }
+        attached = false;
+    }
+
+    // ── Engine → JS events ───────────────────────────────────────────────
+
+    private final ChanPlayerEngine.Listener engineListener = new ChanPlayerEngine.Listener() {
+        @Override
+        public void onReady() {
+            if (overlay != null) overlay.hideStatus();
+            notify("ready", null);
+        }
+
+        @Override
+        public void onBuffering(int percent) {
+            if (overlay != null) {
+                overlay.showStatus(percent > 0 ? "Buffering… " + percent + "%" : "Buffering…", false);
+            }
+            JSObject data = new JSObject().put("percent", percent);
+            notify("buffering", data);
+        }
+
+        @Override
+        public void onPlaying() {
+            if (overlay != null) overlay.hideStatus();
+            notify("playing", null);
+        }
+
+        @Override
+        public void onPaused() {
+            notify("paused", null);
+        }
+
+        @Override
+        public void onEnded() {
+            if (overlay != null) overlay.showStatus("Playback finished", false);
+            notify("ended", null);
+        }
+
+        @Override
+        public void onError(String friendlyMessage) {
+            if (overlay != null) overlay.showStatus(friendlyMessage, true);
+            notify("error", new JSObject().put("message", friendlyMessage));
+        }
+
+        @Override
+        public void onEngineSwitch(String engineName) {
+            if (overlay != null) overlay.showVlc();
+            notify("engine", new JSObject().put("engine", engineName));
+        }
+    };
+
+    private void notify(String state, JSObject extra) {
+        JSObject data = new JSObject().put("state", state);
+        if (extra != null) {
+            for (String key : extra.keys()) data.put(key, extra.get(key));
+        }
+        try {
+            notifyListeners("playbackState", data);
+        } catch (Exception e) {
+            Log.w(TAG, "notifyListeners failed", e);
+        }
+    }
+
+    // ── Plugin methods ───────────────────────────────────────────────────
 
     @PluginMethod
-    public void openNative(PluginCall call) {
+    public void showEmbedded(PluginCall call) {
         String url = call.getString("url");
         if (url == null || url.trim().isEmpty()) {
             call.reject("URL is required");
             return;
         }
-
         String title = call.getString("title", "Chan Video");
         Double startSeconds = call.getDouble("startSeconds");
         String referer = call.getString("referer", "");
 
         try {
-            Intent intent = new Intent(getActivity(), NativeVideoPlayerActivity.class);
-            intent.putExtra("url", url);
-            intent.putExtra("title", title);
-            intent.putExtra("startMs", (long) Math.max(0, startSeconds == null ? 0 : startSeconds * 1000));
-            intent.putExtra("referer", referer);
-            startActivityForResult(call, intent, "onNativePlayerResult");
+            ensureOverlay();
+            overlay.showStatus("Fetching media…", false);
+            attachOverlay();
+            overlay.showExo();
+            engine.prepare(url, title, referer,
+                    (long) Math.max(0, startSeconds == null ? 0 : startSeconds * 1000));
+            call.resolve();
         } catch (Exception e) {
-            Log.e(TAG, "Native player launch failed", e);
-            call.reject("Native player launch failed: " + e.getMessage());
+            Log.e(TAG, "showEmbedded failed", e);
+            call.reject("Could not start the player: " + e.getMessage());
         }
     }
 
-    /**
-     * Invoked by Capacitor when NativeVideoPlayerActivity finishes.
-     * Resolves the original openNative call with the playback result.
-     */
-    @ActivityCallback
-    private void onNativePlayerResult(PluginCall call, ActivityResult result) {
-        JSObject payload = new JSObject();
-        if (result != null && result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
-            Intent data = result.getData();
-            payload.put("positionMs", data.getLongExtra("positionMs", 0L));
-            payload.put("durationMs", data.getLongExtra("durationMs", 0L));
-            payload.put("ended", data.getBooleanExtra("ended", false));
-            payload.put("wasPlaying", data.getBooleanExtra("wasPlaying", false));
+    @PluginMethod
+    public void setRect(PluginCall call) {
+        try {
+            int x = call.getInt("x", 0);
+            int y = call.getInt("y", 0);
+            int w = call.getInt("w", 0);
+            int h = call.getInt("h", 0);
+            if (overlay == null || w <= 0 || h <= 0) {
+                call.resolve();
+                return;
+            }
+            if (fullscreen) {
+                call.resolve();
+                return;
+            }
+            lastRect = new FrameLayout.LayoutParams(w, h);
+            lastRect.leftMargin = x;
+            lastRect.topMargin = y;
+            ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
+            if (attached && overlay.getParent() == decor) {
+                overlay.setLayoutParams(lastRect);
+            }
+            call.resolve();
+        } catch (Exception e) {
+            call.resolve(); // non-fatal
         }
-        call.resolve(payload);
+    }
+
+    @PluginMethod
+    public void play(PluginCall call) {
+        if (engine != null) engine.play();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void pause(PluginCall call) {
+        if (engine != null) engine.pause();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void seekTo(PluginCall call) {
+        Integer positionMs = call.getInt("positionMs");
+        if (positionMs != null && engine != null) engine.seekTo(positionMs);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setVolume(PluginCall call) {
+        // Volume is handled by the native control path; kept for API parity.
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void getPosition(PluginCall call) {
+        JSObject result = new JSObject();
+        if (engine != null) {
+            result.put("positionMs", engine.getPositionMs());
+            result.put("durationMs", engine.getDurationMs());
+            result.put("isPlaying", engine.isPlaying());
+        }
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void setFullscreen(PluginCall call) {
+        Boolean value = call.getBoolean("fullscreen", false);
+        setFullscreenUi(Boolean.TRUE.equals(value));
+        call.resolve();
+    }
+
+    private void setFullscreenUi(boolean value) {
+        if (overlay == null || overlay.getParent() == null) return;
+        fullscreen = value;
+        ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
+        if (fullscreen) {
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+            );
+            overlay.setLayoutParams(params);
+            hideSystemUi();
+        } else {
+            if (lastRect != null) overlay.setLayoutParams(lastRect);
+            showSystemUi();
+        }
+        overlay.setFullscreenUi(fullscreen);
+    }
+
+    @PluginMethod
+    public void closeEmbedded(PluginCall call) {
+        JSObject result = new JSObject();
+        if (engine != null) {
+            result.put("positionMs", engine.getPositionMs());
+            result.put("durationMs", engine.getDurationMs());
+            result.put("ended", engine.isEnded());
+            result.put("wasPlaying", engine.isPlaying());
+        }
+        teardown();
+        call.resolve(result);
+    }
+
+    private void teardown() {
+        if (overlay != null) {
+            overlay.teardown();
+            detachOverlay();
+            overlay = null;
+        }
+        engine = null;
+        fullscreen = false;
+        showSystemUi();
+    }
+
+    // ── PiP (Android 8+) ─────────────────────────────────────────────────
+
+    private void enterPip() {
+        if (android.os.Build.VERSION.SDK_INT < 26 || overlay == null) return;
+        try {
+            WebView webView = getBridge().getWebView();
+            if (webView != null) webView.setVisibility(View.INVISIBLE);
+            wasPlayingBeforePip = engine != null && engine.isPlaying();
+            PictureInPictureParams.Builder builder = new PictureInPictureParams.Builder()
+                    .setAspectRatio(new Rational(16, 9))
+                    .setActions(java.util.Collections.singletonList(buildTogglePlayRemoteAction()));
+            if (android.os.Build.VERSION.SDK_INT >= 31) builder.setSeamlessResizeEnabled(true);
+            getActivity().enterPictureInPictureMode(builder.build());
+        } catch (Exception e) {
+            Log.w(TAG, "Could not enter PiP", e);
+            WebView webView = getBridge().getWebView();
+            if (webView != null) webView.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private RemoteAction buildTogglePlayRemoteAction() {
+        boolean playing = engine != null && engine.isPlaying();
+        Intent intent = new Intent(ACTION_TOGGLE_PLAY);
+        PendingIntent pi = PendingIntent.getBroadcast(
+                getActivity(), 1, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        IconCompat icon = IconCompat.createWithResource(
+                getActivity(),
+                playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play
+        );
+        return new RemoteAction(icon.toIcon(), "Play/Pause", "Toggle playback", pi);
+    }
+
+    private void registerPiPReceiver() {
+        if (android.os.Build.VERSION.SDK_INT < 26 || piPReceiver != null) return;
+        piPReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (ACTION_TOGGLE_PLAY.equals(intent.getAction()) && engine != null) {
+                    getActivity().runOnUiThread(() -> {
+                        if (engine.isPlaying()) engine.pause();
+                        else engine.play();
+                    });
+                }
+            }
+        };
+        try {
+            IntentFilter filter = new IntentFilter(ACTION_TOGGLE_PLAY);
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                getActivity().registerReceiver(piPReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                getActivity().registerReceiver(piPReceiver, filter);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not register PiP receiver", e);
+        }
+    }
+
+    @Override
+    public void handleOnResume() {
+        super.handleOnResume();
+        registerPiPReceiver();
+    }
+
+    @Override
+    public void handleOnPause() {
+        super.handleOnPause();
+        // Never play audio in the background outside PiP
+        if (overlay != null && engine != null && !isInPip()) {
+            engine.pause();
+        }
+    }
+
+    @Override
+    public void handleOnDestroy() {
+        super.handleOnDestroy();
+        if (piPReceiver != null) {
+            try { getActivity().unregisterReceiver(piPReceiver); } catch (Exception ignored) { }
+            piPReceiver = null;
+        }
+        teardown();
+    }
+
+    @Override
+    public void handleOnConfigurationChanged(Configuration newConfig) {
+        super.handleOnConfigurationChanged(newConfig);
+        // JS re-measures the stage on orientation change and calls setRect.
+    }
+
+    private boolean isInPip() {
+        return android.os.Build.VERSION.SDK_INT >= 26 && getActivity().isInPictureInPictureMode();
+    }
+
+    // ── System UI ────────────────────────────────────────────────────────
+
+    private void hideSystemUi() {
+        try {
+            getActivity().getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            );
+        } catch (Exception ignored) { }
+    }
+
+    private void showSystemUi() {
+        try {
+            getActivity().getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            );
+        } catch (Exception ignored) { }
     }
 }
