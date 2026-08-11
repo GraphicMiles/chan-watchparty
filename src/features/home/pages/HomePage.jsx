@@ -9,6 +9,7 @@ import { Button, Skeleton, useToast } from '../../../shared/ui/index.js'
 import { Header, Layout } from '../../../shared/layout/index.js'
 import { ErrorBoundary } from '../../../shared/components/ErrorBoundary.jsx'
 import { getLastRoom } from '../../room/hooks/useRoom.js'
+import { cleanMediaTitle } from '../../../shared/lib/titleFormat.js'
 import styles from './HomePage.module.css'
 
 /**
@@ -368,7 +369,7 @@ function RoomRow({ room, friendsHere = 0 }) {
         {isDirect ? <Monitor size={18} /> : <Play size={18} style={{ marginLeft: 2 }} />}
       </div>
       <div className={styles.roomInfo}>
-        <div className={styles.roomTitle}>{room.title || 'Untitled room'}</div>
+        <div className={styles.roomTitle}>{cleanMediaTitle(room.title) || 'Untitled room'}</div>
         <div className={styles.roomMeta}>
           <span>{room.hostName || 'Host'}</span>
           <span className={styles.metaDot} />

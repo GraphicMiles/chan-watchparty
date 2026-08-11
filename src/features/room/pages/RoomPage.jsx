@@ -18,6 +18,7 @@ import QueuePanel from '../components/QueuePanel.jsx'
 import ParticipantList from '../components/ParticipantList.jsx'
 import { SyncPulse } from '../../../shared/components/SyncPulse.jsx'
 import { extractVideoId, isDirectVideoUrl, normalizePlaybackUrl } from '../../../shared/lib/youtube.js'
+import { cleanMediaTitle } from '../../../shared/lib/titleFormat.js'
 import { isDisplayMediaSupported } from '../services/livekit.js'
 import { Button, Input, Card, IconButton, Modal, Badge, useToast } from '../../../shared/ui/index.js'
 import { Layout } from '../../../shared/layout/index.js'
@@ -509,7 +510,7 @@ export default function RoomPage() {
             <Button type="button" size="sm" variant="ghost" onClick={() => setEditingTitle(false)}>Cancel</Button>
           </form>
         ) : (
-          <h1 className={styles.titleText}>{room?.title || 'Room'}</h1>
+          <h1 className={styles.titleText}>{cleanMediaTitle(room?.title) || 'Room'}</h1>
         )}
         {room?.locked && (
           <Badge variant="warning" icon={Lock}>Locked</Badge>

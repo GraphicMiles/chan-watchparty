@@ -957,8 +957,16 @@ export default function VideoPlayer({
   }, [])
 
   const handleNativeTap = useCallback(() => {
+    // While native fullscreen the surface covers the whole screen — the only
+    // way out is a tap (relayed from the native overlay).
+    if (isNativeEmbedded && isFullscreen) {
+      setIsFullscreen(false)
+      VideoPlayerPlugin.setFullscreen({ fullscreen: false }).catch(() => {})
+      try { window.screen?.orientation?.unlock?.() } catch { /* */ }
+      return
+    }
     revealControls()
-  }, [revealControls])
+  }, [isNativeEmbedded, isFullscreen, revealControls])
 
   const handleMouseMove = useCallback(() => {
     setShowControls(true)
@@ -1105,6 +1113,27 @@ export default function VideoPlayer({
 
   const toggleFullscreen = useCallback(async (e) => {
     e?.stopPropagation()
+    // Native mode: fullscreen MUST go through the plugin — the native surface
+    // sits above the WebView, so web fullscreen can't resize it and exiting
+    // web fullscreen is what left the black screen behind (surface never
+    // restored). The plugin resizes the overlay + hides system UI on enter,
+    // and re-applies the stage rect + shows system UI on exit.
+    if (isNativeEmbedded) {
+      const next = !isFullscreen
+      setIsFullscreen(next)
+      try {
+        await VideoPlayerPlugin.setFullscreen({ fullscreen: next })
+      } catch (err) {
+        console.error('Native fullscreen failed:', err)
+        setIsFullscreen(!next)
+        return
+      }
+      try {
+        if (next) await window.screen?.orientation?.lock?.('landscape')?.catch?.(() => {})
+        else window.screen?.orientation?.unlock?.()
+      } catch { /* orientation unsupported */ }
+      return
+    }
     const root = playerWrapperRef.current
     if (!root) return
     if (!document.fullscreenElement && !document.webkitFullscreenElement) {
@@ -1144,7 +1173,7 @@ export default function VideoPlayer({
         /* ignore */
       }
     }
-  }, [])
+  }, [isNativeEmbedded, isFullscreen])
 
   const togglePiP = useCallback((e) => {
     e.stopPropagation()
@@ -1507,6 +1536,8 @@ export default function VideoPlayer({
                   <span>Pin</span>
                 </button>
 
+                {!isNativeEmbedded && (
+                <>
                 <button
                   type="button"
                   className={`${styles.controlIconBtn} ${brightnessMultiplier > 1 ? styles.activeBrightnessBtn : ''}`}
@@ -1610,7 +1641,9 @@ export default function VideoPlayer({
                   </div>
                 )}
 
-                <button
+                  </>
+                )}
+              <button
                   type="button"
                   className={styles.controlIconBtn}
                   onClick={togglePiP}
@@ -1826,6 +1859,11 @@ export default function VideoPlayer({
               <span>Pin</span>
             </button>
 
+            {/* Web-only controls (CSS/text-track based) — hidden in native mode:
+                they cannot affect the native surface. Volume / ±10s / Pin / PiP
+                above are wired to the native engine. */}
+            {!isNativeEmbedded && (
+            <>
             {/* Brightness Control */}
             <button
               type="button"
@@ -1932,6 +1970,8 @@ export default function VideoPlayer({
               </div>
             )}
 
+            </>
+            )}
             <button
               type="button"
               className={styles.controlIconBtn}

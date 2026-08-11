@@ -5,6 +5,7 @@ import { useScraper } from '../../hooks/useScraper.js'
 import { useAuth } from '../auth/hooks/useAuth.jsx'
 import { isO2TvUrl, isDirectVideoUrl, normalizePlaybackUrl, getThumbnail } from '../lib/youtube.js'
 import { isSuitableThumbnail } from '../lib/mediaHelper.js'
+import { cleanMediaTitle } from '../lib/titleFormat.js'
 import { mediaPost, resolveDownloadLink } from '../lib/mediaApi.js'
 import { useToast } from '../ui/index.js'
 
@@ -451,7 +452,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
           <div className={styles.showHeader}>
             {showThumb && <img src={showThumb} alt="" className={styles.showPoster} onError={(e) => { e.currentTarget.style.display = 'none' }} />}
             <div className={styles.showHeaderText}>
-              <h3 className={styles.showName}>{showName || 'Select a season'}</h3>
+              <h3 className={styles.showName}>{cleanMediaTitle(showName) || 'Select a season'}</h3>
               <button type="button" className={styles.backLink} onClick={() => { setStage(null); setSeasons([]); setShowSlug('') }}>
                 <ChevronLeft size={14} /> Back to results
               </button>
@@ -468,7 +469,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
                 {(season.thumbnail || showThumb) && (
                   <img src={season.thumbnail || showThumb} alt="" className={styles.tileThumb} onError={(e) => { e.currentTarget.style.display = 'none' }} />
                 )}
-                <span className={styles.tileTitle}>{season.label || season.title || `Season ${season.seasonNum || idx + 1}`}</span>
+                <span className={styles.tileTitle}>{cleanMediaTitle(season.label || season.title) || `Season ${season.seasonNum || idx + 1}`}</span>
               </button>
             ))}
           </div>
@@ -482,7 +483,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
           <div className={styles.showHeader}>
             {showThumb && <img src={showThumb} alt="" className={styles.showPoster} onError={(e) => { e.currentTarget.style.display = 'none' }} />}
             <div className={styles.showHeaderText}>
-              <h3 className={styles.showName}>{showName || 'Episodes'}</h3>
+              <h3 className={styles.showName}>{cleanMediaTitle(showName) || 'Episodes'}</h3>
               <button
                 type="button"
                 className={styles.backLink}
@@ -509,7 +510,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
                 {(ep.thumbnail || showThumb) && (
                   <img src={ep.thumbnail || showThumb} alt="" className={styles.tileThumb} onError={(e) => { e.currentTarget.style.display = 'none' }} />
                 )}
-                <span className={styles.tileTitle}>{ep.label || ep.title || `Episode ${ep.episodeNum || idx + 1}`}</span>
+                <span className={styles.tileTitle}>{cleanMediaTitle(ep.label || ep.title) || `Episode ${ep.episodeNum || idx + 1}`}</span>
                 {resolvingIdx === idx && <span className={styles.resolving}>Resolving…</span>}
               </button>
             ))}
@@ -532,7 +533,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
                 onClick={() => selectResult(item)}
               >
                 {thumb && <img src={thumb} alt="" className={styles.tileThumb} onError={(e) => { e.currentTarget.style.display = 'none' }} />}
-                <span className={styles.tileTitle}>{item.title}</span>
+                <span className={styles.tileTitle}>{cleanMediaTitle(item.title)}</span>
                 <span className={styles.tileMeta}>
                   {item.source === 'youtube'
                     ? (item.channel || 'YouTube')

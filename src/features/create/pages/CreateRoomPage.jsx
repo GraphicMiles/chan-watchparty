@@ -8,6 +8,7 @@ import {
 } from '../../../shared/lib/youtube.js'
 import { createRoom, isO2TvUrl } from '../../../shared/lib/createRoom.js'
 import { isSuitableThumbnail } from '../../../shared/lib/mediaHelper.js'
+import { cleanMediaTitle } from '../../../shared/lib/titleFormat.js'
 import { Button, Input, Card, useToast } from '../../../shared/ui/index.js'
 import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
 import { Link2 } from 'lucide-react'
@@ -82,7 +83,7 @@ export default function CreateRoomPage() {
   const pickContent = useCallback((next) => {
     setContent(next)
     setError(null)
-    setTitle((t) => t || (next?.title || ''))
+    setTitle((t) => t || cleanMediaTitle(next?.title || ''))
   }, [])
 
   // ── Bootstrap from /media hand-off / deep link ───────────────────────
@@ -277,7 +278,7 @@ export default function CreateRoomPage() {
               )}
               <div className={styles.pickedInfo}>
                 <span className={styles.pickedLabel}>{contentLabel}</span>
-                <h3 className={styles.pickedTitle}>{content.title || 'Selected video'}</h3>
+                <h3 className={styles.pickedTitle}>{cleanMediaTitle(content.title) || 'Selected video'}</h3>
                 {content.source && <span className={styles.pickedSource}>{content.source}</span>}
               </div>
               <button type="button" className={styles.changeLink} onClick={() => { setContent(null); setError(null) }}>
