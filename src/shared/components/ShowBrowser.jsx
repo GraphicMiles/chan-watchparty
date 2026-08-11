@@ -3,10 +3,9 @@ import { Search, Loader2, ChevronLeft, Youtube, Tv, AlertCircle, Link2 } from 'l
 import styles from './ShowBrowser.module.css'
 import { useScraper } from '../../hooks/useScraper.js'
 import { useAuth } from '../auth/hooks/useAuth.jsx'
-import { mediaPost } from '../lib/mediaApi.js'
 import { isO2TvUrl, isDirectVideoUrl, normalizePlaybackUrl, getThumbnail } from '../lib/youtube.js'
 import { isSuitableThumbnail } from '../lib/mediaHelper.js'
-import { resolveDownloadLink } from '../lib/mediaApi.js'
+import { mediaPost, resolveDownloadLink } from '../lib/mediaApi.js'
 import { useToast } from '../ui/index.js'
 
 function parseShowSlugFromUrl(value) {
@@ -281,6 +280,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
         videoType: 'direct',
         source: 'nkiri',
         pendingResolve: true,
+        sourceUrl: ep.url, // keep the page URL so re-resolve can get a fresh token
       })
       toast('Episode selected — link will be resolved when the room starts', { variant: 'success' })
       return
@@ -359,6 +359,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
           thumbnail: safeThumb(item.thumbnail || item.image),
           videoType: 'direct',
           source: 'nkiri',
+          sourceUrl: candidateStr, // keep the page URL for later re-resolve
         })
       } catch (err) {
         toast(err.message || 'Failed to resolve episode', { variant: 'error' })

@@ -51,3 +51,24 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+.reResolveBtn {
+  margin-top: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 10px 20px;
+  background: var(--pill-black);
+  color: var(--pill-black-text);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+
+.reResolveBtn:hover:not(:disabled) {
+  background: var(--pill-hover);
+}
+
+.reResolveBtn:disabled {
+  opacity: 0.6;
+}

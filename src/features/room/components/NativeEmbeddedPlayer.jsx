@@ -39,6 +39,7 @@ export default function NativeEmbeddedPlayer({
   onPlayerEvent,
   onEnded,
   onError,
+  onReResolve = null,
 }) {
   const surfaceRef = useRef(null)
   const stateRef = useRef({ posSec: 0, durSec: 0, playing: false, ended: false })
@@ -47,6 +48,7 @@ export default function NativeEmbeddedPlayer({
 
   const [status, setStatus] = useState('fetching') // fetching|playing|paused|ended|error
   const [errorMsg, setErrorMsg] = useState(null)
+  const [reResolving, setReResolving] = useState(false)
 
   useEffect(() => {
     callbacksRef.current = { onReady, onPlayerEvent, onEnded, onError }
@@ -213,6 +215,23 @@ export default function NativeEmbeddedPlayer({
         <div className={styles.errorOverlay}>
           <AlertTriangle size={22} />
           <span>{errorMsg}</span>
+          {onReResolve && /downloadwella|fsmc/i.test(String(url || '')) && (
+            <button
+              type="button"
+              className={styles.reResolveBtn}
+              disabled={reResolving}
+              onClick={async () => {
+                setReResolving(true)
+                try {
+                  await onReResolve(url)
+                } catch { /* error overlay stays */ } finally {
+                  setReResolving(false)
+                }
+              }}
+            >
+              {reResolving ? 'Resolving…' : 'Re-resolve link'}
+            </button>
+          )}
         </div>
       )}
     </div>
