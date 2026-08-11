@@ -37,6 +37,7 @@ public class RoomPlayerOverlayView extends FrameLayout {
     private PlayerView exoView;
     private VLCVideoLayout vlcLayout;
     private TextView statusView;
+    private TextView subtitleText;
 
     private LinearLayout controlsBar;
     private ImageButton btnPlayPause;
@@ -121,6 +122,27 @@ public class RoomPlayerOverlayView extends FrameLayout {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
         ));
+
+        // Closed captions — anchored at the TOP of the video (per product
+        // requirement). Driven from the parsed VTT cues in ChanPlayerEngine;
+        // this view is updated by the progress poller in updateProgress().
+        subtitleText = new TextView(context);
+        subtitleText.setTextColor(Color.WHITE);
+        subtitleText.setTextSize(15f);
+        subtitleText.setGravity(Gravity.CENTER);
+        subtitleText.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        subtitleText.setPadding(dp(14), dp(8), dp(14), dp(8));
+        subtitleText.setBackgroundColor(Color.argb(150, 0, 0, 0));
+        subtitleText.setVisibility(GONE);
+        FrameLayout.LayoutParams ccParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL
+        );
+        ccParams.topMargin = dp(14);
+        ccParams.leftMargin = dp(24);
+        ccParams.rightMargin = dp(24);
+        addView(subtitleText, ccParams);
 
         controlsBar = buildControls(context);
         addView(controlsBar, new FrameLayout.LayoutParams(
@@ -310,6 +332,15 @@ public class RoomPlayerOverlayView extends FrameLayout {
         boolean playing = engine.isPlaying();
         btnPlayPause.setImageResource(playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
         btnPlayPause.setContentDescription(playing ? "Pause" : "Play");
+
+        // Closed captions: show the active cue at the TOP of the video.
+        String cue = engine.getActiveSubtitleCue(pos);
+        if (cue != null && !cue.isEmpty()) {
+            subtitleText.setText(cue);
+            if (subtitleText.getVisibility() != VISIBLE) subtitleText.setVisibility(VISIBLE);
+        } else if (subtitleText.getVisibility() != GONE) {
+            subtitleText.setVisibility(GONE);
+        }
     }
 
     // ── External hooks (from the plugin) ─────────────────────────────────

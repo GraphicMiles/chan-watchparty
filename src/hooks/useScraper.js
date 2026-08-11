@@ -3,6 +3,7 @@ import { isDirectVideoUrl, normalizePlaybackUrl } from '../shared/lib/youtube.js
 import { useAuth } from '../shared/auth/hooks/useAuth.jsx'
 import { isSuitableThumbnail, isTitleMatch, cleanTitleForMatching } from '../shared/lib/mediaHelper.js'
 import { apiPath, parseJsonResponse } from '../shared/lib/api.js'
+import { friendlyApiError } from '../shared/lib/mediaApi.js'
 
 function softClientTitleMatch(title, query) {
   if (!title || !query) return true
@@ -85,7 +86,7 @@ export function useScraper() {
       const data = await parseJsonResponse(res)
 
       if (!res.ok || !data.success) {
-        throw new Error(data.error || `HTTP ${res.status}`)
+        throw new Error(friendlyApiError(data.error) || `HTTP ${res.status}`)
       }
 
       const targetQuery = (url || query || '').trim()
@@ -130,7 +131,7 @@ export function useScraper() {
 
       setResults(normalized)
     } catch (err) {
-      setError(err.message || 'Failed to scrape')
+      setError(friendlyApiError(err.message || 'Failed to scrape'))
       setResults([])
     } finally {
       setLoading(false)

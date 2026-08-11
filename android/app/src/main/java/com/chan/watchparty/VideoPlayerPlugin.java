@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Configuration;
 import androidx.core.graphics.drawable.IconCompat;
+import android.os.Bundle;
 import android.util.Log;
 import android.util.Rational;
 import android.view.View;
@@ -74,10 +75,11 @@ public class VideoPlayerPlugin extends Plugin {
     private void attachOverlay() {
         if (attached || overlay == null) return;
         ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        );
+        // Attach at 0x0, NOT MATCH_PARENT: the JS layer positions the surface
+        // over the room's video box via setRect within a frame. A MATCH_PARENT
+        // attach would flash a full-screen black layer over the whole app UI
+        // (the overlay has an opaque black background) until the first rect.
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(0, 0);
         decor.addView(overlay, params);
         attached = true;
     }
@@ -268,11 +270,19 @@ public class VideoPlayerPlugin extends Plugin {
             int y = call.getInt("y", 0);
             int w = call.getInt("w", 0);
             int h = call.getInt("h", 0);
-            if (overlay == null || w <= 0 || h <= 0) {
+            if (overlay == null) {
                 call.resolve();
                 return;
             }
             if (fullscreen) {
+                call.resolve();
+                return;
+            }
+            // Invalid / off-screen rect (video box collapsed or scrolled out):
+            // HIDE the overlay instead of leaving it at its previous size —
+            // a stale rect (or the 0x0 attach) must never cover app UI.
+            if (w <= 0 || h <= 0) {
+                getActivity().runOnUiThread(() -> overlay.setVisible(false));
                 call.resolve();
                 return;
             }
@@ -283,6 +293,7 @@ public class VideoPlayerPlugin extends Plugin {
                 ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
                 if (attached && overlay.getParent() == decor) {
                     overlay.setLayoutParams(lastRect);
+                    overlay.setVisible(true);
                 }
             });
             call.resolve();
@@ -362,6 +373,101 @@ public class VideoPlayerPlugin extends Plugin {
             JSObject evt = new JSObject().put("type", "fullscreenchange").put("fullscreen", fullscreen);
             try { notifyListeners("controlsEvent", evt); } catch (Exception ignored) { }
         });
+    }
+
+    // ── Native room (Option B): launch the fully-native room player ─────
+    // The web room stays mounted underneath; the native screen returns
+    // { positionMs, durationMs, ended, wasPlaying } via 'nativeRoomResult'.
+
+    private static final int REQ_NATIVE_ROOM = 0x4E52; // "NR"
+
+    @PluginMethod
+    public void openNativeRoom(PluginCall call) {
+        try {
+            String url = call.getString("url");
+            if (url == null || url.trim().isEmpty()) {
+                call.reject("URL is required");
+                return;
+            }
+            Intent intent = new Intent(
+                    getActivity(),
+                    com.chan.watchparty.nativeplayer.NativeRoomActivity.class
+            );
+            intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_URL, url);
+            intent.putExtra(
+                    com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_TITLE,
+                    call.getString("title", "Chan Video")
+            );
+            String referer = call.getString("referer");
+            if (referer != null && !referer.isEmpty()) {
+                intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_REFERER, referer);
+            }
+            String container = call.getString("container");
+            if (container != null && !container.isEmpty()) {
+                intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_CONTAINER, container);
+            }
+            String codec = call.getString("codec");
+            if (codec != null && !codec.isEmpty()) {
+                intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_CODEC, codec);
+            }
+            Double startSeconds = call.getDouble("startSeconds");
+            if (startSeconds != null && startSeconds > 0) {
+                intent.putExtra(
+                        com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_START_MS,
+                        Math.round(startSeconds * 1000)
+                );
+            }
+            Boolean isLive = call.getBoolean("isLive", false);
+            if (Boolean.TRUE.equals(isLive)) {
+                intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_IS_LIVE, true);
+            }
+            JSObject h = call.getObject("headers");
+            if (h != null) {
+                Bundle bundle = new Bundle();
+                java.util.Iterator<String> it = h.keys();
+                while (it.hasNext()) {
+                    String key = it.next();
+                    Object v = h.opt(key);
+                    if (v != null) bundle.putString(key, String.valueOf(v));
+                }
+                intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_HEADERS, bundle);
+            }
+            getActivity().startActivityForResult(intent, REQ_NATIVE_ROOM);
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "openNativeRoom failed", e);
+            call.reject("Could not open native player: " + e.getMessage());
+        }
+    }
+
+    @Override
+    protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
+        super.handleOnActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_NATIVE_ROOM) return;
+        JSObject result = new JSObject();
+        if (data != null) {
+            result.put(
+                    "positionMs",
+                    data.getLongExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.RESULT_POSITION_MS, 0L)
+            );
+            result.put(
+                    "durationMs",
+                    data.getLongExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.RESULT_DURATION_MS, 0L)
+            );
+            result.put(
+                    "ended",
+                    data.getBooleanExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.RESULT_ENDED, false)
+            );
+            result.put(
+                    "wasPlaying",
+                    data.getBooleanExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.RESULT_WAS_PLAYING, false)
+            );
+        }
+        try {
+            notifyListeners("nativeRoomResult", result);
+        } catch (Exception e) {
+            Log.w(TAG, "nativeRoomResult notify failed", e);
+        }
     }
 
     /** Called by MainActivity on back press — exit fullscreen first. */

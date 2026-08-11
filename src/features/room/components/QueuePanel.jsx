@@ -8,11 +8,32 @@ import { Button, Input } from '../../../shared/ui/index.js'
 import styles from './QueuePanel.module.scss'
 import { apiPath } from '../../../shared/lib/api.js'
 
+const HINT_KEY = 'chan:queueHintDismissed'
+
 export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast }) {
   const [queue, setQueue] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState('youtube') // 'youtube' or 'direct'
+  const [hintVisible, setHintVisible] = useState(() => {
+    try {
+      return window.localStorage.getItem(HINT_KEY) !== '1'
+    } catch {
+      return true
+    }
+  })
   const { results, loading, search, clear } = useUnifiedSearch()
+
+  // Collapse the instructional paragraph once the user has actually used the
+  // queue (or explicitly dismissed it) — keeps the panel from stacking
+  // explanation + tabs + search + empty state on first open.
+  const dismissHint = useCallback(() => {
+    setHintVisible(false)
+    try {
+      window.localStorage.setItem(HINT_KEY, '1')
+    } catch {
+      /* ignore quota */
+    }
+  }, [])
 
   useEffect(() => {
     if (!roomId) return undefined
@@ -107,10 +128,12 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast
     try {
       await addDoc(collection(db, 'rooms', roomId, 'queue'), payload)
       toast('Added to queue!', { variant: 'success' })
+      // First successful use → the how-to paragraph has served its purpose.
+      dismissHint()
     } catch (err) {
       toast(err.message || 'Could not add to queue', { variant: 'error' })
     }
-  }, [queue.length, activeTab, user, roomId, toast, fetchEpisodes])
+  }, [queue.length, activeTab, user, roomId, toast, fetchEpisodes, dismissHint])
 
   // Declared AFTER addToQueue/fetchEpisodes so it closes over already-defined
   // callbacks — fixes 'used before defined' + makes the dependency array exhaustive.
@@ -172,7 +195,14 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast
     <div className={styles.queuePanel}>
       <div className={styles.header}>
         <h3>Smart Queue ({queue.length}/5)</h3>
-        <p>Add up to 5 videos. When the current stream finishes, the next queued item plays automatically!</p>
+        {hintVisible && (
+          <p className={styles.hint}>
+            Add up to 5 videos. When the current stream finishes, the next queued item plays automatically!
+            <button type="button" className={styles.hintDismiss} onClick={dismissHint} aria-label="Dismiss tip" title="Dismiss tip">
+              ×
+            </button>
+          </p>
+        )}
       </div>
 
       <div className={styles.tabs}>

@@ -110,6 +110,8 @@ export default function VideoPlayer({
   media = null,
   onRefresh = null,
   surfaceHidden = false, // room panels open -> hide native surface
+  surfaceClipBottom = 0, // CSS px clipped off viewport bottom (mobile sheet) —
+                         // native surface never covers the panel → panel on top
 }) {
   const { user } = useAuth()
   const { toast } = useToast()
@@ -1357,6 +1359,7 @@ export default function VideoPlayer({
             onControlsTap={handleNativeTap}
             onFullscreenChange={(v) => { setIsFullscreen(Boolean(v)) }}
             visible={!surfaceHidden}
+            clipBottomPx={surfaceClipBottom}
           />
         ) : isHls ? (
           <video

@@ -2,6 +2,34 @@ import { apiPath, parseJsonResponse } from './api.js'
 import { normalizePlaybackUrl } from './youtube.js'
 
 /**
+ * Map raw server/API validation strings to user-friendly messages.
+ * The backend legitimately returns terse dev-facing errors (e.g. "showSlug
+ * required") for malformed requests — those must never reach the UI verbatim.
+ * Only well-known internal patterns are mapped; genuinely user-meaningful
+ * messages (expired links, room full, invite code, etc.) pass through.
+ */
+export function friendlyApiError(message) {
+  const msg = String(message || '')
+  if (!msg) return 'Something went wrong — please try again.'
+  if (/showSlug required|seasonNum required|episodeNum required|showSlug|Missing show|incomplete show reference/i.test(msg)) {
+    return "We couldn't open this show from the search results. Go back and pick it again, or try another result."
+  }
+  if (/missing roomid|missing token|invalid or expired token|token uid does not match/i.test(msg)) {
+    return 'Your session expired — please sign in again and retry.'
+  }
+  if (/^url required$/i.test(msg) || /a valid url|valid url required/i.test(msg)) {
+    return 'A valid link is required for this action.'
+  }
+  if (/^query required$/i.test(msg)) {
+    return 'Please enter a search query.'
+  }
+  if (/^missing action$/i.test(msg) || /unknown action/i.test(msg) || /unknown layer/i.test(msg) || /invalid action/i.test(msg)) {
+    return "We couldn't complete this request — please try again."
+  }
+  return msg
+}
+
+/**
  * Shared authenticated POST to /api/media.
  * Used by ShowBrowser, CreateRoomPage, UnifiedSearch and RoomPage so there is
  * exactly one way to talk to the media API (P1 consolidation).
@@ -19,7 +47,7 @@ export async function mediaPost(user, body) {
   })
   const data = await parseJsonResponse(res)
   if (!res.ok || data.success === false) {
-    throw new Error(data.error || `Request failed (HTTP ${res.status})`)
+    throw new Error(friendlyApiError(data.error) || `Request failed (HTTP ${res.status})`)
   }
   return data
 }

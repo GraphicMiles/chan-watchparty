@@ -63,7 +63,10 @@ public class ChanPlayerEngine {
     private String lastReferer = null;
     private long lastStartMs = 0;
     private DefaultTrackSelector trackSelector;
-    private java.io.File subtitleFile;
+    // Parsed CC cues (from the app's VTT). Rendered by the overlay view at the
+    // TOP of the video — both engines render their own subtitles at the bottom
+    // and VLC cannot reposition them, so we draw one consistent overlay.
+    private java.util.List<SubtitleCue> subtitleCues = new ArrayList<>();
 
     // Current effect levels (for VLC adjust-filter re-apply)
     private float lastBrightness = 1f, lastContrast = 1f, lastSaturation = 1f, lastHue = 0f;
@@ -289,57 +292,137 @@ public class ChanPlayerEngine {
     }
 
     /**
-     * Attach a VTT subtitle track to the active engine. Empty/null detaches.
-     * Exo: MediaItem rebuilt with the subtitle config (resumes at position).
-     * VLC: addSlave / setSpuTrack(-1).
+     * Attach CC subtitles from a VTT document. Empty/null detaches.
+     *
+     * The cues are parsed and stored here; RoomPlayerOverlayView polls
+     * getActiveSubtitleCue() and draws the active line in a top-anchored
+     * overlay (both ExoPlayer and libVLC render their own subtitles at the
+     * BOTTOM of the video and VLC cannot reposition them, so we do not use
+     * the engine renderers at all — this keeps CC position consistent).
      */
     public void setSubtitles(String vttText) {
         mainHandler.post(() -> {
             try {
                 if (vttText == null || vttText.trim().isEmpty()) {
-                    if (vlcPlayer != null) {
-                        try { vlcPlayer.setSpuTrack(-1); } catch (Exception ignored) { }
-                    }
-                    if (exoPlayer != null) rebuildExoItem(null);
+                    subtitleCues = new ArrayList<>();
                     return;
                 }
-                java.io.File dir = context.getCacheDir();
-                if (!dir.exists()) dir.mkdirs();
-                subtitleFile = new java.io.File(dir, "chan_subtitles.vtt");
-                java.io.FileOutputStream fos = new java.io.FileOutputStream(subtitleFile);
-                fos.write(vttText.getBytes("UTF-8"));
-                fos.close();
-
-                if (vlcPlayer != null) {
-                    // libVLC slave type: 0 = subtitle (libvlc_media_slave_type_subtitle)
-                    vlcPlayer.addSlave(0, Uri.fromFile(subtitleFile), true);
-                }
-                if (exoPlayer != null) rebuildExoItem(subtitleFile);
+                subtitleCues = parseVtt(vttText);
             } catch (Exception e) {
                 Log.e(TAG, "setSubtitles failed", e);
+                subtitleCues = new ArrayList<>();
             }
         });
     }
 
-    private void rebuildExoItem(java.io.File vttFile) {
-        if (exoPlayer == null || lastUrl == null) return;
-        try {
-            long pos = exoPlayer.getCurrentPosition();
-            MediaItem.Builder b = new MediaItem.Builder()
-                    .setUri(Uri.parse(lastUrl))
-                    .setMediaId(lastTitle != null ? lastTitle : lastUrl);
-            if (vttFile != null) {
-                b.setSubtitleConfigurations(java.util.Collections.singletonList(
-                        new MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(vttFile))
-                                .setMimeType(MimeTypes.TEXT_VTT)
-                                .setLanguage("en")
-                                .build()
-                ));
+    /** A single closed-caption cue (startMs inclusive, endMs exclusive). */
+    public static class SubtitleCue {
+        public final long startMs;
+        public final long endMs;
+        public final String text;
+        public SubtitleCue(long startMs, long endMs, String text) {
+            this.startMs = startMs;
+            this.endMs = endMs;
+            this.text = text;
+        }
+    }
+
+    /**
+     * Active CC text at the given playback position, or null when none.
+     * Called on the main thread by the overlay's progress poller.
+     */
+    public String getActiveSubtitleCue(long positionMs) {
+        java.util.List<SubtitleCue> cues = subtitleCues;
+        if (cues == null || cues.isEmpty()) return null;
+        // Cues are sorted by start time; linear scan is fine for subtitle
+        // counts (typically tens to a few hundred).
+        for (SubtitleCue cue : cues) {
+            if (positionMs >= cue.startMs && positionMs < cue.endMs) {
+                return cue.text;
             }
-            exoPlayer.setMediaItem(b.build(), pos);
-            exoPlayer.prepare();
-        } catch (Exception e) {
-            Log.e(TAG, "rebuildExoItem failed", e);
+            if (positionMs < cue.startMs) break;
+        }
+        return null;
+    }
+
+    /**
+     * Minimal WebVTT parser: handles the WEBVTT header, optional cue IDs,
+     * timestamps of the form MM:SS.mmm or HH:MM:SS.mmm, inline cue settings
+     * (after the second timestamp), and multi-line cue text.
+     */
+    private java.util.List<SubtitleCue> parseVtt(String vtt) {
+        java.util.List<SubtitleCue> cues = new ArrayList<>();
+        if (vtt == null) return cues;
+
+        String normalized = vtt.replace("\uFEFF", "").replace("\r\n", "\n").replace('\r', '\n');
+        String[] lines = normalized.split("\n", -1);
+
+        String pendingText = null;
+        Long pendingStart = null;
+        Long pendingEnd = null;
+
+        for (String rawLine : lines) {
+            String line = rawLine.trim();
+            if (line.isEmpty()) {
+                // Blank line ends the current cue block.
+                if (pendingText != null && pendingStart != null && pendingEnd != null) {
+                    cues.add(new SubtitleCue(pendingStart, pendingEnd, pendingText));
+                }
+                pendingText = null;
+                pendingStart = null;
+                pendingEnd = null;
+                continue;
+            }
+            if (line.startsWith("WEBVTT") || line.startsWith("NOTE") || line.startsWith("STYLE") || line.startsWith("REGION")) {
+                continue;
+            }
+
+            int arrow = line.indexOf("-->");
+            if (arrow >= 0) {
+                // Timestamp line: "start --> end [settings]"
+                pendingStart = parseVttTimestamp(line.substring(0, arrow).trim());
+                pendingEnd = parseVttTimestamp(line.substring(arrow + 3).trim().split("\\s+", 2)[0].trim());
+                pendingText = "";
+            } else if (pendingStart != null && pendingEnd != null && pendingText != null) {
+                // Cue text line (or an ID line before the first timestamp —
+                // the ID has no "-->", but pendingStart is null then, so it
+                // is skipped correctly).
+                if (!pendingText.isEmpty()) pendingText += "\n";
+                pendingText += line;
+            }
+            // Anything else before a timestamp (e.g. an ID line) is ignored.
+        }
+        // Flush the final cue block (no trailing blank line).
+        if (pendingText != null && pendingStart != null && pendingEnd != null) {
+            cues.add(new SubtitleCue(pendingStart, pendingEnd, pendingText));
+        }
+
+        // Sort by start time for sequential lookup.
+        java.util.Collections.sort(cues, (a, b) -> Long.compare(a.startMs, b.startMs));
+        return cues;
+    }
+
+    private Long parseVttTimestamp(String raw) {
+        if (raw == null || raw.isEmpty()) return null;
+        String s = raw.replace(',', '.').trim();
+        String[] parts = s.split(":");
+        try {
+            double seconds;
+            if (parts.length == 3) {
+                double h = Double.parseDouble(parts[0]);
+                double m = Double.parseDouble(parts[1]);
+                double sec = Double.parseDouble(parts[2]);
+                seconds = h * 3600.0 + m * 60.0 + sec;
+            } else if (parts.length == 2) {
+                double m = Double.parseDouble(parts[0]);
+                double sec = Double.parseDouble(parts[1]);
+                seconds = m * 60.0 + sec;
+            } else {
+                seconds = Double.parseDouble(parts[0]);
+            }
+            return (long) Math.round(seconds * 1000.0);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
