@@ -10,7 +10,7 @@ import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.graphics.Color;
-import android.graphics.Icon;
+import androidx.core.graphics.drawable.IconCompat;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
@@ -399,11 +399,11 @@ public class NativeVideoPlayerActivity extends Activity {
                 this, 1, intent,
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE
         );
-        Icon icon = Icon.createWithResource(
+        IconCompat icon = IconCompat.createWithResource(
                 this,
                 playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play
         );
-        return new RemoteAction(icon, "Play/Pause", "Toggle playback", pi);
+        return new RemoteAction(icon.toIcon(), "Play/Pause", "Toggle playback", pi);
     }
 
     private void registerPiPReceiver() {
