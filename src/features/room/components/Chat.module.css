@@ -7,9 +7,12 @@
 }
 
 .chatActionsBar {
+  /* One shared toolbar: reactions + sound fx + AI tools in the same container.
+     Previously two stacked rows read as two disconnected feature sets. */
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   padding: 6px 8px;
   background: var(--room-surface);
   border: 1px solid var(--room-divider);
@@ -20,8 +23,8 @@
 .floatingReactionsBar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .floatingReactionBtn {
@@ -40,27 +43,38 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
+.toolbarDivider {
+  width: 1px;
+  height: 20px;
+  background: var(--room-divider);
+  flex-shrink: 0;
+  align-self: center;
+}
+
 .aiToolsRow {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .aiButton,
 .catchupButton,
 .quizButton {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 16px !important;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px !important;
   border-radius: 100px !important;
   background: #fff !important;
   color: #0B0B0C !important;
   border: 1px solid rgba(255, 255, 255, 0.2) !important;
-  font-size: 13px !important;
+  font-size: 12px !important;
   font-weight: 600 !important;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;

@@ -6,7 +6,7 @@ import { useAuth } from '../auth/hooks/useAuth.jsx'
 import { isO2TvUrl, isDirectVideoUrl, normalizePlaybackUrl, getThumbnail } from '../lib/youtube.js'
 import { isSuitableThumbnail } from '../lib/mediaHelper.js'
 import { cleanMediaTitle } from '../lib/titleFormat.js'
-import { mediaPost, resolveDownloadLink } from '../lib/mediaApi.js'
+import { mediaPost, resolveDownloadLink, friendlyApiError } from '../lib/mediaApi.js'
 import { useToast } from '../ui/index.js'
 
 function parseShowSlugFromUrl(value) {
@@ -40,7 +40,7 @@ function safeThumb(url) {
  *   { kind: 'direct',  url, title, thumbnail, videoType, source?, pendingResolve? }
  */
 export const ShowBrowser = forwardRef(function ShowBrowser(
-  { onPick, initialMode = 'tv', placeholder, compact = false, className },
+  { onPick, initialMode = 'tv', placeholder, compact = false, hideModeTabs = false, className },
   ref
 ) {
   const { user } = useAuth()
@@ -110,7 +110,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
         setYtResults(items)
         if (!items.length) toast('No YouTube results', { variant: 'warning' })
       } catch (err) {
-        setSearchError(err.message || 'YouTube search failed')
+        setSearchError(friendlyApiError(err.message || 'YouTube search failed'))
       } finally {
         setYtLoading(false)
       }
@@ -166,7 +166,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       if (!list.length) setBrowseError('No seasons found for this show. Try another result or paste a direct .mp4 link.')
     } catch (err) {
       if (reqId !== abortRef.current) return
-      setBrowseError(err.message || 'Failed to load seasons')
+      setBrowseError(friendlyApiError(err.message || 'Failed to load seasons'))
     } finally {
       if (reqId === abortRef.current) setBrowseLoading(false)
     }
@@ -195,7 +195,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       if (!list.length) setBrowseError('No episodes found for this season.')
     } catch (err) {
       if (reqId !== abortRef.current) return
-      setBrowseError(err.message || 'Failed to load episodes')
+      setBrowseError(friendlyApiError(err.message || 'Failed to load episodes'))
     } finally {
       if (reqId === abortRef.current) setBrowseLoading(false)
     }
@@ -222,7 +222,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       if (!list.length) setBrowseError('No episodes found. Try another show.')
     } catch (err) {
       if (reqId !== abortRef.current) return
-      setBrowseError(err.message || 'Failed to load episodes')
+      setBrowseError(friendlyApiError(err.message || 'Failed to load episodes'))
     } finally {
       if (reqId === abortRef.current) setBrowseLoading(false)
     }
@@ -232,13 +232,33 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     if (!ep) return
     const epSeasonNum = ep.seasonNum || seasonNum || 1
     const epNum = ep.episodeNum || ep.number || (idx + 1)
+    const epSlug = ep.showSlug || showSlug
     const reqId = ++abortRef.current
     setResolvingIdx(idx)
     setBrowseError(null)
     try {
+      // Some flows (Nkiri flat episodes, pasted links) never set a show slug.
+      // Calling o2tvResolve without one makes the server 400 with a raw
+      // "showSlug required" validation string — instead resolve the episode
+      // page directly (scrape / form-walk) which works for any page URL.
+      if (!epSlug && ep.url) {
+        const playUrl = await resolveDownloadLink(user, ep.url, ep.title || showName || `Episode ${epNum}`)
+        if (reqId !== abortRef.current) return
+        emit({
+          kind: 'direct',
+          url: playUrl,
+          title: ep.title || ep.label || `${showName} S${String(epSeasonNum).padStart(2, '0')}E${String(epNum).padStart(2, '0')}`,
+          thumbnail: safeThumb(ep.thumbnail || showThumb),
+          videoType: 'direct',
+          source: ep.source || 'nkiri',
+          sourceUrl: ep.url,
+        })
+        toast('Episode ready', { variant: 'success' })
+        return
+      }
       const data = await mediaPost(user, {
         action: 'o2tvResolve',
-        showSlug: ep.showSlug || showSlug,
+        showSlug: epSlug,
         showName: ep.showName || showName,
         seasonNum: epSeasonNum,
         episodeNum: epNum,
@@ -262,8 +282,9 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       toast('Episode ready', { variant: 'success' })
     } catch (err) {
       if (reqId !== abortRef.current) return
-      setBrowseError(err.message || 'Failed to resolve episode')
-      toast(err.message || 'Failed to resolve episode', { variant: 'error' })
+      // Single presentation point for errors: the in-panel banner. The toast
+      // previously duplicated the exact same message on screen.
+      setBrowseError(friendlyApiError(err.message || 'Failed to resolve episode'))
     } finally {
       if (reqId === abortRef.current) setResolvingIdx(null)
     }
@@ -553,22 +574,24 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
 
   return (
     <div className={`${styles.browser} ${compact ? styles.compact : ''} ${className || ''}`}>
-      <div className={styles.modeTabs}>
-        <button
-          type="button"
-          className={mode === 'tv' ? styles.modeActive : styles.mode}
-          onClick={() => switchMode('tv')}
-        >
-          <Tv size={13} /> TV Shows &amp; Direct
-        </button>
-        <button
-          type="button"
-          className={mode === 'youtube' ? styles.modeActive : styles.mode}
-          onClick={() => switchMode('youtube')}
-        >
-          <Youtube size={13} /> YouTube
-        </button>
-      </div>
+      {!hideModeTabs && (
+        <div className={styles.modeTabs}>
+          <button
+            type="button"
+            className={mode === 'tv' ? styles.modeActive : styles.mode}
+            onClick={() => switchMode('tv')}
+          >
+            <Tv size={13} /> TV Shows &amp; Direct
+          </button>
+          <button
+            type="button"
+            className={mode === 'youtube' ? styles.modeActive : styles.mode}
+            onClick={() => switchMode('youtube')}
+          >
+            <Youtube size={13} /> YouTube
+          </button>
+        </div>
+      )}
 
       <form
         className={styles.searchRow}

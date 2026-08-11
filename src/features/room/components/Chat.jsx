@@ -397,6 +397,8 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
           </div>
         </div>
 
+        <span className={styles.toolbarDivider} aria-hidden="true" />
+
         <div className={styles.aiToolsRow}>
           <button
             type="button"

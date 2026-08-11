@@ -26,6 +26,8 @@ import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
 import { proxyTargetUrl, resolveDownloadLink, refreshDownloadDescriptor } from '../../../shared/lib/mediaApi.js'
 import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
+import { apiPath } from '../../../shared/lib/api.js'
+import { isNativeRoomSupported, launchNativeRoom, onNativeRoomResult } from '../nativeRoomBridge.js'
 
 const SOUND_FX_URLS = {
   airhorn: 'https://cdn.freesound.org/previews/435/435255_8863641-lq.mp3',
@@ -105,6 +107,70 @@ export default function RoomPage() {
   } = useRoom(roomId, inviteCode)
 
   const { isHost, writePlayerState, canControl } = usePlayerSync(roomId, room, playerRef)
+
+  // ── Native room (Option B) ────────────────────────────────────────────
+  // On Android, non-YouTube content launches in the fully-native player
+  // (NativeRoomActivity). The web room stays mounted underneath but does NOT
+  // mount its video until the native screen closes — so nothing plays twice.
+  // On return, the position is frozen via the API and the web room resumes
+  // from it (host reconciliation restores the saved position).
+  const directContent = Boolean(room?.videoUrl) && room?.videoType !== 'youtube'
+  const nativeSupported = directContent && isNativeRoomSupported()
+  const [nativeGate, setNativeGate] = useState(() => (isNativeRoomSupported() ? 'launching' : 'done'))
+  const nativeLaunchedRef = useRef(false)
+
+  useEffect(() => {
+    if (!nativeSupported || nativeGate !== 'launching' || nativeLaunchedRef.current) return
+    if (!user || !room?.videoUrl) return
+    nativeLaunchedRef.current = true
+    const media = room.media || {}
+    const timer = setTimeout(() => {
+      launchNativeRoom({
+        url: media.streamUrl || room.videoUrl,
+        title: room.title || 'Chan video',
+        referer: media.referer || undefined,
+        headers: media.headers || undefined,
+        container: media.container || undefined,
+        codec: media.codec || undefined,
+        startSeconds: 0,
+        isLive: Boolean(room.isLive || room.videoType === 'iptv' || room.videoType === 'sports'),
+      }).catch(() => {
+        // Native launch failed — fall back to the web room.
+        nativeLaunchedRef.current = false
+        setNativeGate('done')
+      })
+    }, 700)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nativeSupported, nativeGate, user, room?.videoUrl])
+
+  useEffect(() => {
+    if (!nativeSupported || nativeGate !== 'launching') return
+    if (!user || !roomId) return
+    let disposed = false
+    const handle = onNativeRoomResult((res) => {
+      if (disposed) return
+      if (res && typeof res.positionMs === 'number' && res.positionMs > 0) {
+        const currentTime = Math.max(0, res.positionMs / 1000)
+        reportPlayerPosition?.(currentTime, Boolean(res.wasPlaying))
+        // Freeze playerState so the web room resumes at the native position.
+        user.getIdToken().then((token) => {
+          fetch(apiPath('/api/room'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ action: 'freeze', roomId, uid: user.uid, currentTime }),
+            keepalive: true,
+          }).catch(() => {})
+        })
+      }
+      setNativeGate('done')
+    })
+    return () => {
+      disposed = true
+      try { handle?.remove?.() } catch { /* already removed */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nativeSupported, nativeGate, user, roomId])
 
   // Continuously report player position so leave/beforeunload can freeze the exact timestamp
   useEffect(() => {
@@ -585,6 +651,31 @@ export default function RoomPage() {
     )
   }
 
+  // Native room gate: while the native player is (or will be) open, keep the
+  // web video unmounted so audio/video never double-plays.
+  if (nativeGate === 'launching' && nativeSupported) {
+    return (
+      <Layout header={header} wide className={styles.layout}>
+        <div className={styles.joining}>
+          <p>Opening native player…</p>
+          <p style={{ fontSize: '0.875rem', color: '#888', marginTop: '1rem' }}>
+            {room?.title || 'This room'} is playing in the full-screen native player.
+          </p>
+          <Button
+            variant="secondary"
+            style={{ marginTop: '1rem' }}
+            onClick={() => {
+              try { localStorage.setItem('chan:forceWebRoom', '1') } catch { /* ignore */ }
+              setNativeGate('done')
+            }}
+          >
+            Use web player instead
+          </Button>
+        </div>
+      </Layout>
+    )
+  }
+
   return (
     <Layout header={header} wide className={styles.layout}>
       <div className={styles.main}>
@@ -624,7 +715,16 @@ export default function RoomPage() {
                   media={room?.media || null}
                   onReResolve={canControl ? reResolveVideo : null}
                   onRefresh={canControl ? reResolveVideo : null}
-                  surfaceHidden={Boolean(showChat && isNarrow)}
+                  // Mobile chat/queue sheet: the native surface is CLIPPED to
+                  // the area above the sheet (sheet height = min(70vh, 520px),
+                  // mirroring RoomPage.module.css), so the panel renders ON
+                  // TOP of the video like the Share modal — the video keeps
+                  // playing in the visible band above it.
+                  surfaceClipBottom={
+                    showChat && isNarrow
+                      ? Math.min((window.innerHeight || 800) * 0.7, 520)
+                      : 0
+                  }
                 />
               </ErrorBoundary>
             ) : (

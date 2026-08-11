@@ -21,6 +21,35 @@
   margin: 0;
 }
 
+.hint {
+  position: relative;
+  padding-right: 22px;
+}
+
+.hintDismiss {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--room-text-secondary);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.7;
+}
+
+.hintDismiss:hover {
+  opacity: 1;
+  color: var(--room-text-primary);
+}
+
 .tabs {
   display: flex;
   background: var(--room-surface-raised);

@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { useAuth } from '../shared/auth/hooks/useAuth.jsx'
 import { isSuitableThumbnail, isTitleMatch, cleanTitleForMatching } from '../shared/lib/mediaHelper.js'
 import { apiPath, parseJsonResponse } from '../shared/lib/api.js'
+import { friendlyApiError } from '../shared/lib/mediaApi.js'
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
 function softClientTitleMatch(title, query) {
@@ -176,14 +177,14 @@ export function useUnifiedSearch() {
         }
         throw parseErr
       }
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      if (!res.ok) throw new Error(friendlyApiError(data.error) || `HTTP ${res.status}`)
       // Treat soft errors (e.g. YouTube key missing) as non-fatal if results exist
       if (data.success === false && !(data.results && data.results.length)) {
-        throw new Error(data.error || 'Search failed')
+        throw new Error(friendlyApiError(data.error) || 'Search failed')
       }
       if (data.error && (!data.results || data.results.length === 0)) {
         // Surface provider-specific soft errors (e.g. "YouTube: API key not configured")
-        throw new Error(data.error)
+        throw new Error(friendlyApiError(data.error))
       }
 
       const newResults = data.results || []
@@ -211,7 +212,7 @@ export function useUnifiedSearch() {
       return finalResults
     } catch (err) {
       if (err.name === 'AbortError') return []
-      setError(err.message || 'Search failed')
+      setError(friendlyApiError(err.message || 'Search failed'))
       if (!append) {
         resultsRef.current = []
         setResults([])

@@ -479,14 +479,35 @@
 
 .resultsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 10px;
   margin-bottom: 32px;
 }
 
+/* Denser cards: 16:9 thumb + one compact info block, no separate action row.
+   Matches the episode-grid density used in the show browser (Image 11). */
 @media (max-width: 520px) {
   .resultsGrid {
     grid-template-columns: 1fr;
+  }
+
+  /* Mobile: thumbnail becomes a left rail so one-line results don't eat a
+     full screen-width 16:9 poster (was the oversized-card complaint). */
+  .resultCard {
+    display: grid;
+    grid-template-columns: 112px 1fr;
+    align-items: stretch;
+  }
+
+  .resultCard .thumbnail {
+    aspect-ratio: auto;
+    height: 100%;
+    min-height: 72px;
+  }
+
+  .resultCard .noThumbnail svg {
+    width: 20px;
+    height: 20px;
   }
 }
 
@@ -590,15 +611,16 @@
 }
 
 .info {
-  padding: 12px;
+  padding: 10px 10px 12px;
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-width: 0;
 }
 
 .title {
-  margin: 0 0 4px;
-  font-size: 14px;
+  margin: 0 0 3px;
+  font-size: 13px;
   font-family: var(--font-display);
   font-weight: 600;
   line-height: 1.35;
@@ -638,8 +660,9 @@
   gap: 8px;
   border: 0;
   border-radius: 6px;
-  height: 34px;
-  padding: 0 16px;
+  height: 30px;
+  margin-top: auto; /* pin to the card bottom so titles of varying length align */
+  padding: 0 14px;
   background: var(--room-text-primary);
   color: var(--room-bg);
   cursor: pointer;
@@ -809,10 +832,10 @@
 }
 
 .tab {
-  border-radius: 14px;
-  min-height: 54px;
-  padding: 0 18px;
-  font-size: 15px;
+  border-radius: 12px;
+  min-height: 36px; /* was 54px — tiles were oversized for icon+label content */
+  padding: 0 14px;
+  font-size: 14px;
   font-weight: 650;
   -webkit-tap-highlight-color: transparent;
 }
@@ -829,9 +852,9 @@
 }
 
 .layerInfo {
-  border-radius: 18px;
-  min-height: 58px;
-  padding: 0 18px;
+  border-radius: 14px;
+  min-height: 44px;
+  padding: 0 16px;
 }
 
 .layerIcon {
@@ -929,7 +952,7 @@
 
 .watchBtn {
   border-radius: 999px !important;
-  min-height: 42px;
+  min-height: 30px;
   font-weight: 750;
 }
 

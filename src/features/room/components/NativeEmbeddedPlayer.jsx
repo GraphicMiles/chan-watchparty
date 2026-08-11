@@ -59,12 +59,19 @@ export default function NativeEmbeddedPlayer({
   onControlsTap = null, // native surface tapped -> app toggles its control bar
   onFullscreenChange = null, // native fullscreen entered/exited (syncs JS state)
   visible = true, // false when room panels must render above the video
+  clipBottomPx = 0, // CSS px clipped off the viewport bottom (mobile sheet) —
+                    // the native surface never covers the panel area, so the
+                    // panel renders ON TOP of the video like the Share modal
 }) {
   const propsRef = useRef({ onProgress, onApi, onControlsTap, onFullscreenChange })
   useEffect(() => {
     propsRef.current = { onProgress, onApi, onControlsTap, onFullscreenChange }
   }, [onProgress, onApi, onControlsTap, onFullscreenChange])
   const surfaceRef = useRef(null)
+  const clipRef = useRef(clipBottomPx)
+  useEffect(() => {
+    clipRef.current = clipBottomPx
+  }, [clipBottomPx])
   const stateRef = useRef({ posSec: startSeconds || 0, durSec: 0, playing: false, ended: false, endedHandled: false })
   const callbacksRef = useRef({ onReady, onPlayerEvent, onEnded, onError })
   const readySentRef = useRef(false)
@@ -371,7 +378,17 @@ export default function NativeEmbeddedPlayer({
         try {
           const dpr = window.devicePixelRatio || 1
           const r = el.getBoundingClientRect()
-          const onScreen = r.bottom > 0 && r.top < (window.innerHeight || 800) && r.width > 0 && r.height > 0
+
+          // Clip the surface to the area above the bottom sheet (chat/queue).
+          // The sheet is a fixed-height panel at the bottom of the viewport;
+          // the native surface must never cover it — otherwise the panel would
+          // render BEHIND the video instead of on top of it.
+          let visBottom = r.bottom
+          const clipTop = (window.innerHeight || 800) - (clipRef.current || 0)
+          if (clipRef.current > 0) visBottom = Math.min(r.bottom, clipTop)
+          const hCss = Math.max(0, visBottom - r.top)
+
+          const onScreen = r.bottom > 0 && r.top < (window.innerHeight || 800) && r.width > 0 && hCss > 0
           const shouldShow = visibleRef.current && onScreen
           // Panels/offscreen: hide the native surface so web UI renders above.
           if (!shouldShow) {
@@ -383,7 +400,7 @@ export default function NativeEmbeddedPlayer({
             // WebView underneath receives touches. The strip height is tracked
             // live by the parent (ResizeObserver on the control bar).
             const stripPx = Math.max(0, Math.round((controlsHeightRef.current || 0) * dpr))
-            const h = Math.max(0, Math.round(r.height * dpr) - stripPx)
+            const h = Math.max(0, Math.round(hCss * dpr) - stripPx)
             VideoPlayerPlugin.setRect({
               x: Math.round(r.left * dpr),
               y: Math.round(r.top * dpr),

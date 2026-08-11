@@ -9,6 +9,7 @@ import {
 import { createRoom, isO2TvUrl } from '../../../shared/lib/createRoom.js'
 import { isSuitableThumbnail } from '../../../shared/lib/mediaHelper.js'
 import { cleanMediaTitle } from '../../../shared/lib/titleFormat.js'
+import { friendlyApiError } from '../../../shared/lib/mediaApi.js'
 import { Button, Input, Card, useToast } from '../../../shared/ui/index.js'
 import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
 import { Link2 } from 'lucide-react'
@@ -72,7 +73,10 @@ export default function CreateRoomPage() {
   const [content, setContent] = useState(null) // picked content OR null = browsing
   const [pasteUrl, setPasteUrl] = useState('')
   const [browserTask, setBrowserTask] = useState(null) // { type:'show', slug, name, thumb }
-  const [title, setTitle] = useState(cleanMediaTitle(presetTitle) || presetTitle)
+  // Custom room title override. Starts EMPTY on purpose — the picked content's
+  // title is the default, shown as the input placeholder, so we never render
+  // the same title twice (once in the picked card, once in the field).
+  const [title, setTitle] = useState('')
   const [capacity, setCapacity] = useState(12)
   const [isPrivate, setIsPrivate] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -83,7 +87,8 @@ export default function CreateRoomPage() {
   const pickContent = useCallback((next) => {
     setContent(next)
     setError(null)
-    setTitle(cleanMediaTitle(next?.title || '') || title)
+    // Keep a custom title the user already typed; never clobber it with the
+    // picked title (that created the duplicate-title display).
   }, [])
 
   // ── Bootstrap from /media hand-off / deep link ───────────────────────
@@ -194,8 +199,11 @@ export default function CreateRoomPage() {
     setError(null)
     setCreating(true)
     try {
+      // Custom title override: fall back to the picked content's title when
+      // the user left the field empty (its placeholder already shows it).
+      const roomTitle = title.trim() || cleanMediaTitle(content?.title || '') || 'Untitled room'
       const { roomId, inviteCode } = await createRoom(user, {
-        title,
+        title: roomTitle,
         capacity: Number(capacity) || 12,
         isPrivate,
         content,
@@ -204,8 +212,9 @@ export default function CreateRoomPage() {
       navigate(`/room/${roomId}${inviteCode ? `?invite=${inviteCode}` : ''}`)
     } catch (err) {
       console.error('Create room error:', err)
-      setError(err.message || 'Could not create room. Please try again.')
-      toast(err.message || 'Could not create room', { variant: 'error' })
+      // Single presentation point: the in-panel banner (visible on the create
+      // pane). The toast previously duplicated the same message on screen.
+      setError(friendlyApiError(err.message || 'Could not create room. Please try again.'))
       setCreating(false)
     }
   }
@@ -288,10 +297,10 @@ export default function CreateRoomPage() {
 
             <form onSubmit={create} className={styles.form}>
               <Input
-                placeholder="Room title"
+                label="Room title (optional)"
+                placeholder={content?.title ? `Defaults to "${cleanMediaTitle(content.title)}"` : 'Room title'}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                required
                 maxLength={80}
               />
 

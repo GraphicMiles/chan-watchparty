@@ -241,6 +241,12 @@ export default function UnifiedSearch() {
           <ShowBrowser
             onPick={handleDirectPick}
             initialMode="tv"
+            // The outer layer tabs above already cover source selection
+            // (Direct Links / YouTube / IPTV / Sports) — showing the browser's
+            // own TV/YouTube toggle here stacked two source selectors for one
+            // concept. The browser's internal toggle stays on standalone
+            // embeds (CreateRoomPage) where there are no outer tabs.
+            hideModeTabs
             placeholder="Search TV shows &amp; movies (Silo, House of the Dragon…) or paste a link"
           />
         </div>
@@ -395,8 +401,6 @@ function ResultCard({ result, layer }) {
           {result.views && <span>{parseInt(result.views).toLocaleString()} views</span>}
           {result.source && <span className={styles.source}>{result.source}</span>}
         </div>
-      </div>
-      <div className={styles.actions}>
         <button type="button" className={`${styles.watchBtn} ${result.isLive ? styles.liveBtn : ''}`} onClick={(e) => { e.stopPropagation(); handleClick() }}>
           {result.isLive ? 'Watch Live' : 'Watch in Room'}
         </button>
