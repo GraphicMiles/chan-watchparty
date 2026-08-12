@@ -13,6 +13,8 @@ export interface ShowEmbeddedOptions {
   codec?: string | null
   /** Hide native chrome; the app's own control bar drives playback. */
   controls?: boolean
+  /** Live stream (no seekbar in fullscreen controls). */
+  isLive?: boolean
 }
 
 export interface Rect {

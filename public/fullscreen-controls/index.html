@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Chan Fullscreen Controls</title>
+<style>
+  :root { --t: #F5F5F7; --t2: #A6A6B0; }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; background:transparent; overflow:hidden; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  #app { position:fixed; inset:0; color:var(--t); }
+  #scrim { position:absolute; inset:0; background:linear-gradient(180deg, rgba(0,0,0,.55), transparent 28%, transparent 72%, rgba(0,0,0,.65)); opacity:0; transition:opacity .25s; pointer-events:none; }
+  #app.visible #scrim { opacity:1; }
+  #controls { position:absolute; inset:0; opacity:0; transition:opacity .25s; pointer-events:none; }
+  #app.visible #controls { opacity:1; pointer-events:auto; }
+  .topbar { position:absolute; top:0; left:0; right:0; display:flex; align-items:center; gap:8px; padding:calc(env(safe-area-inset-top, 0px) + 10px) 12px 10px; }
+  .title { flex:1; font-size:14px; font-weight:600; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 1px 3px rgba(0,0,0,.7); }
+  .btn { width:40px; height:40px; border-radius:50%; border:none; background:rgba(0,0,0,.45); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; flex:0 0 auto; }
+  .btn:active { transform:scale(.92); }
+  .btn svg { width:20px; height:20px; }
+  .bottom { position:absolute; bottom:0; left:0; right:0; padding:10px 12px calc(env(safe-area-inset-bottom, 0px) + 10px); display:flex; flex-direction:column; gap:8px; }
+  .row { display:flex; align-items:center; gap:10px; }
+  .time { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#fff; min-width:40px; text-align:center; }
+  .seek { flex:1; position:relative; height:34px; display:flex; align-items:center; }
+  .seek input { width:100%; -webkit-appearance:none; appearance:none; background:transparent; height:34px; cursor:pointer; }
+  .seek input::-webkit-slider-runnable-track { height:4px; border-radius:4px; background:rgba(255,255,255,.25); }
+  .seek input::-webkit-slider-thumb { -webkit-appearance:none; width:15px; height:15px; border-radius:50%; background:#fff; margin-top:-5.5px; box-shadow:0 1px 4px rgba(0,0,0,.6); }
+  .mini { border:none; background:rgba(0,0,0,.45); color:#fff; border-radius:999px; padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .mini:active { transform:scale(.94); }
+  .mini svg { width:15px; height:15px; }
+  .secondary { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .vol { width:76px; -webkit-appearance:none; appearance:none; height:4px; border-radius:4px; background:rgba(255,255,255,.3); accent-color:#fff; }
+  .live { display:inline-flex; align-items:center; gap:5px; background:rgba(255,77,77,.2); border-radius:999px; padding:3px 9px; font-size:10px; font-weight:800; color:#ff4d4d; }
+  .live .dot { width:7px; height:7px; border-radius:50%; background:#ff4d4d; animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity:.3; } }
+  .hidden { display:none !important; }
+  .ripple { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:92px; height:92px; border-radius:50%; background:rgba(255,255,255,.14); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:13px; font-weight:700; color:#fff; pointer-events:none; animation:ripple .5s ease-out forwards; }
+  @keyframes ripple { from { transform:translate(-50%,-50%) scale(.6); opacity:1; } to { transform:translate(-50%,-50%) scale(1.15); opacity:0; } }
+  .ripple svg { width:30px; height:30px; }
+</style>
+</head>
+<body>
+<div id="app" class="visible">
+  <div id="scrim"></div>
+  <div id="controls">
+    <div class="topbar">
+      <span class="title" id="title">Chan Video</span>
+      <span class="live hidden" id="liveChip"><span class="dot"></span>LIVE</span>
+      <button class="btn" id="btnRotate" title="Rotate orientation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
+      </button>
+      <button class="btn" id="btnMin" title="Minimize">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+      </button>
+    </div>
+    <div class="bottom">
+      <div class="row">
+        <button class="btn" id="btnPlay" title="Play/Pause">
+          <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <span class="time" id="cur">0:00</span>
+        <div class="seek"><input type="range" id="seek" min="0" max="1000" value="0"></div>
+        <span class="time" id="dur">0:00</span>
+        <button class="btn" id="btnFs" title="Minimize">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
+        <button class="btn" id="btnEye" title="Secondary controls">
+          <svg id="eyeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+      <div class="secondary hidden" id="secondary">
+        <button class="mini" id="btnMute" title="Mute">
+          <svg id="volIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/></svg>
+        </button>
+        <input type="range" class="vol" id="vol" min="0" max="1" step="0.05" value="1">
+        <button class="mini" id="btnBack" title="Rewind 10s">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>-10s
+        </button>
+        <button class="mini" id="btnFwd" title="Forward 10s">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>+10s
+        </button>
+        <button class="mini" id="btnBright" title="Brightness">Bright</button>
+        <button class="mini" id="btnCC" title="Closed captions">CC</button>
+        <button class="mini" id="btnSpeed" title="Playback speed">1×</button>
+        <button class="mini" id="btnPip" title="Picture in picture">PiP</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  var state = { playing:false, positionMs:0, durationMs:0, title:'Chan Video', live:false, volume:1, muted:false, speedIdx:0, brightIdx:0, ccOn:false, dragging:false };
+  var SPEEDS = [1, 1.25, 1.5, 2];
+  var BRIGHTS = [1, 0.75, 0.5];
+
+  function cmd(action, value) {
+    try { if (window.ChanNative) ChanNative.command(action, typeof value === 'number' ? value : 0); } catch (e) {}
+  }
+  function fmt(ms) {
+    var s = Math.max(0, Math.floor((ms || 0) / 1000));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    function p(n){ return n < 10 ? '0' + n : '' + n; }
+    return h > 0 ? h + ':' + p(m) + ':' + p(sec) : m + ':' + p(sec);
+  }
+  var $ = function(id){ return document.getElementById(id); };
+
+  // ── State from native ────────────────────────────────────────────────
+  window.chanState = function(s) {
+    if (!s) return;
+    if (typeof s.playing === 'boolean') { state.playing = s.playing; setPlayIcon(s.playing); }
+    if (typeof s.positionMs === 'number') { state.positionMs = s.positionMs; if (!state.dragging) $('seek').value = state.durationMs > 0 ? Math.round((s.positionMs / state.durationMs) * 1000) : 0; $('cur').textContent = fmt(s.positionMs); }
+    if (typeof s.durationMs === 'number' && s.durationMs > 0) { state.durationMs = s.durationMs; $('dur').textContent = fmt(s.durationMs); }
+    if (s.title) { state.title = s.title; $('title').textContent = s.title; }
+    if (typeof s.live === 'boolean') { state.live = s.live; $('liveChip').classList.toggle('hidden', !s.live); $('seek').disabled = s.live; if (s.live) { $('dur').textContent = 'LIVE'; } }
+    if (s.durationMs === 0 && !state.live) { $('dur').textContent = '0:00'; }
+  };
+  window.chanTitle = function(t) { if (t) { state.title = t; $('title').textContent = t; } };
+
+  function setPlayIcon(playing) {
+    $('playIcon').innerHTML = playing
+      ? '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>'
+      : '<path d="M8 5v14l11-7z"/>';
+  }
+
+  // ── Controls ─────────────────────────────────────────────────────────
+  $('btnPlay').addEventListener('click', function(){ cmd('toggle'); });
+  $('btnBack').addEventListener('click', function(){ cmd('skip', -10000); ripple(-10); });
+  $('btnFwd').addEventListener('click', function(){ cmd('skip', 10000); ripple(10); });
+  $('btnMin').addEventListener('click', function(){ cmd('minimize'); });
+  $('btnFs').addEventListener('click', function(){ cmd('minimize'); });
+  $('btnRotate').addEventListener('click', function(){ cmd('rotate'); });
+  $('btnEye').addEventListener('click', function(){ $('secondary').classList.toggle('hidden'); });
+  $('btnPip').addEventListener('click', function(){ cmd('pip'); });
+  $('btnMute').addEventListener('click', function(){
+    state.muted = !state.muted;
+    cmd('volume', state.muted ? 0 : state.volume);
+    $('vol').value = state.muted ? 0 : state.volume;
+  });
+  $('vol').addEventListener('input', function(){
+    state.volume = parseFloat(this.value);
+    state.muted = state.volume === 0;
+    cmd('volume', state.volume);
+  });
+  $('btnBright').addEventListener('click', function(){
+    state.brightIdx = (state.brightIdx + 1) % BRIGHTS.length;
+    cmd('brightness', BRIGHTS[state.brightIdx]);
+    $('btnBright').textContent = state.brightIdx === 0 ? 'Bright' : Math.round(BRIGHTS[state.brightIdx] * 100) + '%';
+  });
+  $('btnCC').addEventListener('click', function(){
+    state.ccOn = !state.ccOn;
+    cmd('cc', state.ccOn ? 1 : 0);
+    $('btnCC').textContent = state.ccOn ? 'CC: On' : 'CC';
+  });
+  $('btnSpeed').addEventListener('click', function(){
+    state.speedIdx = (state.speedIdx + 1) % SPEEDS.length;
+    cmd('rate', SPEEDS[state.speedIdx]);
+    $('btnSpeed').textContent = SPEEDS[state.speedIdx] + '×';
+  });
+
+  // ── Seek ─────────────────────────────────────────────────────────────
+  $('seek').addEventListener('input', function(){
+    state.dragging = true;
+    var frac = parseFloat(this.value) / 1000;
+    $('cur').textContent = fmt(Math.round(frac * state.durationMs));
+  });
+  $('seek').addEventListener('change', function(){
+    var frac = parseFloat(this.value) / 1000;
+    cmd('seek', Math.round(frac * state.durationMs));
+    state.dragging = false;
+  });
+  $('seek').addEventListener('touchend', function(){ setTimeout(function(){ state.dragging = false; }, 150); });
+
+  // ── Gestures: single tap toggle, double-tap side seek ───────────────
+  var lastTap = 0, tapTimer = null, lastX = 0;
+  function onTap(x, w) {
+    var now = Date.now();
+    var side = x < w * 0.38 ? 'left' : x > w * 0.62 ? 'right' : 'center';
+    if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; }
+    if (now - lastTap < 320 && side !== 'center') {
+      lastTap = 0;
+      var delta = side === 'left' ? -10000 : 10000;
+      cmd('skip', delta);
+      ripple(side === 'left' ? -10 : 10);
+      return;
+    }
+    lastTap = now;
+    tapTimer = setTimeout(function(){
+      tapTimer = null; lastTap = 0;
+      $('app').classList.toggle('visible');
+    }, side === 'center' ? 0 : 240);
+  }
+  $('app').addEventListener('pointerdown', function(e){
+    onTap(e.clientX, window.innerWidth);
+  });
+
+  function ripple(sec) {
+    var r = document.createElement('div');
+    r.className = 'ripple';
+    r.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      (sec < 0 ? '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>' : '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/>') +
+      '</svg>' + (sec > 0 ? '+' : '') + sec + 's';
+    document.body.appendChild(r);
+    setTimeout(function(){ r.remove(); }, 520);
+  }
+
+  // Prevent context menu / scrolling
+  document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+</script>
+</body>
+</html>

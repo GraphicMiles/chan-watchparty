@@ -524,6 +524,17 @@ public class ChanPlayerEngine {
         }
     }
 
+    /** Playback rate (speed). Exo setPlaybackSpeed / VLC setRate. */
+    public void setPlaybackRate(float rate) {
+        float r = Math.max(0.25f, Math.min(3f, rate));
+        if (exoPlayer != null) {
+            try { exoPlayer.setPlaybackSpeed(r); } catch (Exception ignored) { }
+        }
+        if (vlcPlayer != null) {
+            try { vlcPlayer.setRate(r); } catch (Exception ignored) { }
+        }
+    }
+
     public void release() {
         disposed = true;
         releaseExo();
