@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core'
 import { Hls, Events, ErrorTypes, isSupported } from 'hls.js'
 import {
   AlertTriangle, Radio, Play, Pause, RotateCcw, RotateCw, Loader2,
-  Volume2, VolumeX, Maximize, Palette, PictureInPicture2, Bookmark, Settings, Sun, Eye, EyeOff, Cpu, FileText
+  Volume2, VolumeX, Maximize, PictureInPicture2, Bookmark, Settings, Sun, Eye, EyeOff, FileText
 } from 'lucide-react'
 import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
@@ -12,7 +12,6 @@ import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 import { normalizePlaybackUrl, isRemuxProxyUrl, withRemuxSeekTime, getRemuxSeekTime } from '../../../shared/lib/youtube.js'
 import { proxyTargetUrl } from '../../../shared/lib/mediaApi.js'
 import { useToast } from '../../../shared/ui/index.js'
-import { VideoUpscaler } from './VideoUpscaler.jsx'
 import NativeEmbeddedPlayer from './NativeEmbeddedPlayer.jsx'
 import styles from './VideoPlayer.module.scss'
 import { apiPath } from '../../../shared/lib/api.js'
@@ -20,28 +19,6 @@ import { VideoPlayerPlugin } from '../../../native/VideoPlayerPlugin'
 
 const RETRY_ATTEMPTS = 3
 const RETRY_DELAY = 3000
-
-const VIDEO_FILTERS = {
-  none: { label: 'Normal / Original', css: 'none', desc: 'Default unaltered stream color', native: { b: 1, c: 1, s: 1, h: 0 } },
-  ai_4k_upscale: { label: 'AI 4K Super-Res Upscale', css: 'contrast(1.45) saturate(1.68) brightness(1.06) drop-shadow(0 0 2px rgba(255,255,255,0.35)) hue-rotate(-2deg)', desc: 'Perceptual 4K super-resolution: edge sharpening, micro-contrast & HDR pop for direct streams', native: { b: 1.06, c: 1.45, s: 1.68, h: -2 } },
-  ai_120fps_motion: { label: 'AI 120fps Motion Flow & Pop', css: 'contrast(1.5) saturate(1.82) brightness(1.09) drop-shadow(0 0 2.5px rgba(255,255,255,0.42)) sepia(0.05) hue-rotate(2deg)', desc: 'Perceptual 120fps motion clarity: crushed shadows, glowing highlights & ultra-vivid action', native: { b: 1.09, c: 1.5, s: 1.82, h: 2 } },
-  capcut_pro_4k: { label: 'CapCut Pro 4K HDR Pop', css: 'contrast(1.32) saturate(1.55) brightness(1.04) hue-rotate(-3deg) drop-shadow(0 0 1px rgba(255,255,255,0.18))', desc: 'Ultra-crisp 4K definition, punchy contrast & deep saturated colors', native: { b: 1.04, c: 1.32, s: 1.55, h: -3 } },
-  tiktok_120fps_sports: { label: 'TikTok 4K Sports Edit', css: 'contrast(1.38) saturate(1.68) brightness(1.06) sepia(0.08) hue-rotate(4deg)', desc: 'Crushed stadium shadows, glowing floodlights & hyper-vivid jersey colors', native: { b: 1.06, c: 1.38, s: 1.68, h: 4 } },
-  akira_anime_hdr: { label: 'Akira / Anime 120fps HDR', css: 'contrast(1.25) saturate(1.75) brightness(1.08) hue-rotate(-6deg)', desc: 'Vibrant sky blues, lush sunlit greens & crystal-clear 2D line contrast', native: { b: 1.08, c: 1.25, s: 1.75, h: -6 } },
-  brazil_samba_glow: { label: 'Brazil Samba Gold & Teal', css: 'contrast(1.3) saturate(1.62) brightness(1.03) sepia(0.18) hue-rotate(-14deg)', desc: 'Rich golden yellows and deep royal stadium blues for football edits', native: { b: 1.03, c: 1.3, s: 1.62, h: -14 } },
-  bellingham_madrid_noir: { label: 'Madrid Royal Blue Pop', css: 'contrast(1.34) saturate(1.48) brightness(0.96) hue-rotate(8deg)', desc: 'Deep royal indigo shadows with crisp golden highlight punch', native: { b: 0.96, c: 1.34, s: 1.48, h: 8 } },
-  capcut_vibrant: { label: 'CapCut Vibrant', css: 'saturate(1.45) contrast(1.15) brightness(1.04) hue-rotate(-2deg)', desc: 'TikTok/CapCut punchy pop & high saturation', native: { b: 1.04, c: 1.15, s: 1.45, h: -2 } },
-  capcut_dark_mood: { label: 'CapCut Dark Mood', css: 'contrast(1.3) saturate(1.25) brightness(0.88) hue-rotate(5deg)', desc: 'Deep crushed shadows & glowing highlights', native: { b: 0.88, c: 1.3, s: 1.25, h: 5 } },
-  hollywood_teal_orange: { label: 'Hollywood Teal & Orange', css: 'contrast(1.22) saturate(1.35) brightness(0.95) hue-rotate(-12deg) sepia(0.12)', desc: 'Blockbuster cinema contrast and warm skin tones', native: { b: 0.95, c: 1.22, s: 1.35, h: -12 } },
-  imax_hdr: { label: 'IMAX Cinema HDR', css: 'contrast(1.28) saturate(1.18) brightness(1.02) drop-shadow(0 0 1px rgba(255,255,255,0.1))', desc: 'High dynamic range clarity with crisp definition', native: { b: 1.02, c: 1.28, s: 1.18, h: 0 } },
-  tiktok_golden: { label: 'TikTok Golden Hour', css: 'saturate(1.3) brightness(1.06) contrast(1.1) sepia(0.22) hue-rotate(-8deg)', desc: 'Sun-drenched warm glow for aesthetic edits', native: { b: 1.06, c: 1.1, s: 1.3, h: -8 } },
-  cyberpunk_neon: { label: 'Cyberpunk Neon Glow', css: 'saturate(1.65) contrast(1.25) brightness(0.98) hue-rotate(35deg)', desc: 'Futuristic electric pinks, purples & cyan', native: { b: 0.98, c: 1.25, s: 1.65, h: 35 } },
-  anime_vivid: { label: 'Anime Vivid Pop', css: 'saturate(1.55) contrast(1.12) brightness(1.08) hue-rotate(-5deg)', desc: 'Super bright candy-colored pop perfect for 2D', native: { b: 1.08, c: 1.12, s: 1.55, h: -5 } },
-  vintage_kodak: { label: 'Vintage Kodak 35mm', css: 'sepia(0.38) contrast(1.14) saturate(0.88) brightness(0.94) hue-rotate(10deg)', desc: 'Retro analog film look with nostalgic warmth', native: { b: 0.94, c: 1.14, s: 0.88, h: 10 } },
-  clean_boost: { label: 'Clean Clarity Boost', css: 'brightness(1.15) contrast(1.12) saturate(1.12)', desc: 'Lifts dull scenes while keeping colors crisp', native: { b: 1.15, c: 1.12, s: 1.12, h: 0 } },
-  night_owl: { label: 'Night Owl Low Light', css: 'brightness(1.35) contrast(1.18) saturate(1.1)', desc: 'Lifts deep shadows so dark movie scenes are crystal clear', native: { b: 1.35, c: 1.18, s: 1.1, h: 0 } },
-  moody_noir: { label: 'Moody Noir Film', css: 'grayscale(0.85) contrast(1.4) brightness(0.92)', desc: 'High-contrast monochrome with deep dramatic feel', native: { b: 0.92, c: 1.4, s: 0.15, h: 0 } },
-}
 
 function youtubeUrl(videoId) {
   return videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : ''
@@ -203,20 +180,15 @@ export default function VideoPlayer({
   const [showControls, setShowControls] = useState(true)
   const [showSecondaryControls, setShowSecondaryControls] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [videoFilter, setVideoFilter] = useState('none')
   const [brightnessMultiplier, setBrightnessMultiplier] = useState(1.0)
-  const [showFilterMenu, setShowFilterMenu] = useState(false)
-  const [filterMenuUp, setFilterMenuUp] = useState(true)
   const [qualityMenuUp, setQualityMenuUp] = useState(true)
   const [hlsLevels, setHlsLevels] = useState([])
   const [currentLevel, setCurrentLevel] = useState(-1)
   const [showQualityMenu, setShowQualityMenu] = useState(false)
   const [stagePins, setStagePins] = useState([])
   const [vlcGesture, setVlcGesture] = useState(null)
-  const [aiUpscaleMode, setAiUpscaleMode] = useState('off') // 'off' | '4k' | '120fps'
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(false)
   const [subtitlesLoading, setSubtitlesLoading] = useState(false)
-  const [targetVideoElement, setTargetVideoElement] = useState(null)
   
   const controlsTimeoutRef = useRef(null)
   // ── Option A native wiring: the app's control bar drives the native engine ──
@@ -310,52 +282,27 @@ export default function VideoPlayer({
     }
   }, [])
 
-  const isDirectStream = videoType !== 'youtube' && !/^(https?:\/\/)?(www\.)?(youtube|youtu\.be)/i.test(currentUrl)
-  const upscaleActive = aiUpscaleMode !== 'off'
+  // Brightness only (AI Upscale + LUT filters cut from v1 — keep the core
+  // video controls: play/pause, scrub, volume, seek, fullscreen, PiP, CC).
   const activeFilterCss = useMemo(() => {
-    let baseCss = VIDEO_FILTERS[videoFilter]?.css || 'none'
-    if (aiUpscaleMode === '4k') {
-      baseCss = baseCss === 'none' ? VIDEO_FILTERS.ai_4k_upscale.css : `${baseCss} ${VIDEO_FILTERS.ai_4k_upscale.css}`
-    } else if (aiUpscaleMode === '120fps') {
-      baseCss = baseCss === 'none' ? VIDEO_FILTERS.ai_120fps_motion.css : `${baseCss} ${VIDEO_FILTERS.ai_120fps_motion.css}`
-    }
-    if (brightnessMultiplier === 1) return baseCss
-    if (baseCss === 'none' || !baseCss) return `brightness(${brightnessMultiplier})`
-    if (/brightness\([\d.]+\)/i.test(baseCss)) {
-      return baseCss.replace(/brightness\([\d.]+\)/i, `brightness(${brightnessMultiplier})`)
-    }
-    return `${baseCss} brightness(${brightnessMultiplier})`
-  }, [videoFilter, brightnessMultiplier, aiUpscaleMode])
+    if (brightnessMultiplier === 1) return 'none'
+    return `brightness(${brightnessMultiplier})`
+  }, [brightnessMultiplier])
 
   const videoStyle = useMemo(() => ({
     filter: activeFilterCss,
-    imageRendering: upscaleActive && isDirectStream ? 'high-quality' : 'auto',
-    transform: upscaleActive && isDirectStream ? 'scale(1.02)' : 'none',
-    transition: 'filter 0.25s ease, transform 0.25s ease',
-  }), [activeFilterCss, upscaleActive, isDirectStream])
+    transition: 'filter 0.25s ease',
+  }), [activeFilterCss])
 
-  const handleAiUpscaleCycle = useCallback((e) => {
-    e?.stopPropagation()
-    setAiUpscaleMode((prev) => {
-      if (prev === 'off') return '4k'
-      if (prev === '4k') return '120fps'
-      return 'off'
-    })
-    toast(
-      aiUpscaleMode === 'off'
-        ? 'AI 4K Super-Resolution Upscale Enabled'
-        : aiUpscaleMode === '4k'
-        ? 'AI 120fps Motion Flow & Cinema Pop Enabled'
-        : 'AI Upscale & Motion Enhancements Disabled',
-      { variant: 'info' }
-    )
-  }, [aiUpscaleMode, toast])
 
   const handleBrightnessCycle = useCallback((e) => {
     e.stopPropagation()
+    // Dim-only cycle (100% → 75% → 50% → 100%). Applied as a pure dim
+    // overlay on the native surface — never touches the engine, so it can't
+    // interrupt playback on either ExoPlayer or VLC.
     setBrightnessMultiplier((prev) => {
-      if (prev === 1.0) return 1.5
-      if (prev === 1.5) return 2.0
+      if (prev === 1.0) return 0.75
+      if (prev === 0.75) return 0.5
       return 1.0
     })
   }, [])
@@ -905,17 +852,6 @@ export default function VideoPlayer({
   }, [isHls, played, currentUrl])
 
   // Track the active native <video> element for the WebGL upscaler overlay.
-  useEffect(() => {
-    let el = null
-    if (isHls) {
-      el = videoRef.current
-    } else if (playerRef.current?.getInternalPlayer) {
-      const internal = playerRef.current.getInternalPlayer()
-      if (internal instanceof HTMLVideoElement) el = internal
-    }
-    setTargetVideoElement(el)
-  }, [isHls, currentUrl, isReady])
-
   // Track the control bar's live height so the native surface shrinks to the
   // video frame only (never covers the app's bar). Re-measured on layout
   // changes (secondary row, fullscreen, DPR) and when the bar shows/hides.
@@ -1015,7 +951,6 @@ export default function VideoPlayer({
     controlsTimeoutRef.current = setTimeout(() => {
       if (playingRef.current) {
         setShowControls(false)
-        setShowFilterMenu(false)
         setShowQualityMenu(false)
       }
     }, 3500)
@@ -1026,7 +961,6 @@ export default function VideoPlayer({
     setShowControls((prev) => {
       const next = !prev
       if (!next) {
-        setShowFilterMenu(false)
         setShowQualityMenu(false)
       } else {
         if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
@@ -1034,8 +968,7 @@ export default function VideoPlayer({
           controlsTimeoutRef.current = setTimeout(() => {
             if (playingRef.current) {
               setShowControls(false)
-              setShowFilterMenu(false)
-              setShowQualityMenu(false)
+                    setShowQualityMenu(false)
             }
           }, 4000)
         }
@@ -1300,17 +1233,10 @@ export default function VideoPlayer({
   // adjustments (Exo RgbAdjustment / VLC adjust filter). Web keeps its CSS path.
   useEffect(() => {
     if (!isNativeEmbedded) return
-    const preset = (aiUpscaleMode !== 'off' && videoFilter === 'none')
-      ? (aiUpscaleMode === '4k' ? VIDEO_FILTERS.ai_4k_upscale : VIDEO_FILTERS.ai_120fps_motion)
-      : VIDEO_FILTERS[videoFilter]
-    const n = preset?.native || { b: 1, c: 1, s: 1, h: 0 }
-    VideoPlayerPlugin.setVideoEffects({
-      brightness: (n.b || 1) * brightnessMultiplier,
-      contrast: n.c || 1,
-      saturation: n.s || 1,
-      hue: n.h || 0,
-    }).catch(() => {})
-  }, [isNativeEmbedded, videoFilter, aiUpscaleMode, brightnessMultiplier])
+    // Brightness only (LUT presets + AI upscale cut from v1). Pure dim
+    // overlay — no engine call, so playability is never affected.
+    VideoPlayerPlugin.setBrightnessDim({ brightness: brightnessMultiplier }).catch(() => {})
+  }, [isNativeEmbedded, brightnessMultiplier])
 
   // Native mode: AI CC subtitles → attach the VTT to the native engine.
   useEffect(() => {
@@ -1523,13 +1449,6 @@ export default function VideoPlayer({
         </div>
       )}
 
-      {/* Perceptual AI super-resolution overlay for direct streams */}
-      <VideoUpscaler
-        videoElement={targetVideoElement}
-        enabled={upscaleActive && isDirectStream}
-        mode={aiUpscaleMode}
-      />
-
       {/* Transparent touch layer to ensure 1st tap toggles controls reliably & blocks long press context menu */}
       {!isNativeEmbedded && (
         <div
@@ -1666,21 +1585,10 @@ export default function VideoPlayer({
                   type="button"
                   className={`${styles.controlIconBtn} ${brightnessMultiplier > 1 ? styles.activeBrightnessBtn : ''}`}
                   onClick={handleBrightnessCycle}
-                  title="Brightness (Tap: 1x -> 1.5x -> 2x -> 1x)"
+                  title="Brightness (Tap: 100% -> 75% -> 50% -> 100%)"
                 >
-                  <Sun size={16} style={{ color: brightnessMultiplier > 1 ? '#FAB005' : 'inherit' }} />
-                  <span>{brightnessMultiplier === 1 ? 'Brightness' : `${brightnessMultiplier}x`}</span>
-                </button>
-
-                {/* AI Super-Resolution / 120fps Upscale Button */}
-                <button
-                  type="button"
-                  className={`${styles.controlIconBtn} ${aiUpscaleMode !== 'off' ? styles.activeBrightnessBtn : ''}`}
-                  onClick={handleAiUpscaleCycle}
-                  title="Hardware GPU Super-Resolution & 120fps Motion Flow (Tap: Off -> 4K -> 120fps)"
-                >
-                  <Cpu size={16} style={{ color: aiUpscaleMode !== 'off' ? '#00E699' : 'inherit' }} />
-                  <span>{aiUpscaleMode === 'off' ? 'AI Upscale' : aiUpscaleMode.toUpperCase()}</span>
+                  <Sun size={16} style={{ color: brightnessMultiplier < 1 ? '#FAB005' : 'inherit' }} />
+                  <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
                 </button>
 
                 {/* AI Closed Captions / Subtitles Button */}
@@ -1695,39 +1603,12 @@ export default function VideoPlayer({
                   <span>{subtitlesLoading ? 'AI CC...' : subtitlesEnabled ? 'CC: On' : 'CC: Off'}</span>
                 </button>
 
-                <div className={styles.popupContainer}>
-                  <button
-                    type="button"
-                    className={styles.controlIconBtn}
-                    onClick={(e) => { e.stopPropagation(); setShowFilterMenu(!showFilterMenu); setShowQualityMenu(false) }}
-                    title="Video LUT Filters"
-                  >
-                    <Palette size={16} />
-                    <span>{VIDEO_FILTERS[videoFilter]?.label || 'Filter'}</span>
-                  </button>
-                  {showFilterMenu && (
-                    <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
-                      {Object.entries(VIDEO_FILTERS).map(([key, item]) => (
-                        <button
-                          key={key}
-                          type="button"
-                          className={`${styles.popupMenuItem} ${videoFilter === key ? styles.popupMenuItemActive : ''}`}
-                          onClick={() => { setVideoFilter(key); setShowFilterMenu(false) }}
-                        >
-                          <span>{item.label}</span>
-                          <span className={styles.popupMenuSub}>{item.desc}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
                 {isHls && hlsLevels.length > 1 && (
                   <div className={styles.popupContainer}>
                     <button
                       type="button"
                       className={styles.controlIconBtn}
-                      onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); setShowFilterMenu(false) }}
+                      onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); }}
                       title="Stream Quality"
                     >
                       <Settings size={16} />
@@ -1996,21 +1877,10 @@ export default function VideoPlayer({
               type="button"
               className={`${styles.controlIconBtn} ${brightnessMultiplier > 1 ? styles.activeBrightnessBtn : ''}`}
               onClick={handleBrightnessCycle}
-              title="Brightness (Tap: 1x -> 1.5x -> 2x -> 1x)"
+              title="Brightness (Tap: 100% -> 75% -> 50% -> 100%)"
             >
-              <Sun size={16} style={{ color: brightnessMultiplier > 1 ? '#FAB005' : 'inherit' }} />
-              <span>{brightnessMultiplier === 1 ? 'Brightness' : `${brightnessMultiplier}x`}</span>
-            </button>
-
-            {/* AI Super-Resolution / 120fps Upscale Button */}
-            <button
-              type="button"
-              className={`${styles.controlIconBtn} ${aiUpscaleMode !== 'off' ? styles.activeBrightnessBtn : ''}`}
-              onClick={handleAiUpscaleCycle}
-              title="Hardware GPU Super-Resolution & 120fps Motion Flow (Tap: Off -> 4K -> 120fps)"
-            >
-              <Cpu size={16} style={{ color: aiUpscaleMode !== 'off' ? '#00E699' : 'inherit' }} />
-              <span>{aiUpscaleMode === 'off' ? 'AI Upscale' : aiUpscaleMode.toUpperCase()}</span>
+              <Sun size={16} style={{ color: brightnessMultiplier < 1 ? '#FAB005' : 'inherit' }} />
+              <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
             </button>
 
             {/* AI Closed Captions / Subtitles Button */}
@@ -2025,41 +1895,13 @@ export default function VideoPlayer({
               <span>{subtitlesLoading ? 'AI CC...' : subtitlesEnabled ? 'CC: On' : 'CC: Off'}</span>
             </button>
 
-            {/* Cinema LUT Filters Menu */}
-            <div className={styles.popupContainer}>
-              <button
-                type="button"
-                className={styles.controlIconBtn}
-                onClick={(e) => { e.stopPropagation(); setShowFilterMenu(!showFilterMenu); setShowQualityMenu(false); setFilterMenuUp((e.currentTarget.getBoundingClientRect().top) > 220) }}
-                title="Video LUT Filters"
-              >
-                <Palette size={16} />
-                <span>{VIDEO_FILTERS[videoFilter]?.label || 'Filter'}</span>
-              </button>
-              {showFilterMenu && (
-                <div className={`${styles.popupMenu} ${filterMenuUp ? styles.popupUp : ''}`} onClick={(e) => e.stopPropagation()}>
-                  {Object.entries(VIDEO_FILTERS).map(([key, item]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className={`${styles.popupMenuItem} ${videoFilter === key ? styles.popupMenuItemActive : ''}`}
-                      onClick={() => { setVideoFilter(key); setShowFilterMenu(false) }}
-                    >
-                      <span>{item.label}</span>
-                      <span className={styles.popupMenuSub}>{item.desc}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
             {/* HLS Quality Selector Menu */}
             {isHls && hlsLevels.length > 1 && (
               <div className={styles.popupContainer}>
                 <button
                   type="button"
                   className={styles.controlIconBtn}
-                  onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); setShowFilterMenu(false); setQualityMenuUp((e.currentTarget.getBoundingClientRect().top) > 220) }}
+                  onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); setQualityMenuUp((e.currentTarget.getBoundingClientRect().top) > 220) }}
                   title="Stream Quality"
                 >
                   <Settings size={16} />

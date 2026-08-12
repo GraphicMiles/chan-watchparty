@@ -50,64 +50,86 @@
   color: var(--room-text-primary);
 }
 
-.tabs {
+/* ⓘ info button next to the title (replaces the full description) */
+.hintInfo {
+  background: none;
+  border: none;
+  color: var(--room-text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  margin-left: 4px;
+  padding: 0 2px;
+  vertical-align: middle;
+}
+
+.hintInfo:hover {
+  color: var(--room-text-primary);
+}
+
+/* Merged search + source toggle in ONE row */
+.searchForm {
   display: flex;
+  flex-direction: column;
+}
+
+.searchMerge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sourceSeg {
+  display: inline-flex;
   background: var(--room-surface-raised);
   border-radius: var(--radius-pill);
-  padding: 4px;
-  gap: 4px;
+  padding: 3px;
+  gap: 3px;
   border: 1px solid var(--room-divider);
+  flex: 0 0 auto;
 }
 
-.tab, .tabActive {
-  flex: 1;
-  height: 34px;
+.seg, .segActive {
+  height: 30px;
   border: none;
   border-radius: var(--radius-pill);
-  font-size: 12px;
+  font-size: 11.5px;
   cursor: pointer;
   font-family: var(--font-body);
+  padding: 0 10px;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
-.tab {
+.seg {
   background: transparent;
   color: var(--room-text-secondary);
 }
 
-.tab:hover {
+.seg:hover {
   color: var(--room-text-primary);
 }
 
-.tabActive {
+.segActive {
   background: var(--room-surface);
   color: #fff;
   font-weight: 600;
   box-shadow: var(--shadow-sm);
 }
 
-.searchForm {
-  display: flex;
-  flex-direction: column;
-}
-
-.inputRow {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.inputRow button {
-  border-radius: 100px !important;
-  padding: 0 20px !important;
-  height: 38px !important;
-  white-space: nowrap;
-  flex: 0 0 auto;
-}
-
-.searchInput {
+.searchMerge .searchInput {
   flex: 1;
   min-width: 0;
+}
+
+.searchMerge button[type="submit"] {
+  border-radius: 100px !important;
+  width: 40px;
+  padding: 0 !important;
+  height: 38px !important;
+  flex: 0 0 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .searchResultsSection {
@@ -249,11 +271,9 @@
 }
 
 .emptyQueue {
-  padding: 24px 16px;
+  /* Compact inline empty state — no big bordered card */
+  padding: 10px 4px;
   text-align: center;
-  background: var(--room-surface);
-  border: 1px dashed var(--room-divider);
-  border-radius: var(--radius-card);
   color: var(--room-text-secondary);
   font-size: 13px;
 }

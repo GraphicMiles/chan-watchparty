@@ -80,6 +80,11 @@ export interface VideoPlayerPlugin {
   showEmbedded(options: ShowEmbeddedOptions): Promise<void>
   /** Apply brightness/contrast/saturation/hue to the active native engine. */
   setVideoEffects(options: VideoEffects): Promise<void>
+  /**
+   * Brightness via a dim overlay (0..1, 1 = full). Pure rendering — never
+   * touches the engine, so it can't interrupt playback.
+   */
+  setBrightnessDim(options: { brightness: number }): Promise<void>
   /** Attach a VTT subtitle track (empty detaches). */
   setSubtitles(options: { vttText: string }): Promise<void>
   /** Enumerate native video tracks for the quality menu. */
