@@ -32,6 +32,7 @@ data class RoomData(
     val videoUrl: String? = null,
     val videoType: String = "direct",
     val thumbnail: String? = null,
+    val vibeLighting: Boolean = false,
     /** Stream descriptor { streamUrl (absolute), referer, headers, container, codec }. */
     val media: Map<String, Any?> = emptyMap(),
 ) {
@@ -89,6 +90,15 @@ data class PlayerSync(
     val videoId: String? = null,
 )
 
+data class FloatingReaction(
+    val id: String,
+    val emoji: String,
+    val createdAtMs: Long = 0L,
+)
+
+private val REACTION_TTL_MS = 6000L
+private val SOUND_TTL_MS = 6000L
+
 /**
  * RoomRepository — single source of truth for the native room.
  *
@@ -129,6 +139,10 @@ class RoomRepository(
     val typing: StateFlow<List<Pair<String, String>>> = _typing
     private val _aiCooldownSec = MutableStateFlow(0)
     val aiCooldownSec: StateFlow<Int> = _aiCooldownSec
+    private val _floatingReactions = MutableStateFlow<List<FloatingReaction>>(emptyList())
+    val floatingReactions: StateFlow<List<FloatingReaction>> = _floatingReactions
+    private val _soundBanner = MutableStateFlow<String?>(null)
+    val soundBanner: StateFlow<String?> = _soundBanner
 
     private val roomPath = "rooms/$roomId"
     private val messagesPath = "rooms/$roomId/messages"
@@ -140,6 +154,7 @@ class RoomRepository(
     private var pollJob: Job? = null
     private var syncJob: Job? = null
     private var serverOffsetMs = 0L
+    private var pollTicks = 0
 
     fun start() {
         if (pollJob != null) return
@@ -150,6 +165,11 @@ class RoomRepository(
                 try { refreshMessages() } catch (_: Exception) {}
                 try { refreshQueue() } catch (_: Exception) {}
                 try { refreshTyping() } catch (_: Exception) {}
+                try { refreshFloatingReactions() } catch (_: Exception) {}
+                try { refreshSoundEffects() } catch (_: Exception) {}
+                // Host heartbeat (~60s) so room cleanup never deletes a live room.
+                pollTicks++
+                if (pollTicks % 24 == 0 && myRole() == "host") heartbeat()
                 delay(2500)
             }
         }
@@ -198,8 +218,41 @@ class RoomRepository(
             videoUrl = doc["videoUrl"] as? String,
             videoType = doc["videoType"] as? String ?: "direct",
             thumbnail = doc["thumbnail"] as? String,
+            vibeLighting = doc["vibeLighting"] as? Boolean ?: false,
             media = (doc["media"] as? Map<*, *>)?.filterKeys { it is String }?.mapKeys { it.key.toString() } ?: emptyMap(),
         )
+    }
+
+    private fun refreshFloatingReactions() {
+        val docs = fs.listDocuments("rooms/$roomId/floatingReactions", pageSize = 30)
+        val now = System.currentTimeMillis()
+        val list = docs.mapNotNull { (id, f) ->
+            val emoji = f["emoji"] as? String ?: return@mapNotNull null
+            val at = (f["createdAtMs"] as? Number)?.toLong() ?: (f["createdAt"] as? Long) ?: now
+            if (now - at > REACTION_TTL_MS) null else FloatingReaction(id, emoji, at)
+        }
+        _floatingReactions.value = list.sortedBy { it.createdAtMs }
+    }
+
+    private fun refreshSoundEffects() {
+        val docs = fs.listDocuments("rooms/$roomId/soundEffects", pageSize = 20)
+        val now = System.currentTimeMillis()
+        val latest = docs.mapNotNull { (id, f) ->
+            val key = f["soundKey"] as? String ?: return@mapNotNull null
+            val at = (f["createdAtMs"] as? Number)?.toLong() ?: (f["createdAt"] as? Long) ?: 0L
+            if (now - at > SOUND_TTL_MS) null else key to at
+        }.maxByOrNull { it.second }
+        _soundBanner.value = latest?.first
+    }
+
+    private fun heartbeat() {
+        try {
+            fs.setDocument(
+                roomPath,
+                mapOf<String, Any?>(),
+                serverTimestampPaths = listOf("lastHeartbeat"),
+            )
+        } catch (_: Exception) {}
     }
 
     private fun refreshMessages() {
@@ -337,6 +390,23 @@ class RoomRepository(
         }
     }
 
+    fun sendReaction(emoji: String) {
+        scope.launch {
+            try {
+                fs.setDocument(
+                    "rooms/$roomId/floatingReactions/" + java.util.UUID.randomUUID().toString(),
+                    mapOf(
+                        "uid" to uid,
+                        "emoji" to emoji.take(16),
+                        "createdAtMs" to System.currentTimeMillis(),
+                    ),
+                    serverTimestampPaths = listOf("createdAt"),
+                    createOnly = true,
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
     fun setTyping(isTyping: Boolean) {
         scope.launch {
             try {
@@ -447,6 +517,52 @@ class RoomRepository(
     }
 
     fun endRoom() = apiRoom("end", mapOf("uid" to uid))
+
+    fun leaveRoom(currentTimeSec: Double) {
+        freezePlayerState(currentTimeSec)
+        apiRoom("leave", mapOf("uid" to uid, "currentTime" to currentTimeSec))
+    }
+
+    fun updateTitle(newTitle: String) {
+        scope.launch {
+            try { fs.setDocument(roomPath, mapOf("title" to newTitle.take(80))) } catch (_: Exception) {}
+        }
+    }
+
+    fun setVibeLighting(enabled: Boolean) {
+        scope.launch {
+            try { fs.setDocument(roomPath, mapOf("vibeLighting" to enabled)) } catch (_: Exception) {}
+        }
+    }
+
+    /** Host/co-host: switch the room to a new stream (paste-URL change video). */
+    fun changeVideo(url: String, videoType: String, isLive: Boolean) {
+        scope.launch {
+            try {
+                fs.setDocument(
+                    roomPath,
+                    mapOf(
+                        "videoUrl" to url,
+                        "videoType" to videoType,
+                        "activityType" to videoType,
+                        "isLive" to isLive,
+                        "media" to emptyMap<String, Any?>(),
+                    ),
+                )
+                fs.setDocument(
+                    playerStatePath,
+                    mapOf(
+                        "videoUrl" to url,
+                        "videoType" to videoType,
+                        "currentTime" to 0.0,
+                        "isPlaying" to false,
+                        "updatedBy" to uid,
+                    ),
+                    serverTimestampPaths = listOf("updatedAt"),
+                )
+            } catch (_: Exception) {}
+        }
+    }
 
     // ── AI tools ────────────────────────────────────────────────────────
 

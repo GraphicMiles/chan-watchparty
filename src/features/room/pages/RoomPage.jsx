@@ -26,8 +26,8 @@ import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
 import { proxyTargetUrl, resolveDownloadLink, refreshDownloadDescriptor } from '../../../shared/lib/mediaApi.js'
 import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
-import { apiPath, API_URL } from '../../../shared/lib/api.js'
-import { isNativeRoomSupported, launchNativeRoom, onNativeRoomResult } from '../nativeRoomBridge.js'
+import { API_URL } from '../../../shared/lib/api.js'
+import { isNativeRoomSupported, launchNativeRoom } from '../nativeRoomBridge.js'
 
 const SOUND_FX_URLS = {
   airhorn: 'https://cdn.freesound.org/previews/435/435255_8863641-lq.mp3',
@@ -141,6 +141,9 @@ export default function RoomPage() {
           apiBase: API_URL || '',
           startSeconds,
         })
+        // ONE room: the native room IS the room. Park the web app at home —
+        // never show the web room for stream content.
+        if (!cancelled) navigate('/', { replace: true })
       } catch (err) {
         console.error('Native room launch failed:', err)
         if (!cancelled) {
@@ -152,34 +155,10 @@ export default function RoomPage() {
     const timer = setTimeout(run, 600)
     return () => { cancelled = true; clearTimeout(timer) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nativeSupported, nativeGate, user, room?.videoUrl, roomId])
+  }, [nativeSupported, nativeGate, user, room?.videoUrl, roomId, navigate])
 
-  useEffect(() => {
-    if (!nativeSupported || nativeGate !== 'launching') return
-    if (!user || !roomId) return
-    let disposed = false
-    const handle = onNativeRoomResult((res) => {
-      if (disposed) return
-      if (res && typeof res.positionMs === 'number' && res.positionMs > 0) {
-        const currentTime = Math.max(0, res.positionMs / 1000)
-        reportPlayerPosition?.(currentTime, Boolean(res.wasPlaying))
-        user.getIdToken().then((token) => {
-          fetch(apiPath('/api/room'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ action: 'freeze', roomId, uid: user.uid, currentTime }),
-            keepalive: true,
-          }).catch(() => {})
-        })
-      }
-      setNativeGate('done')
-    })
-    return () => {
-      disposed = true
-      try { handle?.remove?.() } catch { /* already removed */ }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nativeSupported, nativeGate, user, roomId])
+  // (No nativeRoomResult listener needed: the native room freezes its own
+  // playerState on exit; the web app is parked at home while it's open.)
 
   // Continuously report player position so leave/beforeunload can freeze the exact timestamp
   useEffect(() => {

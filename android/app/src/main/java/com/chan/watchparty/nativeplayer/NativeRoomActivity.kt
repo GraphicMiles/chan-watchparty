@@ -169,6 +169,10 @@ class NativeRoomActivity : ComponentActivity() {
                         repo.endRoom()
                         finishWithResult()
                     },
+                    onLeave = {
+                        repo.leaveRoom((player?.positionMs() ?: 0L) / 1000.0)
+                        finishWithResult()
+                    },
                     onTogglePip = { enterPip() },
                     onBrightness = { v ->
                         val lp = window.attributes
