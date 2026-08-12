@@ -395,50 +395,131 @@
 }
 
 /* ── Single-step create (mockup structure) ── */
-.pane {
-  display: block;
-}
-
-.paneHidden {
-  display: none;
-}
-
-.picked {
+/* ── Create panel (redesign): media card + grouped settings + CTA ── */
+.mediaCard {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding-bottom: 16px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface-white);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  padding: 12px;
+  margin-bottom: 14px;
 }
 
-.changeLink {
-  font-size: 11.5px;
+.mediaThumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--bg-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mediaThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.mediaInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.sourceChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  margin-bottom: 4px;
   color: var(--text-muted-grey);
-  background: none;
-  border: none;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+}
+
+.sourceChip[data-source='youtube'] { color: #FF4B4B; }
+.sourceChip[data-source='sports'] { color: #FBBF24; }
+.sourceChip[data-source='iptv'] { color: #4ADE80; }
+.sourceChip[data-source='direct'] { color: #6FB6FF; }
+.sourceChip[data-source='nsfw'] { color: #6FB6FF; }
+
+.mediaTitle {
+  font-size: 13.5px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-black);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.changeBtn {
+  flex-shrink: 0;
+  background: var(--surface-light);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-black);
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 14px;
   cursor: pointer;
   font-family: var(--font-body);
-  flex-shrink: 0;
-  padding: 0;
+  transition: background 0.15s, transform 0.1s;
 }
 
-.changeLink:hover {
-  color: var(--text-black);
+.changeBtn:active {
+  transform: scale(0.96);
+  background: var(--surface-hover);
 }
 
-.settingsRow {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
+/* Grouped settings card */
+.settingsCard {
+  background: var(--surface-white);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  margin-bottom: 6px;
 }
 
-.settingsLabel {
-  font-size: 13px;
+.settingRow {
+  padding: 14px 16px;
+}
+
+.settingRow + .settingRow {
+  border-top: 1px solid var(--border-hairline);
+}
+
+.settingLabel {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
   color: var(--text-body-grey);
+  margin-bottom: 8px;
+}
+
+.titleInput {
+  width: 100%;
+  background: var(--surface-light);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 11px 14px;
+  font-size: 13.5px;
+  color: var(--text-black);
+  font-family: var(--font-body);
+  transition: border-color 0.15s;
+}
+
+.titleInput::placeholder {
+  color: var(--text-muted-grey);
+}
+
+.titleInput:focus {
+  outline: none;
+  border-color: var(--border-strong);
 }
 
 .stepper {
@@ -450,10 +531,10 @@
   color: var(--text-black);
 }
 
-.stepperBtn {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
+.stepBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
   background: var(--surface-light);
   border: 1px solid var(--border-hairline);
   color: var(--text-black);
@@ -461,47 +542,87 @@
   line-height: 1;
   cursor: pointer;
   font-family: var(--font-body);
+  transition: background 0.15s, transform 0.1s;
 }
 
-.stepperBtn:hover {
+.stepBtn:active {
+  transform: scale(0.9);
+}
+
+.stepBtn:hover {
   background: var(--surface-hover);
-  border-color: var(--border-strong);
 }
 
-.stepperValue {
-  min-width: 20px;
+.capacityValue {
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 22px;
   text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
-.toggle {
-  width: 40px;
-  height: 24px;
-  border-radius: var(--radius-pill);
+.switch {
+  width: 44px;
+  height: 26px;
+  border-radius: 14px;
   background: var(--surface-light);
   border: 1px solid var(--border-hairline);
   position: relative;
+  flex-shrink: 0;
   cursor: pointer;
   padding: 0;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.18s;
 }
 
-.toggleKnob {
+.switchKnob {
   position: absolute;
-  top: 2px;
-  left: 2px;
+  top: 3px;
+  left: 3px;
   width: 18px;
   height: 18px;
   border-radius: 50%;
   background: var(--text-muted-grey);
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition: transform 0.18s, background 0.18s;
 }
 
-.toggleOn {
+.switchOn {
   background: var(--pill-black);
   border-color: var(--border-strong);
 }
 
-.toggleOn .toggleKnob {
-  transform: translateX(16px);
+.switchOn .switchKnob {
+  transform: translateX(18px);
   background: var(--pill-black-text);
+}
+
+/* CTA row — Create + Cancel */
+.ctaRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.cta {
+  flex: 0 0 auto;
+}
+
+.cancelBtn {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted-grey);
+  background: none;
+  border: none;
+  padding: 12px 6px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: color 0.15s, transform 0.1s;
+}
+
+.cancelBtn:active {
+  transform: scale(0.96);
+  color: var(--text-black);
 }

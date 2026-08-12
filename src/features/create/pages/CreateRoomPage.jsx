@@ -276,82 +276,97 @@ export default function CreateRoomPage() {
         {/* Create panel — one step: picked summary + settings + CTA */}
         {content && (
           <div className={styles.pane}>
-            <div className={styles.picked}>
-              {(content.thumbnail || (content.kind === 'youtube' && content.videoId)) && (
-                <img
-                  src={content.thumbnail}
-                  alt=""
-                  className={styles.pickedThumb}
-                  onError={(e) => { e.currentTarget.style.display = 'none' }}
-                />
-              )}
-              <div className={styles.pickedInfo}>
-                <span className={styles.pickedLabel}>{contentLabel}</span>
-                <h3 className={styles.pickedTitle}>{cleanMediaTitle(content.title) || 'Selected video'}</h3>
-                {content.source && <span className={styles.pickedSource}>{content.source}</span>}
+            {/* Media preview card — thumb + color-coded source chip + title + Change */}
+            <div className={styles.mediaCard}>
+              <div className={styles.mediaThumb}>
+                {(content.thumbnail || (content.kind === 'youtube' && content.videoId)) ? (
+                  <img
+                    src={content.thumbnail}
+                    alt=""
+                    onError={(e) => { e.currentTarget.style.display = 'none' }}
+                  />
+                ) : (
+                  <Link2 size={20} style={{ color: 'var(--text-muted-grey)' }} />
+                )}
               </div>
-              <button type="button" className={styles.changeLink} onClick={() => { setContent(null); setError(null) }}>
+              <div className={styles.mediaInfo}>
+                <span
+                  className={styles.sourceChip}
+                  data-source={String(content.videoType || 'direct').toLowerCase()}
+                >
+                  {content.kind === 'youtube' ? '▶ YouTube' : contentLabel}
+                </span>
+                <h3 className={styles.mediaTitle}>{cleanMediaTitle(content.title) || 'Selected video'}</h3>
+              </div>
+              <button type="button" className={styles.changeBtn} onClick={() => { setContent(null); setError(null) }}>
                 Change
               </button>
             </div>
 
-            <form onSubmit={create} className={styles.form}>
-              <Input
-                label="Room title (optional)"
-                placeholder={content?.title ? `Defaults to "${cleanMediaTitle(content.title)}"` : 'Room title'}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                maxLength={80}
-              />
+            {/* Settings — one grouped card with dividers */}
+            <div className={styles.settingsCard}>
+              <form onSubmit={create}>
+                <div className={styles.settingRow}>
+                  <span className={styles.settingLabel}>Room title</span>
+                  <input
+                    type="text"
+                    className={styles.titleInput}
+                    placeholder={content?.title ? `Defaults to "${cleanMediaTitle(content.title)}"` : 'Room title'}
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    maxLength={80}
+                  />
+                </div>
 
-              <div className={styles.settingsRow}>
-                <span className={styles.settingsLabel}>Capacity</span>
-                <div className={styles.stepper}>
+                <div className={styles.settingRow}>
+                  <span className={styles.settingLabel}>Capacity</span>
+                  <div className={styles.stepper}>
+                    <button
+                      type="button"
+                      className={styles.stepBtn}
+                      aria-label="Decrease capacity"
+                      onClick={() => setCapacity((c) => Math.max(1, Number(c) - 1))}
+                    >
+                      –
+                    </button>
+                    <span className={styles.capacityValue}>{capacity}</span>
+                    <button
+                      type="button"
+                      className={styles.stepBtn}
+                      aria-label="Increase capacity"
+                      onClick={() => setCapacity((c) => Math.min(12, Number(c) + 1))}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div className={styles.settingRow}>
+                  <span className={styles.settingLabel}>Private room</span>
                   <button
                     type="button"
-                    className={styles.stepperBtn}
-                    aria-label="Decrease capacity"
-                    onClick={() => setCapacity((c) => Math.max(1, Number(c) - 1))}
+                    role="switch"
+                    aria-checked={isPrivate}
+                    className={`${styles.switch} ${isPrivate ? styles.switchOn : ''}`}
+                    onClick={() => setIsPrivate((v) => !v)}
                   >
-                    –
-                  </button>
-                  <span className={styles.stepperValue}>{capacity}</span>
-                  <button
-                    type="button"
-                    className={styles.stepperBtn}
-                    aria-label="Increase capacity"
-                    onClick={() => setCapacity((c) => Math.min(12, Number(c) + 1))}
-                  >
-                    +
+                    <span className={styles.switchKnob} />
                   </button>
                 </div>
-              </div>
 
-              <div className={styles.settingsRow}>
-                <span className={styles.settingsLabel}>Private room</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={isPrivate}
-                  className={`${styles.toggle} ${isPrivate ? styles.toggleOn : ''}`}
-                  onClick={() => setIsPrivate((v) => !v)}
-                >
-                  <span className={styles.toggleKnob} />
-                </button>
-              </div>
-
-              <Button type="submit" loading={creating} fullWidth disabled={!canCreate} variant="cta">
-                Create room &amp; start watching
-              </Button>
-            </form>
+                {/* CTA row — Create + Cancel side by side */}
+                <div className={styles.ctaRow}>
+                  <Button type="submit" loading={creating} disabled={!canCreate} variant="cta" className={styles.cta}>
+                    Create room
+                  </Button>
+                  <button type="button" className={styles.cancelBtn} onClick={goBack}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
 
             {error && <p className={styles.error}>{error}</p>}
-
-            <p className={styles.footer}>
-              <button type="button" className={styles.cancelLink} onClick={goBack}>
-                Cancel
-              </button>
-            </p>
           </div>
         )}
       </Card>
