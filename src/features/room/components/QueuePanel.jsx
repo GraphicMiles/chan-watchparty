@@ -194,7 +194,18 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast
   return (
     <div className={styles.queuePanel}>
       <div className={styles.header}>
-        <h3>Smart Queue ({queue.length}/5)</h3>
+        <h3>
+          Smart Queue ({queue.length}/5)
+          <button
+            type="button"
+            className={styles.hintInfo}
+            onClick={dismissHint}
+            aria-label="How the queue works"
+            title="Add up to 5 videos. When the current stream finishes, the next queued item plays automatically!"
+          >
+            ⓘ
+          </button>
+        </h3>
         {hintVisible && (
           <p className={styles.hint}>
             Add up to 5 videos. When the current stream finishes, the next queued item plays automatically!
@@ -205,33 +216,35 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast
         )}
       </div>
 
-      <div className={styles.tabs}>
-        <button
-          type="button"
-          className={activeTab === 'youtube' ? styles.tabActive : styles.tab}
-          onClick={() => { setActiveTab('youtube'); clear() }}
-        >
-          YouTube Search
-        </button>
-        <button
-          type="button"
-          className={activeTab === 'direct' ? styles.tabActive : styles.tab}
-          onClick={() => { setActiveTab('direct'); clear() }}
-        >
-          Direct / Movies (e.g. Silo)
-        </button>
-      </div>
-
+      {/* Merged search + source toggle: segmented prefix inside the input */}
       <form onSubmit={handleSearch} className={styles.searchForm}>
-        <div className={styles.inputRow}>
+        <div className={styles.searchMerge}>
+          <div className={styles.sourceSeg}>
+            <button
+              type="button"
+              className={activeTab === 'youtube' ? styles.segActive : styles.seg}
+              onClick={() => { setActiveTab('youtube'); clear() }}
+              title="YouTube Search"
+            >
+              YouTube
+            </button>
+            <button
+              type="button"
+              className={activeTab === 'direct' ? styles.segActive : styles.seg}
+              onClick={() => { setActiveTab('direct'); clear() }}
+              title="Direct / Movies"
+            >
+              Direct
+            </button>
+          </div>
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={`Search ${activeTab === 'direct' ? 'movies/shows (e.g. Silo)' : 'YouTube'} or paste URL...`}
+            placeholder={`Search ${activeTab === 'direct' ? 'movies/shows' : 'YouTube'} or paste URL...`}
             className={styles.searchInput}
           />
           <Button type="submit" size="sm" loading={loading}>
-            <Search size={14} /> Search
+            <Search size={14} />
           </Button>
         </div>
       </form>

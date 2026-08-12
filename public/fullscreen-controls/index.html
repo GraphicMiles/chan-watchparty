@@ -204,6 +204,13 @@
 
   // Prevent context menu / scrolling
   document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+
+  // Taps on actual controls (buttons / sliders) must NOT toggle visibility —
+  // only taps on bare video surface do. Stop propagation so pointerdown
+  // doesn't bubble to #app.
+  document.querySelectorAll('.topbar, .bottom, .seek input, .vol').forEach(function(el){
+    el.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+  });
 </script>
 </body>
 </html>

@@ -38,6 +38,7 @@ public class RoomPlayerOverlayView extends FrameLayout {
     private VLCVideoLayout vlcLayout;
     private TextView statusView;
     private TextView subtitleText;
+    private View dimView; // brightness dim layer — pure UI, never touches the engine
 
     private LinearLayout controlsBar;
     private ImageButton btnPlayPause;
@@ -119,6 +120,17 @@ public class RoomPlayerOverlayView extends FrameLayout {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 Gravity.CENTER
+        ));
+
+        // Brightness dim layer — a translucent black view over the video.
+        // Adjusting this NEVER affects stream playability (no engine touch,
+        // no media re-prepare) — it only darkens the rendered output.
+        dimView = new View(context);
+        dimView.setBackgroundColor(Color.BLACK);
+        dimView.setAlpha(0f);
+        addView(dimView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
         ));
 
         // Friendly status text (fetching / buffering / finished / errors)
@@ -395,6 +407,16 @@ public class RoomPlayerOverlayView extends FrameLayout {
     /** Hide/show the whole native surface (panels must render above it). */
     public void setVisible(boolean visible) {
         setVisibility(visible ? VISIBLE : GONE);
+    }
+
+    /**
+     * Brightness via dim overlay. brightness 0..1 (1 = full, no dim);
+     * the dim layer alpha = 1 - brightness. Pure UI — never re-prepares
+     * the engine, so it can't interrupt playback on either Exo or VLC.
+     */
+    public void setBrightnessDim(float brightness) {
+        float b = Math.max(0f, Math.min(1f, brightness));
+        if (dimView != null) dimView.setAlpha(1f - b);
     }
 
     // ── Teardown ─────────────────────────────────────────────────────────

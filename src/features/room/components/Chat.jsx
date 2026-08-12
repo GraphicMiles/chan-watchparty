@@ -37,6 +37,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   const [replyTo, setReplyTo] = useState(null)
   const [showEmoji, setShowEmoji] = useState(false)
   const [showFxMenu, setShowFxMenu] = useState(false)
+  const [showAiMenu, setShowAiMenu] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
   const [unseen, setUnseen] = useState(0)
   const [optimistic, setOptimistic] = useState([])
@@ -356,6 +357,8 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   return (
     <div className={styles.chat}>
       <div className={styles.chatActionsBar}>
+        {/* One row: reactions (icon chips) on the left, AI tools behind a
+            single menu button on the right — reclaims a full row for chat */}
         <div className={styles.floatingReactionsBar}>
           {FLOATING_EMOJIS.map((emoji, idx) => (
             <button
@@ -368,7 +371,6 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
               {emoji}
             </button>
           ))}
-          
           <div style={{ position: 'relative' }}>
             <button
               type="button"
@@ -395,43 +397,55 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
               </div>
             )}
           </div>
-        </div>
-
-        <span className={styles.toolbarDivider} aria-hidden="true" />
-
-        <div className={styles.aiToolsRow}>
-          <button
-            type="button"
-            className={styles.aiButton}
-            onClick={requestAiSummary}
-            disabled={aiLoading || aiCooldownSec > 0}
-            title={aiCooldownSec > 0 ? `AI on cooldown (${Math.ceil(aiCooldownSec / 60)}m)` : 'Get AI Chat & Room Summary'}
-          >
-            {aiLoading ? <Loader2 size={13} className="spin" /> : <Bot size={13} />}
-            <span>{aiCooldownSec > 0 ? `${Math.ceil(aiCooldownSec / 60)}m` : 'Summary'}</span>
-          </button>
-
-          <button
-            type="button"
-            className={styles.catchupButton}
-            onClick={requestSmartCatchup}
-            disabled={catchupLoading}
-            title="Smart Catch Up: Get a 3-bullet spoiler-free timeline recap of what you missed"
-          >
-            {catchupLoading ? <Loader2 size={13} className="spin" /> : <Sparkles size={13} />}
-            <span>Catch Up</span>
-          </button>
-
-          <button
-            type="button"
-            className={styles.quizButton}
-            onClick={requestGenerateQuiz}
-            disabled={quizLoading}
-            title="Generate AI Room Trivia Quiz"
-          >
-            {quizLoading ? <Loader2 size={13} className="spin" /> : <Brain size={13} />}
-            <span>Quiz</span>
-          </button>
+          <span style={{ flex: 1 }} />
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className={styles.aiMenuBtn}
+              onClick={() => { setShowFxMenu(false); setShowAiMenu(!showAiMenu) }}
+              title="AI tools"
+            >
+              <Bot size={15} />
+              {aiCooldownSec > 0 && (
+                <span className={styles.aiCooldownBadge}>{Math.ceil(aiCooldownSec / 60)}m</span>
+              )}
+            </button>
+            {showAiMenu && (
+              <div className={styles.emojiGrid} style={{ right: 0, left: 'auto', gridTemplateColumns: '1fr', gap: '4px', minWidth: '170px' }}>
+                <button
+                  type="button"
+                  className={styles.emojiButton}
+                  style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', textAlign: 'left', padding: '8px 10px' }}
+                  onClick={() => { setShowAiMenu(false); requestAiSummary() }}
+                  disabled={aiLoading || aiCooldownSec > 0}
+                >
+                  {aiLoading ? <Loader2 size={14} className="spin" /> : <Bot size={14} />}
+                  <span>Summary</span>
+                  {aiCooldownSec > 0 && <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: .7 }}>{Math.ceil(aiCooldownSec / 60)}m</span>}
+                </button>
+                <button
+                  type="button"
+                  className={styles.emojiButton}
+                  style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', textAlign: 'left', padding: '8px 10px' }}
+                  onClick={() => { setShowAiMenu(false); requestSmartCatchup() }}
+                  disabled={catchupLoading}
+                >
+                  {catchupLoading ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
+                  <span>Catch Up</span>
+                </button>
+                <button
+                  type="button"
+                  className={styles.emojiButton}
+                  style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', textAlign: 'left', padding: '8px 10px' }}
+                  onClick={() => { setShowAiMenu(false); requestGenerateQuiz() }}
+                  disabled={quizLoading}
+                >
+                  {quizLoading ? <Loader2 size={14} className="spin" /> : <Brain size={14} />}
+                  <span>Quiz</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

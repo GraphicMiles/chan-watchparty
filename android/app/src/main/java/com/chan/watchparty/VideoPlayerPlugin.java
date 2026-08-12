@@ -171,7 +171,7 @@ public class VideoPlayerPlugin extends Plugin {
                         case "skip": engine.seekTo(engine.getPositionMs() + (long) value); break;
                         case "rate": engine.setPlaybackRate((float) value); break;
                         case "volume": engine.setVolume((float) value); break;
-                        case "brightness": engine.setVideoEffects((float) value, 1f, 1f, 0f); break;
+                        case "brightness": applyBrightness((float) value); break;
                         case "cc": engine.setSubtitles(value > 0.5 ? lastVtt : ""); break;
                         case "pip": enterPip(); break;
                         case "rotate": rotateOrientation(); break;
@@ -181,6 +181,23 @@ public class VideoPlayerPlugin extends Plugin {
                 } catch (Exception ignored) { }
             });
         }
+    }
+
+    /**
+     * Brightness via the overlay's dim layer (0..1). NEVER calls the engine —
+     * a pure rendering dim, so stream playability is untouched on both
+     * ExoPlayer and libVLC (engine.setVideoEffects re-prepares VLC media,
+     * which would hiccup playback).
+     */
+    private void applyBrightness(float brightness) {
+        if (overlay != null) overlay.setBrightnessDim(brightness);
+    }
+
+    @PluginMethod
+    public void setBrightnessDim(PluginCall call) {
+        Double value = call.getDouble("brightness", 1.0);
+        applyBrightness(value == null ? 1f : value.floatValue());
+        call.resolve();
     }
 
     private void rotateOrientation() {

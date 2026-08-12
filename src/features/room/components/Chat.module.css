@@ -43,60 +43,42 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
-.toolbarDivider {
-  width: 1px;
-  height: 20px;
-  background: var(--room-divider);
-  flex-shrink: 0;
-  align-self: center;
-}
-
-.aiToolsRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.aiButton,
-.catchupButton,
-.quizButton {
-  flex: 1 1 0;
-  min-width: 0;
+/* Single AI-tools menu button (Summary / Catch Up / Quiz behind one icon) */
+.aiMenuBtn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  width: 30px;
   height: 30px;
-  padding: 0 10px !important;
-  border-radius: 100px !important;
-  background: #fff !important;
-  color: #0B0B0C !important;
-  border: 1px solid rgba(255, 255, 255, 0.2) !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
+  border-radius: 50%;
+  background: var(--room-surface-raised);
+  border: 1px solid var(--room-divider);
+  color: var(--room-text-primary);
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
-  white-space: nowrap;
+  transition: transform 0.15s ease, background 0.15s ease;
 }
 
-.aiButton:hover:not(:disabled),
-.catchupButton:hover:not(:disabled),
-.quizButton:hover:not(:disabled) {
-  background: #f0f0f0 !important;
-  color: #000 !important;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+.aiMenuBtn:hover {
+  transform: scale(1.12);
+  background: rgba(255, 255, 255, 0.1);
 }
 
-.aiButton:disabled,
-.catchupButton:disabled,
-.quizButton:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  transform: none;
+.aiCooldownBadge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 18px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--room-danger, #ff5a4f);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
 }
 
 /* Active Quiz Card (#4) */
@@ -276,7 +258,7 @@
 .empty {
   color: var(--room-text-secondary);
   font-size: 13px;
-  padding: var(--s-8) 0;
+  padding: var(--s-2) 0;  /* tight — input sits close to content, no dead gap */
   text-align: center;
 }
 
