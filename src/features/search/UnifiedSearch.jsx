@@ -323,6 +323,7 @@ function ResultCard({ result, layer }) {
   const location = useLocation()
   const { user } = useAuth()
   const { toast } = useToast()
+  const [added, setAdded] = useState(false)
   const thumb = result.thumbnail || result.image || null
 
   const handleClick = useCallback(async () => {
@@ -391,29 +392,36 @@ function ResultCard({ result, layer }) {
 
   return (
     <div className={styles.resultCard} onClick={handleClick}>
-      <div className={styles.thumbnail}>
+      {/* Thumbnail with play overlay */}
+      <div className={styles.thumb}>
         {thumb ? (
-          <>
-            <div className={styles.thumbnailBg} style={{ backgroundImage: `url(${thumb})` }} />
-            <img src={thumb} alt={cleanMediaTitle(result.title)} loading="lazy" className={styles.thumbnailImg} onError={(e) => { e.currentTarget.style.display = 'none' }} />
-          </>
-        ) : null}
-        <div className={styles.noThumbnail} style={{ display: thumb ? 'none' : 'flex' }}>
-          <Film size={28} />
-        </div>
-        {result.duration && <span className={styles.duration}>{result.duration}</span>}
+          <img src={thumb} alt={cleanMediaTitle(result.title)} loading="lazy" className={styles.thumbImg} onError={(e) => { e.currentTarget.style.display = 'none' }} />
+        ) : (
+          <div className={styles.noThumb}><Film size={22} /></div>
+        )}
+        <span className={styles.playOverlay}><span className={styles.playCircle}>▶</span></span>
         {result.isLive && <span className={styles.liveBadge}>LIVE</span>}
         {result.quality && <span className={styles.qualityBadge}>{result.quality}</span>}
       </div>
-      <div className={styles.info}>
-        <h3 className={styles.title}>{cleanMediaTitle(result.title)}</h3>
-        <div className={styles.meta}>
-          {result.views && <span>{parseInt(result.views).toLocaleString()} views</span>}
-          {result.source && <span className={styles.source}>{result.source}</span>}
+      <div className={styles.cardBody}>
+        <h3 className={styles.cardTitle}>{cleanMediaTitle(result.title)}</h3>
+        <div className={styles.cardMeta}>
+          <span className={styles.sourceChip} data-source={String(result.source || layer).toLowerCase()}>
+            {String(result.source || layer).toLowerCase() === 'youtube' ? '▶ YouTube' : String(result.source || layer)}
+          </span>
+          <button
+            type="button"
+            className={`${styles.watchBtn} ${added ? styles.watchAdded : ''}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              setAdded(true)
+              setTimeout(() => setAdded(false), 1200)
+              handleClick()
+            }}
+          >
+            {added ? 'Added' : (result.isLive ? 'Watch Live' : 'Watch')}
+          </button>
         </div>
-        <button type="button" className={`${styles.watchBtn} ${result.isLive ? styles.liveBtn : ''}`} onClick={(e) => { e.stopPropagation(); handleClick() }}>
-          {result.isLive ? 'Watch Live' : 'Watch in Room'}
-        </button>
       </div>
     </div>
   )
