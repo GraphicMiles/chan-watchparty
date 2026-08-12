@@ -88,6 +88,9 @@
   letter-spacing: 0.4px;
   padding: 4px 9px;
   border-radius: 20px;
+  cursor: pointer;              /* it's a toggle button now (host) */
+  border: none;
+  font-family: var(--font-body);
   white-space: nowrap;
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   X, Radio, Lock, Unlock,
-  Pencil, Monitor, Film, ChevronDown, ChevronRight, ChevronLeft, AlertTriangle,
+  Monitor, ChevronDown, ChevronRight, ChevronLeft, AlertTriangle,
   Video, Play, Sparkles, MessageSquare, ListVideo, Share2
 } from 'lucide-react'
 import { collection, onSnapshot, query, orderBy, limit, deleteDoc, doc } from 'firebase/firestore'
@@ -24,8 +24,7 @@ import { Button, Input, Card, Modal, Badge, useToast } from '../../../shared/ui/
 import { Layout } from '../../../shared/layout/index.js'
 import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
-import { proxyTargetUrl, resolveDownloadLink, refreshDownloadDescriptor } from '../../../shared/lib/mediaApi.js'
-import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
+import { refreshDownloadDescriptor } from '../../../shared/lib/mediaApi.js'
 
 const SOUND_FX_URLS = {
   airhorn: 'https://cdn.freesound.org/previews/435/435255_8863641-lq.mp3',
@@ -64,8 +63,6 @@ export default function RoomPage() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
-  const [newVideoUrl, setNewVideoUrl] = useState('')
-  const [changeVideoOpen, setChangeVideoOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [endConfirmOpen, setEndConfirmOpen] = useState(false)
@@ -286,61 +283,6 @@ export default function RoomPage() {
     }
   }, [canControl, user, room, updateRoom, writePlayerState, toast])
 
-  // P1: change video from the shared browser content contract
-  const changeVideoContent = useCallback(async (content) => {
-    if (!content) return
-    setBusy(true)
-    try {
-      if (content.kind === 'youtube' && content.videoId) {
-        await updateRoom({
-          videoId: content.videoId,
-          videoUrl: null,
-          videoType: 'youtube',
-          activityType: 'youtube',
-          isLive: false,
-          title: content.title || room.title,
-        })
-        await writePlayerState({ videoId: content.videoId, videoUrl: null, isPlaying: false, currentTime: 0 })
-      } else if (content.url) {
-        let playUrl = content.url
-        // DownloadWella page links expire fast — resolve fresh via nkiriResolve
-        // (form-walk to the CDN file) before switching the room's video.
-        if (content.pendingResolve && /downloadwella\.com|fsmc/i.test(proxyTargetUrl(playUrl))) {
-          toast('Resolving episode link…', { variant: 'info' })
-          playUrl = await resolveDownloadLink(user, playUrl, content.title)
-        }
-        const nextType = content.videoType || (/\.m3u8(\?|#|$)/i.test(playUrl) ? 'iptv' : 'direct')
-        await updateRoom({
-          videoId: null,
-          videoUrl: playUrl,
-          videoType: nextType,
-          activityType: nextType,
-          isLive: nextType === 'iptv' || nextType === 'sports',
-          title: content.title || room.title,
-        })
-        await writePlayerState({ videoId: null, videoUrl: playUrl, isPlaying: false, currentTime: 0 })
-      } else {
-        toast('No playable link for that pick', { variant: 'error' })
-        return
-      }
-      setChangeVideoOpen(false)
-      setNewVideoUrl('')
-      toast('Video updated', { variant: 'success' })
-    } catch (err) {
-      toast(err.message || 'Could not update video', { variant: 'error' })
-    } finally {
-      setBusy(false)
-    }
-  }, [user, room, updateRoom, writePlayerState, toast])
-
-  if (!user) {
-    return (
-      <div className={styles.loading}>
-        <Link to="/auth">Sign in to join</Link>
-      </div>
-    )
-  }
-
   const isDirectVideo = room?.videoType === 'direct' || room?.videoType === 'iptv' || room?.videoType === 'sports' || room?.videoType === 'nsfw'
   const isYoutube = !isDirectVideo && (activityType === 'youtube' || activityType === 'direct')
   const canShareScreen = isDisplayMediaSupported()
@@ -360,10 +302,11 @@ export default function RoomPage() {
     }
   }
 
-  const changeVideo = async (e) => {
-    e?.preventDefault()
-    const trimmedUrl = newVideoUrl.trim()
-    const itemTitle = ''
+  // Change the currently-playing video to a pasted link (called from the
+  // Queue tab — the single place to change video now).
+  const changeVideo = async (url) => {
+    const trimmedUrl = String(url || '').trim()
+    if (!trimmedUrl) return
 
     const id = extractVideoId(trimmedUrl)
     const isDirect = isDirectVideoUrl(trimmedUrl) || /\.(mp4|m3u8|mkv|avi|mov|webm|flv|ts)(\?|#|$)/i.test(trimmedUrl)
@@ -380,7 +323,7 @@ export default function RoomPage() {
           videoType: 'youtube',
           activityType: 'youtube',
           isLive: false,
-          title: itemTitle || room.title,
+          title: room.title,
         })
         await writePlayerState({ videoId: id, videoUrl: null, isPlaying: false, currentTime: 0 })
       } else if (isDirect || trimmedUrl) {
@@ -391,7 +334,7 @@ export default function RoomPage() {
           videoType: nextType,
           activityType: nextType,
           isLive: isM3u8,
-          title: itemTitle || room.title,
+          title: room.title,
         })
         await writePlayerState({ videoId: null, videoUrl: playbackUrl, isPlaying: false, currentTime: 0 })
       } else {
@@ -399,8 +342,6 @@ export default function RoomPage() {
         return
       }
       
-      setNewVideoUrl('')
-      setChangeVideoOpen(false)
       toast('Video updated', { variant: 'success' })
     } catch (err) {
       toast(err.message || 'Could not update video', { variant: 'error' })
@@ -528,18 +469,32 @@ export default function RoomPage() {
         <SyncPulse active size={12} />
       </div>
 
-      {/* Lock status — always visible (Locked OR Open) */}
+      {/* Lock status — always visible (Locked OR Open); host taps to toggle */}
       <div className={styles.headerStatus}>
         {room?.locked ? (
-          <span className={`${styles.statusPill} ${styles.locked}`}>
+          <button
+            type="button"
+            className={`${styles.statusPill} ${styles.locked}`}
+            onClick={isHost ? toggleLock : undefined}
+            disabled={!isHost}
+            title={isHost ? 'Tap to unlock' : 'Room is locked'}
+            aria-pressed={room.locked}
+          >
             <Lock size={11} />
             Locked
-          </span>
+          </button>
         ) : (
-          <span className={`${styles.statusPill} ${styles.open}`}>
+          <button
+            type="button"
+            className={`${styles.statusPill} ${styles.open}`}
+            onClick={isHost ? toggleLock : undefined}
+            disabled={!isHost}
+            title={isHost ? 'Tap to lock' : 'Room is open'}
+            aria-pressed={room.locked}
+          >
             <Unlock size={11} />
             Open
-          </span>
+          </button>
         )}
       </div>
     </header>
@@ -683,7 +638,7 @@ export default function RoomPage() {
                   }
                   // Modals (Share, Change Video, confirms) must render ABOVE
                   // the video — hide the native surface while any is open.
-                  surfaceHidden={shareOpen || changeVideoOpen || endConfirmOpen || leaveConfirmOpen || Boolean(autoNextPrompt)}
+                  surfaceHidden={shareOpen || endConfirmOpen || leaveConfirmOpen || Boolean(autoNextPrompt)}
                 />
               </ErrorBoundary>
             ) : (
@@ -714,10 +669,6 @@ export default function RoomPage() {
           {canControl && (
             <Card className={styles.controlsCard}>
               <div className={styles.controls}>
-                <Button variant="secondary" size="sm" onClick={() => setChangeVideoOpen(true)}>
-                  <Film size={14} />
-                  Change Video
-                </Button>
                 {(isYoutube || isDirectVideo) ? (
                   canShareScreen && (
                     <Button variant="secondary" size="sm" loading={busy} onClick={() => switchActivity('screenshare')}>
@@ -735,25 +686,6 @@ export default function RoomPage() {
                   <Sparkles size={14} />
                   Vibe Glow: {vibeLightingEnabled ? 'On' : 'Off'}
                 </Button>
-                {isHost && (
-                  <>
-                    <Button variant="secondary" size="sm" onClick={toggleLock}>
-                      {room.locked ? <Unlock size={14} /> : <Lock size={14} />}
-                      {room.locked ? 'Unlock Room' : 'Lock Room'}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setTitleDraft(room.title || '')
-                        setEditingTitle(true)
-                      }}
-                    >
-                      <Pencil size={14} />
-                      Edit Title
-                    </Button>
-                  </>
-                )}
               </div>
               {(isYoutube || isDirectVideo) && !canShareScreen && (
                 <div className={styles.controlsFooter}>
@@ -883,6 +815,7 @@ export default function RoomPage() {
                     isHost={isHost}
                     canControl={canControl}
                     onPlayNext={onPlayNextQueueItem}
+                    onChangeVideo={changeVideo}
                     toast={toast}
                   />
                 )}
@@ -892,26 +825,8 @@ export default function RoomPage() {
         )}
       </div>
 
-      {/* P1: Change Video — shared browser in a modal */}
-      <Modal open={changeVideoOpen} title="Change Video" icon={Film} onClose={() => setChangeVideoOpen(false)}>
-        <div className={styles.changeVideoBody}>
-          <form
-            className={styles.searchRow}
-            onSubmit={(e) => { e.preventDefault(); if (newVideoUrl.trim()) { changeVideo(e) } }}
-          >
-            <Input
-              placeholder="Paste YouTube URL or direct .mp4 / .m3u8 / .mkv link"
-              value={newVideoUrl}
-              onChange={(e) => setNewVideoUrl(e.target.value)}
-            />
-            <Button type="submit" size="sm">Use link</Button>
-          </form>
-          <div className={styles.changeDivider}>
-            <span>or browse</span>
-          </div>
-          <ShowBrowser onPick={changeVideoContent} initialMode="tv" compact />
-        </div>
-      </Modal>
+      {/* Change Video now lives inside the Queue tab (QueuePanel) —
+          paste a link or pick a queued item to switch the current video. */}
 
       <ShareRoom room={room} roomId={roomId} open={shareOpen} onClose={() => setShareOpen(false)} />
 
