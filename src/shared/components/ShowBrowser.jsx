@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react'
-import { Search, Loader2, ChevronLeft, Youtube, Tv, AlertCircle, Link2 } from 'lucide-react'
+import { Search, Loader2, ChevronLeft, Youtube, Tv, AlertCircle, Link2, Film } from 'lucide-react'
 import styles from './ShowBrowser.module.css'
 import { useScraper } from '../../hooks/useScraper.js'
 import { useAuth } from '../auth/hooks/useAuth.jsx'
@@ -563,28 +563,57 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
 
     return (
       <div className={styles.group}>
-        <div className={styles.grid}>
+        <div className={styles.resultList}>
           {results.map((item, idx) => {
             const playable = (item.source === 'youtube' && item.id) || item.isDirect || isDirectVideoUrl(item.link || item.url)
             const thumb = safeThumb(item.thumbnail || item.image) || (item.source === 'youtube' && item.id ? getThumbnail(item.id) : null)
+            const isShow = item.o2tvKind === 'show' || item.source === 'o2tv'
+            const sourceKey = item.source === 'youtube'
+              ? 'youtube'
+              : isShow
+                ? 'o2tv'
+                : item.source === 'nkiri'
+                  ? 'nkiri'
+                  : 'direct'
+            const chipLabel = item.source === 'youtube'
+              ? '▶ YouTube'
+              : isShow
+                ? 'TV Show'
+                : item.source === 'nkiri'
+                  ? 'Nkiri'
+                  : playable
+                    ? 'Direct'
+                    : 'Media page'
+            const watchLabel = item.source === 'youtube'
+              ? 'Watch'
+              : isShow
+                ? 'Seasons'
+                : playable
+                  ? 'Watch'
+                  : 'Open'
             return (
               <button
                 key={item.id || item.link || item.url || idx}
                 type="button"
-                className={`${styles.tile} ${!playable ? styles.tileMuted : ''}`}
+                className={`${styles.resultCard} ${!playable ? styles.resultCardMuted : ''}`}
                 onClick={() => selectResult(item)}
               >
-                {thumb && <img src={thumb} alt="" className={styles.tileThumb} onError={(e) => { e.currentTarget.style.display = 'none' }} />}
-                <span className={styles.tileTitle}>{cleanMediaTitle(item.title)}</span>
-                <span className={styles.tileMeta}>
-                  {item.source === 'youtube'
-                    ? (item.channel || 'YouTube')
-                    : item.o2tvKind === 'show' || item.source === 'o2tv'
-                      ? 'TV show — open seasons'
-                      : playable
-                        ? 'Ready to play'
-                        : 'Select to continue'}
-                </span>
+                <div className={styles.resultThumb}>
+                  {thumb ? (
+                    <img src={thumb} alt="" className={styles.resultThumbImg} onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                  ) : (
+                    <div className={styles.resultNoThumb}><Film size={20} /></div>
+                  )}
+                  <span className={styles.resultPlay}><span className={styles.resultPlayCircle}>▶</span></span>
+                  {item.isLive && <span className={styles.resultLive}>LIVE</span>}
+                </div>
+                <div className={styles.resultBody}>
+                  <h3 className={styles.resultTitle}>{cleanMediaTitle(item.title)}</h3>
+                  <div className={styles.resultMeta}>
+                    <span className={styles.resultSource} data-source={sourceKey}>{chipLabel}</span>
+                    <span className={styles.resultWatch}>{watchLabel}</span>
+                  </div>
+                </div>
               </button>
             )
           })}
