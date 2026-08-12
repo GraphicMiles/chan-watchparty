@@ -295,17 +295,17 @@ export default function VideoPlayer({
   }), [activeFilterCss])
 
 
-  const handleBrightnessCycle = useCallback((e) => {
-    e.stopPropagation()
-    // Dim-only cycle (100% → 75% → 50% → 100%). Applied as a pure dim
-    // overlay on the native surface — never touches the engine, so it can't
-    // interrupt playback on either ExoPlayer or VLC.
-    setBrightnessMultiplier((prev) => {
-      if (prev === 1.0) return 0.75
-      if (prev === 0.75) return 0.5
-      return 1.0
-    })
+  // Brightness slider (50%..200%). <=100% is a pure dim overlay on the
+  // native surface (never touches the engine); >100% uses the engine's
+  // Brightness effect (Exo live / VLC debounced re-prepare). Web keeps pure
+  // CSS brightness().
+  const handleBrightnessChange = useCallback((e) => {
+    e?.stopPropagation()
+    const val = Number(e.target.value) / 100
+    setBrightnessMultiplier(Math.max(0.5, Math.min(2, val)))
   }, [])
+
+  const [brightnessPop, setBrightnessPop] = useState(false)
 
   useEffect(() => {
     onReadyRef.current = onReady
@@ -1233,8 +1233,8 @@ export default function VideoPlayer({
   // adjustments (Exo RgbAdjustment / VLC adjust filter). Web keeps its CSS path.
   useEffect(() => {
     if (!isNativeEmbedded) return
-    // Brightness only (LUT presets + AI upscale cut from v1). Pure dim
-    // overlay — no engine call, so playability is never affected.
+    // Brightness 0.5..2 (50%..200%). The plugin handles dim (<=1, pure
+    // overlay, no engine) vs brighten (>1, engine Brightness effect).
     VideoPlayerPlugin.setBrightnessDim({ brightness: brightnessMultiplier }).catch(() => {})
   }, [isNativeEmbedded, brightnessMultiplier])
 
@@ -1581,15 +1581,34 @@ export default function VideoPlayer({
                   <span>Pin</span>
                 </button>
 
-                <button
-                  type="button"
-                  className={`${styles.controlIconBtn} ${brightnessMultiplier > 1 ? styles.activeBrightnessBtn : ''}`}
-                  onClick={handleBrightnessCycle}
-                  title="Brightness (Tap: 100% -> 75% -> 50% -> 100%)"
-                >
-                  <Sun size={16} style={{ color: brightnessMultiplier < 1 ? '#FAB005' : 'inherit' }} />
-                  <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
-                </button>
+                <div className={styles.popupContainer}>
+                  <button
+                    type="button"
+                    className={`${styles.controlIconBtn} ${brightnessMultiplier !== 1 ? styles.activeBrightnessBtn : ''}`}
+                    onClick={(e) => { e.stopPropagation(); setBrightnessPop(!brightnessPop) }}
+                    title="Brightness (50%..200%)"
+                  >
+                    <Sun size={16} style={{ color: brightnessMultiplier !== 1 ? '#FAB005' : 'inherit' }} />
+                    <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
+                  </button>
+                  {brightnessPop && (
+                    <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
+                      <div className={styles.popupSliderRow}>
+                        <Sun size={13} style={{ color: 'var(--room-text-secondary)' }} />
+                        <input
+                          type="range"
+                          min="50"
+                          max="200"
+                          value={Math.round(brightnessMultiplier * 100)}
+                          onChange={handleBrightnessChange}
+                          className={styles.volumeSlider}
+                          title="Brightness"
+                        />
+                        <span className={styles.popupSliderVal}>{Math.round(brightnessMultiplier * 100)}%</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* AI Closed Captions / Subtitles Button */}
                 <button
@@ -1873,15 +1892,34 @@ export default function VideoPlayer({
             {/* Brightness / AI Upscale / CC / Filters are wired to the native
                 engine via setVideoEffects / setSubtitles in native mode. */}
             {/* Brightness Control */}
-            <button
-              type="button"
-              className={`${styles.controlIconBtn} ${brightnessMultiplier > 1 ? styles.activeBrightnessBtn : ''}`}
-              onClick={handleBrightnessCycle}
-              title="Brightness (Tap: 100% -> 75% -> 50% -> 100%)"
-            >
-              <Sun size={16} style={{ color: brightnessMultiplier < 1 ? '#FAB005' : 'inherit' }} />
-              <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
-            </button>
+            <div className={styles.popupContainer}>
+              <button
+                type="button"
+                className={`${styles.controlIconBtn} ${brightnessMultiplier !== 1 ? styles.activeBrightnessBtn : ''}`}
+                onClick={(e) => { e.stopPropagation(); setBrightnessPop(!brightnessPop) }}
+                title="Brightness (50%..200%)"
+              >
+                <Sun size={16} style={{ color: brightnessMultiplier !== 1 ? '#FAB005' : 'inherit' }} />
+                <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
+              </button>
+              {brightnessPop && (
+                <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
+                  <div className={styles.popupSliderRow}>
+                    <Sun size={13} style={{ color: 'var(--room-text-secondary)' }} />
+                    <input
+                      type="range"
+                      min="50"
+                      max="200"
+                      value={Math.round(brightnessMultiplier * 100)}
+                      onChange={handleBrightnessChange}
+                      className={styles.volumeSlider}
+                      title="Brightness"
+                    />
+                    <span className={styles.popupSliderVal}>{Math.round(brightnessMultiplier * 100)}%</span>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* AI Closed Captions / Subtitles Button */}
             <button

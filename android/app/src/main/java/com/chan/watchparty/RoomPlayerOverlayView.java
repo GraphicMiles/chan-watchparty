@@ -147,8 +147,8 @@ public class RoomPlayerOverlayView extends FrameLayout {
                 Gravity.CENTER
         ));
 
-        // Closed captions — anchored at the TOP of the video (per product
-        // requirement). Driven from the parsed VTT cues in ChanPlayerEngine;
+        // Closed captions — anchored at the BOTTOM of the video (margin-bottom
+        // 1rem ≈ 16dp). Driven from the parsed VTT cues in ChanPlayerEngine;
         // this view is updated by the progress poller in updateProgress().
         subtitleText = new TextView(context);
         subtitleText.setTextColor(Color.WHITE);
@@ -161,9 +161,9 @@ public class RoomPlayerOverlayView extends FrameLayout {
         FrameLayout.LayoutParams ccParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP | Gravity.CENTER_HORIZONTAL
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL
         );
-        ccParams.topMargin = dp(14);
+        ccParams.bottomMargin = dp(16); // ~1rem
         ccParams.leftMargin = dp(24);
         ccParams.rightMargin = dp(24);
         addView(subtitleText, ccParams);

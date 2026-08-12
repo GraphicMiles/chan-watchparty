@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Share2, MessageSquare, X, LogOut, Radio, Lock, Unlock,
-  Pencil, Monitor, Film, ChevronDown, ChevronRight, AlertTriangle,
-  Video, Link2, ListVideo, Play, Sparkles
+  X, Radio, Lock, Unlock,
+  Pencil, Monitor, Film, ChevronDown, ChevronRight, ChevronLeft, AlertTriangle,
+  Video, ListVideo, Play, Sparkles
 } from 'lucide-react'
 import { collection, onSnapshot, query, orderBy, limit, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
@@ -492,12 +492,20 @@ export default function RoomPage() {
 
   const header = (
     <header className={styles.header}>
+      {/* Back circle — leaves the room (room stays live for others) */}
+      <button
+        type="button"
+        className={styles.backBtn}
+        onClick={requestLeave}
+        aria-label="Leave room"
+        title="Leave room"
+      >
+        <ChevronLeft size={18} />
+      </button>
+
+      {/* Avatar ring + title */}
       <div className={styles.roomTitle}>
-        <Link to="/" className={styles.brand}>
-          Chan
-        </Link>
-        <div className={styles.titleSep} />
-        <SyncPulse active size={16} />
+        <span className={styles.avatarRing} aria-hidden="true" />
         {editingTitle && isHost ? (
           <form
             className={styles.titleEdit}
@@ -518,33 +526,15 @@ export default function RoomPage() {
         ) : (
           <h1 className={styles.titleText}>{cleanMediaTitle(room?.title) || 'Room'}</h1>
         )}
-        {room?.locked && (
-          <Badge variant="warning" icon={Lock}>Locked</Badge>
-        )}
-        {isDirectVideo && (
-          <Badge variant="accent" icon={Link2}>Direct</Badge>
-        )}
+        <SyncPulse active size={12} />
       </div>
-      <div className={styles.headerActions}>
-        <IconButton onClick={() => setShareOpen(true)} aria-label="Share room" title="Share room">
-          <Share2 size={18} />
-        </IconButton>
-        <IconButton onClick={() => { setShowChat(true); setSidebarTab('queue') }} active={showChat && sidebarTab === 'queue'} aria-label="Toggle queue" title="Queue">
-          <ListVideo size={18} />
-          {queueItems.length > 0 && <span className={styles.queueCountBadge}>{queueItems.length}</span>}
-        </IconButton>
-        <IconButton onClick={() => { setShowChat(true); setSidebarTab('chat') }} active={showChat && sidebarTab === 'chat'} aria-label="Toggle chat" title="Chat">
-          <MessageSquare size={18} />
-        </IconButton>
-        {room && isHost ? (
-          <Button variant="danger" size="sm" onClick={() => setEndConfirmOpen(true)}>End Room</Button>
-        ) : room ? (
-          <Button variant="danger" size="sm" onClick={requestLeave}>
-            <LogOut size={14} />
-            Leave
-          </Button>
-        ) : null}
-      </div>
+
+      {/* Locked status */}
+      {room?.locked ? (
+        <Badge variant="warning" icon={Lock}>Locked</Badge>
+      ) : (
+        <span className={styles.headerStatusSpacer} aria-hidden="true" />
+      )}
     </header>
   )
 

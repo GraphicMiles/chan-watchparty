@@ -151,7 +151,7 @@
 
 .customSubtitleOverlay {
   position: absolute;
-  top: 16px;
+  bottom: 1rem;
   left: 5%;
   right: 5%;
   display: flex;
@@ -564,6 +564,30 @@
   max-height: 280px;
   overflow-y: auto;
   margin-bottom: 8px;
+}
+
+/* Slider row inside popup menus (brightness / volume popovers) */
+.popupSliderRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  min-width: 180px;
+}
+
+.popupSliderRow input[type="range"] {
+  flex: 1;
+  height: 4px;
+  accent-color: #fff;
+  cursor: pointer;
+}
+
+.popupSliderVal {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--room-text-secondary);
+  min-width: 34px;
+  text-align: right;
 }
 
 .popupMenuItem {
