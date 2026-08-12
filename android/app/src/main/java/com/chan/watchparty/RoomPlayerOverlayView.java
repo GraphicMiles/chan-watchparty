@@ -79,12 +79,24 @@ public class RoomPlayerOverlayView extends FrameLayout {
     private void init(Context context) {
         setBackgroundColor(Color.BLACK);
         setClickable(true);
-        setOnClickListener(v -> {
-            if (interactive) {
-                toggleControls();
-            } else if (tapListener != null) {
-                tapListener.onTap();
+        // Touch handling: when interactive (native chrome on) a tap toggles the
+        // native bar. When NOT interactive (the app drives controls), every
+        // touch is forwarded to JS with its x/y fraction so the web layer can
+        // do single-tap toggle, double-tap side seek (-10s/+10s) itself.
+        setOnTouchListener((v, event) -> {
+            if (event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+                if (interactive) {
+                    toggleControls();
+                    return true;
+                }
+                if (tapListener != null) {
+                    float fx = (float) event.getX() / Math.max(1, getWidth());
+                    float fy = (float) event.getY() / Math.max(1, getHeight());
+                    tapListener.onTap(fx, fy);
+                    return true;
+                }
             }
+            return false;
         });
 
         // VLC surface (hidden until VLC engine is used)
@@ -354,7 +366,7 @@ public class RoomPlayerOverlayView extends FrameLayout {
 
     public boolean isInteractive() { return interactive; }
 
-    public interface TapListener { void onTap(); }
+    public interface TapListener { void onTap(float fx, float fy); }
     private TapListener tapListener;
     public void setTapListener(TapListener l) { tapListener = l; }
 

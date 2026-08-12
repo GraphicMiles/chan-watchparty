@@ -889,6 +889,7 @@ export default function VideoPlayer({
 
   useEffect(() => () => {
     clearTimeout(retryTimeoutRef.current)
+    if (nativeTapRef.current?.timer) clearTimeout(nativeTapRef.current.timer)
     destroyHls()
   }, [destroyHls])
 
@@ -933,18 +934,6 @@ export default function VideoPlayer({
     return () => ro?.disconnect()
   }, [showControls, isNativeEmbedded])
 
-  const revealControls = useCallback(() => {
-    setShowControls(true)
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
-    controlsTimeoutRef.current = setTimeout(() => {
-      if (playingRef.current) {
-        setShowControls(false)
-        setShowFilterMenu(false)
-        setShowQualityMenu(false)
-      }
-    }, 3500)
-  }, [])
-
   // Native playback state → app control bar (single surface requirement)
   const handleNativeProgress = useCallback(({ currentSec: cs, durationSec: ds, playing: pl, buffering: bf, percent: pc }) => {
     if (typeof cs === 'number' && Number.isFinite(cs)) setCurrentSec(cs)
@@ -965,11 +954,60 @@ export default function VideoPlayer({
     nativeApiRef.current = api || null
   }, [])
 
-  const handleNativeTap = useCallback(() => {
-    // Taps on the video surface just reveal the app's controls (native chrome
-    // handles its own visibility in fullscreen). Tap never exits fullscreen.
-    revealControls()
-  }, [revealControls])
+  // ── Native surface tap handling ───────────────────────────────────────
+  // The native overlay forwards every touch with its x/y fraction (fx, fy).
+  // We implement the same gestures as the web player:
+  //   • single tap            → toggle controls (show ⇄ hide)
+  //   • double-tap LEFT half  → seek −10s
+  //   • double-tap RIGHT half → seek +10s
+  // Tap never exits fullscreen.
+  const nativeTapRef = useRef({ last: 0, timer: null })
+  const handleNativeTap = useCallback(({ x: fx } = {}) => {
+    const now = Date.now()
+    const ref = nativeTapRef.current
+    const side = (fx == null)
+      ? 'center'
+      : fx < 0.38 ? 'left' : fx > 0.62 ? 'right' : 'center'
+
+    if (ref.timer) {
+      clearTimeout(ref.timer)
+      ref.timer = null
+    }
+
+    // Double-tap on a side → seek by ±10s (same accumulation as the web path).
+    if (now - ref.last < 340 && side !== 'center' && canControl && !adapter.isLive()) {
+      ref.last = 0
+      const delta = side === 'left' ? -10 : 10
+      const target = Math.max(0, Math.min(durationSec || 999999, currentTime() + delta))
+      adapter.seekTo(target, 'seconds')
+      emitSeek(target)
+      // Brief visual feedback (reuse the VLC gesture indicator).
+      setVlcGesture({ side, seconds: delta })
+      setTimeout(() => setVlcGesture(null), 500)
+      return
+    }
+
+    ref.last = now
+    // Single tap → toggle controls after a short delay (so a double-tap isn't
+    // counted as two toggles).
+    ref.timer = setTimeout(() => {
+      ref.timer = null
+      ref.last = 0
+      setShowControls((s) => {
+        const next = !s
+        if (next) {
+          // Auto-hide again while playing.
+          if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
+          controlsTimeoutRef.current = setTimeout(() => {
+            if (playingRef.current) setShowControls(false)
+          }, 3500)
+        } else {
+          if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
+        }
+        return next
+      })
+    }, side === 'center' ? 0 : 220)
+  }, [canControl, adapter, durationSec, currentTime, emitSeek])
 
   const handleMouseMove = useCallback(() => {
     setShowControls(true)
@@ -1188,6 +1226,22 @@ export default function VideoPlayer({
       }
     }
   }, [isNativeEmbedded, isFullscreen])
+
+  // Toggle device orientation landscape ⇄ portrait while in fullscreen.
+  const rotateOrientation = useCallback(async (e) => {
+    e?.stopPropagation()
+    try {
+      const isLandscape = window.screen?.orientation?.type?.startsWith('landscape')
+      if (isLandscape) {
+        await window.screen?.orientation?.unlock?.()
+        await window.screen?.orientation?.lock?.('portrait')?.catch?.(() => {})
+      } else {
+        await window.screen?.orientation?.lock?.('landscape')?.catch?.(() => {})
+      }
+    } catch {
+      try { await window.screen?.orientation?.unlock?.() } catch { /* ignore */ }
+    }
+  }, [])
 
   const togglePiP = useCallback((e) => {
     e.stopPropagation()
@@ -1532,6 +1586,26 @@ export default function VideoPlayer({
           onPointerDown={handlePointerTouch}
           onContextMenu={(e) => e.preventDefault()}
         >
+          {/* Fullscreen top bar: title + rotate + minimize */}
+          <div className={styles.overlayTopBar} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+            <span className={styles.overlayTitle}>Chan Video</span>
+            <button
+              type="button"
+              className={styles.overlayFullscreenBtn}
+              onClick={rotateOrientation}
+              title="Rotate orientation (landscape ⇄ portrait)"
+            >
+              <RotateCw size={16} />
+            </button>
+            <button
+              type="button"
+              className={styles.overlayFullscreenBtn}
+              onClick={toggleFullscreen}
+              title="Minimize"
+            >
+              <Maximize size={16} />
+            </button>
+          </div>
           <div className={styles.overlayControlsStack}>
             {showSecondaryControls && (
               <div className={styles.overlaySecondaryBar} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
@@ -1755,9 +1829,18 @@ export default function VideoPlayer({
                 type="button"
                 className={styles.overlayFullscreenBtn}
                 onClick={toggleFullscreen}
-                title="Fullscreen & Landscape Rotate"
+                title="Exit fullscreen"
               >
                 <Maximize size={18} />
+              </button>
+
+              <button
+                type="button"
+                className={styles.overlayFullscreenBtn}
+                onClick={rotateOrientation}
+                title="Rotate orientation (landscape ⇄ portrait)"
+              >
+                <RotateCw size={18} />
               </button>
 
               <button

@@ -190,8 +190,11 @@ public class VideoPlayerPlugin extends Plugin {
                     // Requirement: native chrome hidden — the app's own control
                     // bar drives playback. Taps on the video surface notify JS
                     // (controlsEvent) so the web bar can toggle instead.
-                    overlay.setTapListener(() -> {
-                        JSObject tap = new JSObject().put("type", "tap");
+                    overlay.setTapListener((fx, fy) -> {
+                        JSObject tap = new JSObject()
+                                .put("type", "tap")
+                                .put("x", (double) fx)
+                                .put("y", (double) fy);
                         try { notifyListeners("controlsEvent", tap); } catch (Exception ignored) { }
                     });
                     chromeEnabled = controls == null || controls;

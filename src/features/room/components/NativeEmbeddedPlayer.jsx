@@ -419,7 +419,7 @@ export default function NativeEmbeddedPlayer({
         try {
           const tapHandle = await VideoPlayerPlugin.addListener('controlsEvent', (e) => {
             if (!cancelled) {
-              if (e?.type === 'tap') propsRef.current.onControlsTap?.()
+              if (e?.type === 'tap') propsRef.current.onControlsTap?.({ x: e.x, y: e.y })
               else if (e?.type === 'fullscreenchange') propsRef.current.onFullscreenChange?.(Boolean(e.fullscreen))
             }
           })
