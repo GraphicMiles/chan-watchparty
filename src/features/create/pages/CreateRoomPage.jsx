@@ -12,9 +12,6 @@ import { cleanMediaTitle } from '../../../shared/lib/titleFormat.js'
 import { friendlyApiError } from '../../../shared/lib/mediaApi.js'
 import { Button, Input, Card, useToast } from '../../../shared/ui/index.js'
 import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
-import { db } from '../../../shared/lib/firebase.js'
-import { API_URL } from '../../../shared/lib/api.js'
-import { isNativeRoomSupported, launchNativeRoom } from '../../room/nativeRoomBridge.js'
 import { Link2 } from 'lucide-react'
 import styles from './CreateRoomPage.module.css'
 
@@ -211,24 +208,6 @@ export default function CreateRoomPage() {
         isPrivate,
         content,
       })
-      // ONE room: on Android, go STRAIGHT to the native room and stay there.
-      // The web app sits at home underneath; nothing else happens on this
-      // screen. (YouTube content opens the web room — YouTube is web-only.)
-      if (isNativeRoomSupported() && content?.kind !== 'youtube') {
-        const idToken = await user.getIdToken()
-        await launchNativeRoom({
-          roomId,
-          uid: user.uid,
-          displayName: user.displayName || 'Viewer',
-          idToken,
-          projectId: db.app.options.projectId || '',
-          apiKey: db.app.options.apiKey || '',
-          apiBase: API_URL || 'https://chan-yz3p.vercel.app',
-          startSeconds: 0,
-        })
-        navigate('/', { replace: true })
-        return
-      }
       toast('Room created', { variant: 'success' })
       navigate(`/room/${roomId}${inviteCode ? `?invite=${inviteCode}` : ''}`)
     } catch (err) {

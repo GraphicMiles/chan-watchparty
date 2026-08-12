@@ -5,7 +5,7 @@ import {
   Pencil, Monitor, Film, ChevronDown, ChevronRight, AlertTriangle,
   Video, Link2, ListVideo, Play, Sparkles
 } from 'lucide-react'
-import { collection, onSnapshot, query, orderBy, limit, deleteDoc, doc, getDoc } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, limit, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 import { useRoom } from '../hooks/useRoom.js'
@@ -26,8 +26,6 @@ import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
 import { proxyTargetUrl, resolveDownloadLink, refreshDownloadDescriptor } from '../../../shared/lib/mediaApi.js'
 import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
-import { API_URL } from '../../../shared/lib/api.js'
-import { isNativeRoomSupported, launchNativeRoom } from '../nativeRoomBridge.js'
 
 const SOUND_FX_URLS = {
   airhorn: 'https://cdn.freesound.org/previews/435/435255_8863641-lq.mp3',
@@ -107,58 +105,6 @@ export default function RoomPage() {
   } = useRoom(roomId, inviteCode)
 
   const { isHost, writePlayerState, canControl } = usePlayerSync(roomId, room, playerRef)
-
-  // ── Native room launch (the room is native on Android) ────────────────
-  // The web room stays mounted underneath (keeps the seat + heartbeat); its
-  // video stays unmounted while the native room is open so nothing plays
-  // twice. When the native room closes, the web room resumes inline.
-  const directContent = Boolean(room?.videoUrl) && room?.videoType !== 'youtube'
-  const nativeSupported = directContent && isNativeRoomSupported()
-  const [nativeGate, setNativeGate] = useState(() => (isNativeRoomSupported() ? 'launching' : 'done'))
-  const nativeLaunchedRef = useRef(false)
-
-  useEffect(() => {
-    if (!nativeSupported || nativeGate !== 'launching' || nativeLaunchedRef.current) return
-    if (!user || !room?.videoUrl || !roomId) return
-    nativeLaunchedRef.current = true
-    let cancelled = false
-    const run = async () => {
-      try {
-        const [idToken, psSnap] = await Promise.all([
-          user.getIdToken(),
-          getDoc(doc(db, 'rooms', roomId, 'playerState', 'current')).catch(() => null),
-        ])
-        if (cancelled) return
-        const ps = psSnap?.exists?.() ? psSnap.data() : null
-        const startSeconds = Number(ps?.currentTime) > 0 ? Number(ps.currentTime) : 0
-        await launchNativeRoom({
-          roomId,
-          uid: user.uid,
-          displayName: user.displayName || 'Viewer',
-          idToken,
-          projectId: db.app.options.projectId || '',
-          apiKey: db.app.options.apiKey || '',
-          apiBase: API_URL || 'https://chan-yz3p.vercel.app',
-          startSeconds,
-        })
-        // ONE room: the native room IS the room. Park the web app at home —
-        // never show the web room for stream content.
-        if (!cancelled) navigate('/', { replace: true })
-      } catch (err) {
-        console.error('Native room launch failed:', err)
-        if (!cancelled) {
-          nativeLaunchedRef.current = false
-          setNativeGate('done')
-        }
-      }
-    }
-    const timer = setTimeout(run, 600)
-    return () => { cancelled = true; clearTimeout(timer) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nativeSupported, nativeGate, user, room?.videoUrl, roomId, navigate])
-
-  // (No nativeRoomResult listener needed: the native room freezes its own
-  // playerState on exit; the web app is parked at home while it's open.)
 
   // Continuously report player position so leave/beforeunload can freeze the exact timestamp
   useEffect(() => {
@@ -644,7 +590,7 @@ export default function RoomPage() {
       <div className={styles.main}>
         <div className={styles.stage}>
           <div className={styles.playerWrap} style={{ boxShadow: vibeGlowStyle, transition: 'box-shadow 0.4s ease' }}>
-            {(isYoutube || isDirectVideo) && !(nativeGate === 'launching' && nativeSupported) ? (
+            {(isYoutube || isDirectVideo) ? (
               <ErrorBoundary fallback={(error, resetError) => (
                 <div className={styles.errorContainer}>
                   <h3>Video Player Error</h3>
