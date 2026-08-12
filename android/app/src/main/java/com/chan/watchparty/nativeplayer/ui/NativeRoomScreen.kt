@@ -1009,7 +1009,7 @@ private fun FullscreenLayout(
 // ════════════════════════ Shared widgets ════════════════════════
 
 @Composable
-fun PillText(text: String, onClick: (() -> Unit)? = null, tint: Color = ChanColors.TextPrimary, title: String? = null) {
+fun PillText(text: String, tint: Color = ChanColors.TextPrimary, title: String? = null, onClick: (() -> Unit)? = null) {
     val mod = Modifier
         .clip(RoundedCornerShape(20.dp))
         .background(ChanColors.Raised)
