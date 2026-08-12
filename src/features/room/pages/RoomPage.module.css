@@ -6,20 +6,31 @@
   color: var(--room-text-primary);
 }
 
+/* Watch-room header — full width, three equal columns (back · title ·
+   locked) spaced evenly so nothing floats. */
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-evenly; /* back · title · locked — balanced across */
-  gap: var(--s-2);
-  padding: var(--s-2) var(--s-3);
+  justify-content: space-evenly;
+  gap: 8px;
+  width: 100%;                 /* full viewport width */
+  padding: 10px 12px;
   border-bottom: 1px solid var(--room-divider);
   background: var(--room-bg);
   flex-shrink: 0;
 }
 
+/* Three equal columns — the key to true space-evenly centering */
+.backBtn,
+.roomTitle,
+.headerStatusSpacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .backBtn {
-  width: 30px;
   height: 30px;
+  max-width: 30px;
   border-radius: 50%;
   background: var(--room-surface);
   border: 1px solid var(--room-divider);
@@ -28,7 +39,6 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  flex-shrink: 0;
   padding: 0;
 }
 
@@ -36,42 +46,11 @@
   background: var(--room-surface-raised);
 }
 
-.avatarRing {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 1.5px solid var(--accent-orange, #F5F5F7);
-  flex-shrink: 0;
-}
-
 .roomTitle {
   display: flex;
   align-items: center;
-  gap: var(--s-2);
-  min-width: 0;
-  flex: 1;
-  justify-content: center;
-}
-
-.brand {
-  font-family: var(--font-display);
-  font-weight: 700;
-  color: var(--room-text-primary);
-  font-size: 16px;
-  text-decoration: none;
-  flex-shrink: 0;
-}
-
-.brand:hover {
-  text-decoration: none;
-  color: var(--accent-orange);
-}
-
-.titleSep {
-  width: 1px;
-  height: 16px;
-  background: var(--room-divider);
-  flex-shrink: 0;
+  justify-content: center;     /* title centered within its equal column */
+  gap: 6px;
 }
 
 .titleText {
@@ -83,7 +62,6 @@
   text-overflow: ellipsis;
   margin: 0;
   color: var(--room-text-primary);
-  min-width: 0;
 }
 
 .titleEdit {
@@ -95,27 +73,7 @@
 }
 
 .headerStatusSpacer {
-  width: 30px; /* balances the back button so title stays centered */
-  flex-shrink: 0;
-}
-
-.headerActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.queueCountBadge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background: var(--accent-orange);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: var(--radius-pill);
+  /* balances the back button so the title stays dead-center */
 }
 
 .main {
@@ -486,12 +444,8 @@
 
 /* Mobile */
 @media (max-width: 768px) {
-  /* Clear the status bar / notch: ~3rem above the header row
-     (Chan / title / badges). Vertical safe-area only. */
-  .header {
-    margin-top: max(3rem, env(safe-area-inset-top, 0px));
-  }
-
+  /* Header notch clearance is handled in the header rule below; keep the
+     main content off the gesture bar. */
   .main {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
@@ -558,28 +512,12 @@
     transform: translateY(0);
   }
 
+  /* Header stays a clean 3-column row on mobile; just respect the notch */
   .header {
-    flex-wrap: wrap;
-    padding: 10px 14px;
-    gap: 10px;
-    min-height: 56px;
+    margin-top: max(0.5rem, env(safe-area-inset-top, 0px));
+    padding: 10px 12px;
+    gap: 8px;
   }
-
-  .roomTitle {
-    width: 100%;
-    flex: 1 1 100%;
-    justify-content: flex-start;
-  }
-
-  .headerActions {
-    width: 100%;
-    flex: 1 1 100%;
-    justify-content: space-between;
-    padding-top: 6px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.08);
-  }
-
-  .titleSep { display: none; }
 
   .stage {
     padding: var(--s-2);
@@ -596,19 +534,11 @@
 @media (max-width: 400px) {
   .header {
     padding: 8px 10px;
-    gap: 8px;
-  }
-
-  .brand {
-    font-size: 14px;
+    gap: 6px;
   }
 
   .titleText {
     font-size: 13px;
-  }
-
-  .headerActions {
-    gap: 6px;
   }
 }
 

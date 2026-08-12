@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   X, Radio, Lock, Unlock,
   Pencil, Monitor, Film, ChevronDown, ChevronRight, ChevronLeft, AlertTriangle,
-  Video, ListVideo, Play, Sparkles
+  Video, Play, Sparkles
 } from 'lucide-react'
 import { collection, onSnapshot, query, orderBy, limit, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
@@ -503,9 +503,8 @@ export default function RoomPage() {
         <ChevronLeft size={18} />
       </button>
 
-      {/* Avatar ring + title */}
+      {/* Stream title (host can edit) */}
       <div className={styles.roomTitle}>
-        <span className={styles.avatarRing} aria-hidden="true" />
         {editingTitle && isHost ? (
           <form
             className={styles.titleEdit}
@@ -674,10 +673,6 @@ export default function RoomPage() {
                     Stop Screen Share
                   </Button>
                 )}
-                <Button variant="secondary" size="sm" onClick={() => { setShowChat(true); setSidebarTab('queue') }}>
-                  <ListVideo size={14} />
-                  Queue ({queueItems.length}/5)
-                </Button>
                 <Button variant="secondary" size="sm" onClick={() => setVibeLightingEnabled(!vibeLightingEnabled)}>
                   <Sparkles size={14} />
                   Vibe Glow: {vibeLightingEnabled ? 'On' : 'Off'}
