@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   X, Radio, Lock, Unlock,
   Pencil, Monitor, Film, ChevronDown, ChevronRight, ChevronLeft, AlertTriangle,
-  Video, Play, Sparkles
+  Video, Play, Sparkles, MessageSquare, ListVideo
 } from 'lucide-react'
 import { collection, onSnapshot, query, orderBy, limit, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
@@ -20,7 +20,7 @@ import { SyncPulse } from '../../../shared/components/SyncPulse.jsx'
 import { extractVideoId, isDirectVideoUrl, normalizePlaybackUrl } from '../../../shared/lib/youtube.js'
 import { cleanMediaTitle } from '../../../shared/lib/titleFormat.js'
 import { isDisplayMediaSupported } from '../services/livekit.js'
-import { Button, Input, Card, IconButton, Modal, Badge, useToast } from '../../../shared/ui/index.js'
+import { Button, Input, Card, Modal, Badge, useToast } from '../../../shared/ui/index.js'
 import { Layout } from '../../../shared/layout/index.js'
 import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
@@ -528,12 +528,20 @@ export default function RoomPage() {
         <SyncPulse active size={12} />
       </div>
 
-      {/* Locked status */}
-      {room?.locked ? (
-        <Badge variant="warning" icon={Lock}>Locked</Badge>
-      ) : (
-        <span className={styles.headerStatusSpacer} aria-hidden="true" />
-      )}
+      {/* Lock status — always visible (Locked OR Open) */}
+      <div className={styles.headerStatus}>
+        {room?.locked ? (
+          <span className={`${styles.statusPill} ${styles.locked}`}>
+            <Lock size={11} />
+            Locked
+          </span>
+        ) : (
+          <span className={`${styles.statusPill} ${styles.open}`}>
+            <Unlock size={11} />
+            Open
+          </span>
+        )}
+      </div>
     </header>
   )
 
@@ -778,35 +786,36 @@ export default function RoomPage() {
           </div>
         </div>
 
+        {/* Merged Chat/Queue bottom sheet */}
         {showChat && (
           <>
             <div className={styles.overlay} onClick={() => setShowChat(false)} />
-            <aside className={`${styles.sidebar} ${showChat ? styles.open : ''}`} role="dialog" aria-label="Sidebar">
-              <div className={styles.sidebarHeader}>
-                <div className={styles.headerLeftSpacer} />
-                <div className={styles.sidebarTabs}>
+            <div className={`${styles.roomSheet} ${showChat ? styles.open : ''}`} role="dialog" aria-label="Chat and queue">
+              <div className={styles.sheetGrip} />
+              <div className={styles.sheetHead}>
+                <div className={styles.sheetTabs}>
                   <button
                     type="button"
-                    className={sidebarTab === 'chat' ? styles.sidebarTabActive : styles.sidebarTab}
+                    className={sidebarTab === 'chat' ? styles.sheetTabActive : styles.sheetTab}
                     onClick={() => setSidebarTab('chat')}
                   >
+                    <MessageSquare size={13} />
                     Chat
                   </button>
                   <button
                     type="button"
-                    className={sidebarTab === 'queue' ? styles.sidebarTabActive : styles.sidebarTab}
+                    className={sidebarTab === 'queue' ? styles.sheetTabActive : styles.sheetTab}
                     onClick={() => setSidebarTab('queue')}
                   >
-                    Queue ({queueItems.length}/5)
+                    <ListVideo size={13} />
+                    Queue <span className={styles.sheetTabBadge}>{queueItems.length}/5</span>
                   </button>
                 </div>
-                <div className={styles.headerRightAction}>
-                  <IconButton onClick={() => setShowChat(false)} aria-label="Close sidebar">
-                    <X size={18} />
-                  </IconButton>
-                </div>
+                <button type="button" className={styles.sheetClose} onClick={() => setShowChat(false)} aria-label="Close">
+                  <X size={14} />
+                </button>
               </div>
-              <div className={styles.sidebarContent}>
+              <div className={styles.sheetBody}>
                 {sidebarTab === 'chat' ? (
                   <Chat
                     messages={messages}
@@ -828,7 +837,7 @@ export default function RoomPage() {
                   />
                 )}
               </div>
-            </aside>
+            </div>
           </>
         )}
       </div>

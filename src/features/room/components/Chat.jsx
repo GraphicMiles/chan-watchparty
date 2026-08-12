@@ -2,13 +2,11 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Smile, X, ArrowDown, Bot, Loader2, Sparkles, Brain, CheckCircle } from 'lucide-react'
 import { collection, addDoc, serverTimestamp, doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
-import { Input, Button, IconButton, Modal, useToast } from '../../../shared/ui/index.js'
+import { Input, Button, Modal, useToast } from '../../../shared/ui/index.js'
 import ChatMessage from './ChatMessage.jsx'
 import styles from './Chat.module.css'
 import { apiPath } from '../../../shared/lib/api.js'
 
-const REACTIONS = ['heart', 'thumbs-up', 'laugh', 'fire', 'clap', 'wow']
-const REACTION_SYMBOLS = { heart: '\u2764', 'thumbs-up': '\ud83d\udc4d', laugh: '\ud83d\ude02', fire: '\ud83d\udd25', clap: '\ud83d\udc4f', wow: '\ud83d\ude2e' }
 const FLOATING_EMOJIS = ['\u2764', '\ud83d\udd25', '\ud83d\ude02', '\ud83d\udc4f', '\ud83d\ude2e', '\ud83d\udcaf']
 
 const TYPING_DEBOUNCE = 1200
@@ -28,7 +26,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   const [text, setText] = useState('')
   const [cooldown, setCooldown] = useState(false)
   const [replyTo, setReplyTo] = useState(null)
-  const [showEmoji, setShowEmoji] = useState(false)
+  const [showReactions, setShowReactions] = useState(false)
   const [showAiMenu, setShowAiMenu] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
   const [unseen, setUnseen] = useState(0)
@@ -167,11 +165,6 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     }
     clearTimeout(typingTimer.current)
     typingTimer.current = setTimeout(() => setTyping(false), TYPING_DEBOUNCE)
-  }
-
-  const insertEmoji = (key) => {
-    setText((t) => (t + REACTION_SYMBOLS[key]).slice(0, 500))
-    setShowEmoji(false)
   }
 
   const sendFloatingReaction = useCallback(async (emoji) => {
@@ -334,73 +327,6 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
 
   return (
     <div className={styles.chat}>
-      <div className={styles.chatActionsBar}>
-        {/* One row: reactions (icon chips) on the left, AI tools behind a
-            single menu button on the right — reclaims a full row for chat */}
-        <div className={styles.floatingReactionsBar}>
-          {FLOATING_EMOJIS.map((emoji, idx) => (
-            <button
-              key={idx}
-              type="button"
-              className={styles.floatingReactionBtn}
-              onClick={() => sendFloatingReaction(emoji)}
-              title={`Send ${emoji} to video canvas`}
-            >
-              {emoji}
-            </button>
-          ))}
-          <span style={{ flex: 1 }} />
-          <div style={{ position: 'relative' }}>
-            <button
-              type="button"
-              className={styles.aiMenuBtn}
-              onClick={() => { setShowAiMenu(!showAiMenu) }}
-              title="AI tools"
-            >
-              <Bot size={15} />
-              {aiCooldownSec > 0 && (
-                <span className={styles.aiCooldownBadge}>{Math.ceil(aiCooldownSec / 60)}m</span>
-              )}
-            </button>
-            {showAiMenu && (
-              <div className={styles.emojiGrid} style={{ right: 0, left: 'auto', gridTemplateColumns: '1fr', gap: '4px', minWidth: '170px' }}>
-                <button
-                  type="button"
-                  className={styles.emojiButton}
-                  style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', textAlign: 'left', padding: '8px 10px' }}
-                  onClick={() => { setShowAiMenu(false); requestAiSummary() }}
-                  disabled={aiLoading || aiCooldownSec > 0}
-                >
-                  {aiLoading ? <Loader2 size={14} className="spin" /> : <Bot size={14} />}
-                  <span>Summary</span>
-                  {aiCooldownSec > 0 && <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: .7 }}>{Math.ceil(aiCooldownSec / 60)}m</span>}
-                </button>
-                <button
-                  type="button"
-                  className={styles.emojiButton}
-                  style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', textAlign: 'left', padding: '8px 10px' }}
-                  onClick={() => { setShowAiMenu(false); requestSmartCatchup() }}
-                  disabled={catchupLoading}
-                >
-                  {catchupLoading ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
-                  <span>Catch Up</span>
-                </button>
-                <button
-                  type="button"
-                  className={styles.emojiButton}
-                  style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', textAlign: 'left', padding: '8px 10px' }}
-                  onClick={() => { setShowAiMenu(false); requestGenerateQuiz() }}
-                  disabled={quizLoading}
-                >
-                  {quizLoading ? <Loader2 size={14} className="spin" /> : <Brain size={14} />}
-                  <span>Quiz</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
       {activeQuiz && (
         <div className={styles.quizCard}>
           <div className={styles.quizHeader}>
@@ -439,7 +365,10 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
 
       <div className={styles.messages} ref={listRef} onScroll={onScroll}>
         {merged.length === 0 && (
-          <span className={styles.empty}>No messages yet -- say hi or ask AI for a summary!</span>
+          <button type="button" className={styles.suggestChip} onClick={requestAiSummary} disabled={aiLoading}>
+            {aiLoading ? <Loader2 size={13} className="spin" /> : <Sparkles size={13} />}
+            Ask AI for a recap
+          </button>
         )}
         {merged.map((m, i) => {
           if (m.type === 'system' || m.type === 'bot') {
@@ -484,24 +413,89 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
         </button>
       )}
 
-      <form onSubmit={onSubmit} className={styles.form}>
-        {replyTo && (
-          <div className={styles.replyPreview}>
-            <span>
-              Replying to {replyTo.displayName}: {replyTo.text.slice(0, 60)}
-              {replyTo.text.length > 60 ? '...' : ''}
-            </span>
+      {/* Composer: reaction toggle + AI chip + input + send */}
+      <div className={styles.composer}>
+        {/* Hidden reaction strip — expands when the 🙂 button is tapped */}
+        <div className={`${styles.reactionStrip} ${showReactions ? styles.reactionStripOpen : ''}`}>
+          {FLOATING_EMOJIS.map((emoji, idx) => (
+            <button
+              key={idx}
+              type="button"
+              className={styles.reactionStripBtn}
+              onClick={() => sendFloatingReaction(emoji)}
+              title={`Send ${emoji} to video canvas`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+
+        <form onSubmit={onSubmit} className={styles.composerBar}>
+          {replyTo && (
+            <div className={styles.replyPreview}>
+              <span>
+                Replying to {replyTo.displayName}: {replyTo.text.slice(0, 60)}
+                {replyTo.text.length > 60 ? '...' : ''}
+              </span>
+              <button
+                type="button"
+                onClick={() => setReplyTo(null)}
+                className={styles.clearReply}
+                aria-label="Cancel reply"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+          <div style={{ position: 'relative' }}>
             <button
               type="button"
-              onClick={() => setReplyTo(null)}
-              className={styles.clearReply}
-              aria-label="Cancel reply"
+              className={styles.aiChip}
+              onClick={() => setShowAiMenu(!showAiMenu)}
+              title="AI tools"
             >
-              <X size={14} />
+              <Bot size={14} />
+              AI
+              {aiCooldownSec > 0 && (
+                <span className={styles.aiCooldownBadge}>{Math.ceil(aiCooldownSec / 60)}m</span>
+              )}
             </button>
+            {showAiMenu && (
+              <div className={styles.emojiGrid} style={{ right: 0, left: 'auto', gridTemplateColumns: '1fr', gap: '4px', minWidth: '170px', bottom: '100%', top: 'auto', marginBottom: 6 }}>
+                <button
+                  type="button"
+                  className={styles.emojiButton}
+                  style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', textAlign: 'left', padding: '8px 10px' }}
+                  onClick={() => { setShowAiMenu(false); requestAiSummary() }}
+                  disabled={aiLoading || aiCooldownSec > 0}
+                >
+                  {aiLoading ? <Loader2 size={14} className="spin" /> : <Bot size={14} />}
+                  <span>Summary</span>
+                  {aiCooldownSec > 0 && <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: .7 }}>{Math.ceil(aiCooldownSec / 60)}m</span>}
+                </button>
+                <button
+                  type="button"
+                  className={styles.emojiButton}
+                  style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', textAlign: 'left', padding: '8px 10px' }}
+                  onClick={() => { setShowAiMenu(false); requestSmartCatchup() }}
+                  disabled={catchupLoading}
+                >
+                  {catchupLoading ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
+                  <span>Catch Up</span>
+                </button>
+                <button
+                  type="button"
+                  className={styles.emojiButton}
+                  style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', textAlign: 'left', padding: '8px 10px' }}
+                  onClick={() => { setShowAiMenu(false); requestGenerateQuiz() }}
+                  disabled={quizLoading}
+                >
+                  {quizLoading ? <Loader2 size={14} className="spin" /> : <Brain size={14} />}
+                  <span>Quiz</span>
+                </button>
+              </div>
+            )}
           </div>
-        )}
-        <div className={styles.inputRow}>
           <Input
             value={text}
             onChange={(e) => handleInputChange(e.target.value)}
@@ -509,25 +503,15 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
             maxLength={500}
             className={styles.input}
           />
-          <div className={styles.emojiPicker}>
-            <IconButton type="button" onClick={() => setShowEmoji((s) => !s)} active={showEmoji} aria-label="Insert emoji">
-              <Smile size={18} />
-            </IconButton>
-            {showEmoji && (
-              <div className={styles.emojiGrid}>
-                {REACTIONS.map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className={styles.emojiButton}
-                    onClick={() => insertEmoji(key)}
-                  >
-                    {REACTION_SYMBOLS[key]}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            className={`${styles.reactBtn} ${showReactions ? styles.reactBtnActive : ''}`}
+            onClick={() => setShowReactions((s2) => !s2)}
+            aria-label="Send reaction to video"
+            title="Reactions"
+          >
+            <Smile size={16} />
+          </button>
           <Button
             type="submit"
             disabled={cooldown || !text.trim()}
@@ -537,13 +521,14 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
           >
             <Send size={16} />
           </Button>
-        </div>
+        </form>
         {nearLimit && (
           <div className={styles.counter} aria-live="polite">
             {text.length}/500
           </div>
         )}
-      </form>
+      </div>
+
 
       <Modal
         open={Boolean(catchupModalData)}
