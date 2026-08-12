@@ -54,7 +54,7 @@ export type PlaybackStateEvent =
   | { state: 'error'; message: string; kind: ErrorKind }
   | { state: 'engine'; engine: string }
 
-export type ControlsEvent = { type: 'tap' }
+export type ControlsEvent = { type: 'tap'; x?: number; y?: number }
 
 export interface VideoTrack {
   id: number
