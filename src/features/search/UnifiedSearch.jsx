@@ -15,12 +15,15 @@ import { apiPath, parseJsonResponse } from '../../shared/lib/api.js'
 
 // NSFW is intentionally NOT in the chips row — it's age-gated behind an
 // account-level setting (removed from the visible filter row per the redesign).
+// utility: true = secondary browse entry (subtle styling). The description is
+// surfaced as the search input placeholder so there is no separate label bar
+// between the tabs and the search field.
 const SEARCH_LAYERS = [
-  { id: 'all', label: 'All Media', icon: Compass, description: 'Search across all sources' },
-  { id: 'youtube', label: 'YouTube', icon: PlayCircle, description: 'Search YouTube videos' },
-  { id: 'direct', label: 'Direct Links', icon: Link2, description: 'Nkiri shows via DownloadWella' },
-  { id: 'iptv', label: 'IPTV', icon: Tv, description: 'Live TV channels' },
-  { id: 'sports', label: 'Sports', icon: Trophy, description: 'Live sports events' },
+  { id: 'all', label: 'All Media', icon: Compass, description: 'Search across all sources', placeholder: 'Search movies, shows, live TV & sports…', utility: false },
+  { id: 'youtube', label: 'YouTube', icon: PlayCircle, description: 'Search YouTube videos', placeholder: 'Search YouTube…', utility: false },
+  { id: 'direct', label: 'Direct Links', icon: Link2, description: 'Nkiri shows via DownloadWella', placeholder: 'Search TV shows & movies (Silo, House of the Dragon…) or paste a link', utility: true },
+  { id: 'iptv', label: 'IPTV', icon: Tv, description: 'Live TV channels', placeholder: 'Search live TV channels…', utility: true },
+  { id: 'sports', label: 'Sports', icon: Trophy, description: 'Live sports events', placeholder: 'Search live sports…', utility: true },
 ]
 
 const TRENDING = {
@@ -60,13 +63,25 @@ export default function UnifiedSearch() {
 
   // Run once on mount if the home search bar handed us a query.
   useEffect(() => {
-    if (!paramQuery || initialSearchDoneRef.current) return
     initialSearchDoneRef.current = true
+    if (!paramQuery) return
     setQuery(paramQuery)
     const t = setTimeout(() => { runSearchRef.current?.(paramQuery) }, 60)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Search-as-you-type: debounce runs whenever the query changes (450ms).
+  // The mount effect handles the ?q= hand-off; this skips that first pass.
+  useEffect(() => {
+    if (activeLayer === 'direct') return // direct layer uses ShowBrowser
+    const q = query.trim()
+    if (!q) return
+    if (initialSearchDoneRef.current === false) return
+    const t = setTimeout(() => runSearchRef.current?.(q), 450)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, activeLayer])
 
   const runSearchRef = useRef(null)
 
@@ -124,9 +139,9 @@ export default function UnifiedSearch() {
   }, [adultVerified, clear])
 
   const handleTrendingClick = useCallback((item) => {
+    // Just set the query — the debounced search-as-you-type effect runs it.
     setQuery(item)
-    setTimeout(() => runSearch(item), 50)
-  }, [runSearch])
+  }, [])
 
   const handleNsfwConfirm = useCallback(() => {
     setAdultVerified(true)
@@ -158,7 +173,9 @@ export default function UnifiedSearch() {
         <p className={styles.subtitle}>Search movies, shows, live TV, and sports — watch together in sync</p>
       </div>
 
-      {/* Layer Tabs */}
+      {/* Layer Tabs — one consistent grid (3-col on mobile so no button is
+          orphaned). Utility sources (Direct Links / IPTV / Sports) get a
+          subtler weight than All Media / YouTube. */}
       <div className={styles.layerTabs}>
         {SEARCH_LAYERS.map(layer => {
           const Icon = layer.icon
@@ -166,7 +183,7 @@ export default function UnifiedSearch() {
             <button
               key={layer.id}
               type="button"
-              className={`${styles.tab} ${activeLayer === layer.id ? styles.active : ''} ${layer.adult ? styles.adult : ''}`}
+              className={`${styles.tab} ${activeLayer === layer.id ? styles.active : ''} ${layer.adult ? styles.adult : ''} ${layer.utility ? styles.utility : ''}`}
               onClick={() => handleLayerClick(layer.id)}
             >
               <Icon size={14} />
@@ -174,12 +191,6 @@ export default function UnifiedSearch() {
             </button>
           )
         })}
-      </div>
-
-      {/* Layer Description */}
-      <div className={styles.layerInfo}>
-        <CurrentLayerIcon size={16} className={styles.layerIcon} />
-        <p>{currentLayer?.description || ''}</p>
       </div>
 
       {/* Search Form — hidden on the direct layer, which uses ShowBrowser */}
@@ -203,9 +214,8 @@ export default function UnifiedSearch() {
                   <X size={14} />
                 </button>
               )}
-              <button type="submit" className={styles.searchBtn} disabled={loading}>
-                {loading ? <Loader2 size={14} className={styles.spin} /> : <Search size={14} />}
-                Search
+              <button type="submit" className={styles.searchBtn} disabled={loading} title="Search" aria-label="Search">
+                {loading ? <Loader2 size={16} className={styles.spin} /> : <Search size={16} />}
               </button>
             </div>
           </form>

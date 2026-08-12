@@ -887,13 +887,16 @@
 }
 
 .searchBtn {
-  height: 50px;
-  padding: 0 22px;
+  /* Icon-only trigger — input + trigger read as one component */
+  width: 48px;
+  height: 48px;
+  padding: 0;
   border-radius: 14px;
   font-size: 15px;
   font-weight: 750;
   background: #f4f1ea;
   color: #050505;
+  flex: 0 0 48px;
 }
 
 .clearBtn {
@@ -966,23 +969,45 @@
     padding-right: 18px;
   }
 
+  /* 3 columns → 5 layers lay out 3+2, no lone button in its own row */
   .layerTabs {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .tab {
     justify-content: center;
     width: 100%;
+    padding: 0 8px;
+    font-size: 12.5px;
+    min-height: 38px;
+  }
+
+  .tab .label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .searchBarWrapper {
     gap: 8px;
   }
 
+  /* Icon-only search trigger — input + trigger feel like one component */
   .searchBtn {
-    padding: 0 18px;
+    width: 46px;
+    padding: 0;
+    border-radius: 14px;
+    flex: 0 0 46px;
   }
+}
+
+/* Utility layers (Direct Links / IPTV / Sports) are secondary to the main
+   browse entry points (All Media / YouTube) */
+.tab.utility:not(.active) {
+  opacity: 0.66;
+  font-weight: 550;
 }
 
 .directBrowser {

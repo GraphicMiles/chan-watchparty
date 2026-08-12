@@ -453,6 +453,16 @@
 
 /* Mobile */
 @media (max-width: 768px) {
+  /* Clear the status bar / notch: ~3rem above the header row
+     (Chan / title / badges). Vertical safe-area only. */
+  .header {
+    margin-top: max(3rem, env(safe-area-inset-top, 0px));
+  }
+
+  .main {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
   .controlsCard {
     padding: 8px 10px !important;
     gap: 6px !important;

@@ -57,6 +57,110 @@ public class VideoPlayerPlugin extends Plugin {
     private boolean wasPlayingBeforePip = false;
     private boolean chromeEnabled = true; // from showEmbedded controls flag
 
+    // ── Fullscreen controls (in-app styled, layered ABOVE the native surface) ──
+    // The native surface sits above the WebView, so React controls can't be
+    // seen in fullscreen. A transparent WebView loads the bundled
+    // fullscreen-controls page (same design tokens) and drives the engine via
+    // the ChanNative JS bridge; state is pushed back every 500ms.
+    private android.webkit.WebView fsControlsView;
+    private boolean fsControlsLoaded = false;
+    private final android.os.Handler fsPushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private String lastTitle = "Chan Video";
+    private String lastVtt = "";
+    private boolean lastIsLive = false;
+    private boolean lastBuffering = false;
+    private int lastBufferingPercent = 0;
+
+    private final Runnable fsPushRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!fullscreen || fsControlsView == null || !fsControlsLoaded || engine == null) return;
+            try {
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("playing", engine.isPlaying());
+                o.put("positionMs", engine.getPositionMs());
+                o.put("durationMs", engine.getDurationMs());
+                o.put("title", lastTitle == null ? "Chan Video" : lastTitle);
+                o.put("live", lastIsLive);
+                o.put("buffering", lastBuffering);
+                o.put("bufferingPercent", lastBufferingPercent);
+                final String js = "window.chanState && window.chanState(" + o.toString() + ");";
+                fsControlsView.post(() -> {
+                    try { fsControlsView.evaluateJavascript(js, null); } catch (Exception ignored) { }
+                });
+            } catch (Exception ignored) { }
+            fsPushHandler.postDelayed(this, 500);
+        }
+    };
+
+    private void ensureFsControls() {
+        if (fsControlsView != null) return;
+        fsControlsView = new android.webkit.WebView(getActivity());
+        fsControlsView.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        fsControlsView.setVerticalScrollBarEnabled(false);
+        fsControlsView.setHorizontalScrollBarEnabled(false);
+        fsControlsView.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+        fsControlsView.setWebViewClient(new android.webkit.WebViewClient() {
+            @Override
+            public void onPageFinished(android.webkit.WebView view, String url) {
+                fsControlsLoaded = true;
+                if (fullscreen) {
+                    view.setVisibility(android.view.View.VISIBLE);
+                    fsPushHandler.removeCallbacks(fsPushRunnable);
+                    fsPushHandler.post(fsPushRunnable);
+                }
+                // Pass the title once the page is ready.
+                final String t = lastTitle == null ? "Chan Video" : lastTitle.replace("'", "\\'");
+                view.post(() -> {
+                    try { view.evaluateJavascript("window.chanTitle && window.chanTitle('" + t + "');", null); } catch (Exception ignored) { }
+                });
+            }
+        });
+        fsControlsView.addJavascriptInterface(new FsBridge(), "ChanNative");
+        fsControlsView.setVisibility(android.view.View.GONE);
+        try {
+            fsControlsView.loadUrl("file:///android_asset/public/fullscreen-controls/index.html");
+        } catch (Exception ignored) { }
+    }
+
+    /** JS bridge for the fullscreen controls page. All commands → main thread. */
+    private class FsBridge {
+        @android.webkit.JavascriptInterface
+        public void command(final String action, final double value) {
+            getActivity().runOnUiThread(() -> {
+                if (engine == null) return;
+                try {
+                    switch (action) {
+                        case "toggle": if (engine.isPlaying()) engine.pause(); else engine.play(); break;
+                        case "play": engine.play(); break;
+                        case "pause": engine.pause(); break;
+                        case "seek": engine.seekTo((long) value); break;
+                        case "skip": engine.seekTo(engine.getPositionMs() + (long) value); break;
+                        case "rate": engine.setPlaybackRate((float) value); break;
+                        case "volume": engine.setVolume((float) value); break;
+                        case "brightness": engine.setVideoEffects((float) value, 1f, 1f, 0f); break;
+                        case "cc": engine.setSubtitles(value > 0.5 ? lastVtt : ""); break;
+                        case "pip": enterPip(); break;
+                        case "rotate": rotateOrientation(); break;
+                        case "minimize": if (fullscreen) setFullscreenUi(false); break;
+                        default: break;
+                    }
+                } catch (Exception ignored) { }
+            });
+        }
+    }
+
+    private void rotateOrientation() {
+        try {
+            int cur = getActivity().getResources().getConfiguration().orientation;
+            if (cur == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+                getActivity().setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+            } else {
+                getActivity().setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+            }
+        } catch (Exception ignored) { }
+    }
+
     private BroadcastReceiver piPReceiver;
 
     // ── Lifecycle of the overlay ─────────────────────────────────────────
@@ -96,6 +200,7 @@ public class VideoPlayerPlugin extends Plugin {
     private final ChanPlayerEngine.Listener engineListener = new ChanPlayerEngine.Listener() {
         @Override
         public void onReady() {
+            lastBuffering = false;
             if (overlay != null) overlay.hideStatus();
             emitPlaybackState("ready", null);
         }
@@ -105,17 +210,21 @@ public class VideoPlayerPlugin extends Plugin {
             // Requirement: buffering UI reflects live native state, shown by the
             // app's own control bar — never native chrome. Clamp 1–99%.
             int clamped = Math.max(1, Math.min(99, percent));
+            lastBuffering = true;
+            lastBufferingPercent = clamped;
             emitPlaybackState("buffering", new JSObject().put("percent", clamped));
         }
 
         @Override
         public void onPlaying() {
+            lastBuffering = false;
             if (overlay != null) overlay.hideStatus();
             emitPlaybackState("playing", null);
         }
 
         @Override
         public void onPaused() {
+            lastBuffering = false;
             if (overlay != null) overlay.hideStatus(); // never 'buffering' while paused
             emitPlaybackState("paused", null);
         }
@@ -171,6 +280,9 @@ public class VideoPlayerPlugin extends Plugin {
         String container = call.getString("container", "");
         String codec = call.getString("codec", "");
         Boolean controls = call.getBoolean("controls", true);
+        Boolean isLive = call.getBoolean("isLive", false);
+        lastTitle = title;
+        lastIsLive = Boolean.TRUE.equals(isLive);
         // Extra headers from the descriptor (merged over UA/Referer in the engine)
         java.util.Map<String, String> headers = new java.util.HashMap<>();
         JSObject h = call.getObject("headers");
@@ -360,10 +472,17 @@ public class VideoPlayerPlugin extends Plugin {
                 );
                 overlay.setLayoutParams(params);
                 // NO native chrome in fullscreen — the app's in-app controls
-                // (React overlay) drive everything, exactly like inline mode.
+                // (the layered fullscreen-controls WebView) drive everything.
                 overlay.setInteractive(false);
                 overlay.setVisible(true);
                 hideSystemUi();
+                // Show the in-app styled controls above the surface.
+                ensureFsControls();
+                if (fsControlsLoaded) {
+                    fsControlsView.setVisibility(View.VISIBLE);
+                    fsPushHandler.removeCallbacks(fsPushRunnable);
+                    fsPushHandler.post(fsPushRunnable);
+                }
             } else {
                 // Restore the embedded stage rect (re-anchors the surface back
                 // into the room bounds, NOT just a boolean flip), restore the
@@ -374,6 +493,9 @@ public class VideoPlayerPlugin extends Plugin {
                 }
                 overlay.setInteractive(chromeEnabled);
                 showSystemUi();
+                // Hide the fullscreen controls layer.
+                fsPushHandler.removeCallbacks(fsPushRunnable);
+                if (fsControlsView != null) fsControlsView.setVisibility(View.GONE);
             }
             overlay.setFullscreenUi(fullscreen);
             // Keep JS in sync both directions
@@ -410,6 +532,7 @@ public class VideoPlayerPlugin extends Plugin {
     @PluginMethod
     public void setSubtitles(PluginCall call) {
         String vttText = call.getString("vttText", "");
+        lastVtt = vttText == null ? "" : vttText;
         if (engine != null) engine.setSubtitles(vttText);
         call.resolve();
     }
@@ -476,6 +599,15 @@ public class VideoPlayerPlugin extends Plugin {
     }
 
     private void teardown() {
+        fsPushHandler.removeCallbacks(fsPushRunnable);
+        if (fsControlsView != null) {
+            try {
+                ((ViewGroup) getActivity().getWindow().getDecorView()).removeView(fsControlsView);
+            } catch (Exception ignored) { }
+            try { fsControlsView.destroy(); } catch (Exception ignored) { }
+            fsControlsView = null;
+        }
+        fsControlsLoaded = false;
         if (overlay != null) {
             overlay.teardown();
             detachOverlay();

@@ -152,6 +152,7 @@ export default function NativeEmbeddedPlayer({
         container: cfg.container || undefined,
         codec: cfg.codec || undefined,
         controls: false, // app's own control bar drives playback — no native chrome
+        isLive: Boolean(isLive),
       })
     } catch (err) {
       if (sessionActiveRef.current) terminalError('other', err?.message)
