@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Smile, X, ArrowDown, Bot, Loader2, Sparkles, Brain, CheckCircle, Volume2 } from 'lucide-react'
+import { Send, Smile, X, ArrowDown, Bot, Loader2, Sparkles, Brain, CheckCircle } from 'lucide-react'
 import { collection, addDoc, serverTimestamp, doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
 import { Input, Button, IconButton, Modal, useToast } from '../../../shared/ui/index.js'
@@ -10,13 +10,6 @@ import { apiPath } from '../../../shared/lib/api.js'
 const REACTIONS = ['heart', 'thumbs-up', 'laugh', 'fire', 'clap', 'wow']
 const REACTION_SYMBOLS = { heart: '\u2764', 'thumbs-up': '\ud83d\udc4d', laugh: '\ud83d\ude02', fire: '\ud83d\udd25', clap: '\ud83d\udc4f', wow: '\ud83d\ude2e' }
 const FLOATING_EMOJIS = ['\u2764', '\ud83d\udd25', '\ud83d\ude02', '\ud83d\udc4f', '\ud83d\ude2e', '\ud83d\udcaf']
-const SOUND_FX = {
-  airhorn: { name: 'Airhorn', emoji: '📯', url: 'https://cdn.freesound.org/previews/435/435255_8863641-lq.mp3' },
-  cheer: { name: 'Stadium Cheer', emoji: '👏', url: 'https://cdn.freesound.org/previews/337/337049_5121236-lq.mp3' },
-  boom: { name: 'Dramatic Boom', emoji: '💥', url: 'https://cdn.freesound.org/previews/266/266105_4486188-lq.mp3' },
-  laugh: { name: 'Crowd Laugh', emoji: '🤣', url: 'https://cdn.freesound.org/previews/369/369515_6687700-lq.mp3' },
-  applause: { name: 'Applause', emoji: '🎉', url: 'https://cdn.freesound.org/previews/483/483652_1015240-lq.mp3' },
-}
 
 const TYPING_DEBOUNCE = 1200
 const TYPING_WRITE_INTERVAL = 2000
@@ -36,7 +29,6 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   const [cooldown, setCooldown] = useState(false)
   const [replyTo, setReplyTo] = useState(null)
   const [showEmoji, setShowEmoji] = useState(false)
-  const [showFxMenu, setShowFxMenu] = useState(false)
   const [showAiMenu, setShowAiMenu] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
   const [unseen, setUnseen] = useState(0)
@@ -197,21 +189,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     }
   }, [user, roomId])
 
-  const triggerSoundFx = useCallback(async (fxKey) => {
-    if (!user || !roomId) return
-    try {
-      setShowFxMenu(false)
-      await addDoc(collection(db, 'rooms', roomId, 'soundEffects'), {
-        soundKey: fxKey,
-        uid: user.uid,
-        displayName: user.displayName || 'Viewer',
-        createdAt: serverTimestamp(),
-        createdAtMs: Date.now(),
-      })
-    } catch (err) {
-      toast(err.message || 'Could not play sound effect', { variant: 'error' })
-    }
-  }, [user, roomId, toast])
+
 
   const requestAiSummary = useCallback(async () => {
     if (!user || !roomId) return
@@ -371,38 +349,12 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
               {emoji}
             </button>
           ))}
-          <div style={{ position: 'relative' }}>
-            <button
-              type="button"
-              className={styles.floatingReactionBtn}
-              onClick={() => setShowFxMenu(!showFxMenu)}
-              title="Room Sound Effects (#11)"
-            >
-              <Volume2 size={15} />
-            </button>
-            {showFxMenu && (
-              <div className={styles.emojiGrid} style={{ right: 'auto', left: 0, gridTemplateColumns: 'repeat(1, 1fr)', gap: '4px', minWidth: '150px' }}>
-                {Object.entries(SOUND_FX).map(([key, fx]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className={styles.emojiButton}
-                    style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', textAlign: 'left', padding: '6px 8px' }}
-                    onClick={() => triggerSoundFx(key)}
-                  >
-                    <span>{fx.emoji}</span>
-                    <span>{fx.name.replace(fx.emoji, '').trim()}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
           <span style={{ flex: 1 }} />
           <div style={{ position: 'relative' }}>
             <button
               type="button"
               className={styles.aiMenuBtn}
-              onClick={() => { setShowFxMenu(false); setShowAiMenu(!showAiMenu) }}
+              onClick={() => { setShowAiMenu(!showAiMenu) }}
               title="AI tools"
             >
               <Bot size={15} />

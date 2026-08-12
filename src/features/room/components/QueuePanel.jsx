@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { collection, onSnapshot, query, orderBy, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
-import { Plus, Trash2, Play, Search, Film } from 'lucide-react'
+import { Plus, Trash2, Play, Search, Film, Info } from 'lucide-react'
 import { db } from '../../../shared/lib/firebase.js'
 import { useUnifiedSearch } from '../../../hooks/useUnifiedSearch.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, extractVideoId, getThumbnail } from '../../../shared/lib/youtube.js'
@@ -203,7 +203,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast
             aria-label="How the queue works"
             title="Add up to 5 videos. When the current stream finishes, the next queued item plays automatically!"
           >
-            ⓘ
+            <Info size={13} />
           </button>
         </h3>
         {hintVisible && (

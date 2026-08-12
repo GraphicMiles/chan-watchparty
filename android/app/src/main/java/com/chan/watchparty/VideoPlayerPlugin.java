@@ -184,13 +184,24 @@ public class VideoPlayerPlugin extends Plugin {
     }
 
     /**
-     * Brightness via the overlay's dim layer (0..1). NEVER calls the engine —
-     * a pure rendering dim, so stream playability is untouched on both
-     * ExoPlayer and libVLC (engine.setVideoEffects re-prepares VLC media,
-     * which would hiccup playback).
+     * Brightness 0..2 (50%..200%).
+     *  - <= 1.0 (dim): pure overlay dim layer — never touches the engine, so
+     *    playability is untouched on both ExoPlayer and libVLC.
+     *  - >  1.0 (brighten): needs the engine's Brightness effect (Exo applies
+     *    live; VLC uses the debounced re-prepare + resume). Only the >100%
+     *    path touches the engine, and it's debounced so it can't hiccup.
      */
     private void applyBrightness(float brightness) {
-        if (overlay != null) overlay.setBrightnessDim(brightness);
+        float b = Math.max(0f, Math.min(2f, brightness));
+        if (overlay != null) {
+            if (b <= 1f) {
+                overlay.setBrightnessDim(b);
+                if (engine != null) engine.setVideoEffects(1f, 1f, 1f, 0f); // neutral
+            } else {
+                overlay.setBrightnessDim(1f); // no dim
+                if (engine != null) engine.setVideoEffects(b, 1f, 1f, 0f);
+            }
+        }
     }
 
     @PluginMethod
