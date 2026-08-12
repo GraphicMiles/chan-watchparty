@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 import {
@@ -6,19 +6,18 @@ import {
   isDirectVideoUrl,
   normalizePlaybackUrl,
 } from '../../../shared/lib/youtube.js'
-import { createRoom, isO2TvUrl } from '../../../shared/lib/createRoom.js'
+import { createRoom } from '../../../shared/lib/createRoom.js'
 import { isSuitableThumbnail } from '../../../shared/lib/mediaHelper.js'
 import { cleanMediaTitle } from '../../../shared/lib/titleFormat.js'
 import { friendlyApiError } from '../../../shared/lib/mediaApi.js'
-import { Button, Input, Card, useToast } from '../../../shared/ui/index.js'
-import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
-import { Link2 } from 'lucide-react'
+import { Button, Card, useToast } from '../../../shared/ui/index.js'
+import { Link2, Compass } from 'lucide-react'
 import styles from './CreateRoomPage.module.css'
 
 function parseShowSlugFromUrl(value) {
   try {
     const u = new URL(value)
-    if (!isO2TvUrl(u.href)) return null
+    if (!/tvshows4mobile\.org|o2tvseries|o2tv\.org/i.test(u.href)) return null
     if (/o2tv\.org/i.test(u.hostname)) return null
     const parts = u.pathname.split('/').filter(Boolean)
     return parts[0] || null
@@ -43,11 +42,12 @@ function videoTypeLabel(content) {
 }
 
 /**
- * Create Room — P1 restructure.
- * One guided flow with a progress rail:
- *   1. Pick content (paste link | ShowBrowser: TV shows / YouTube)
- *   2. Room settings → Create
- * Deep links from /media drop the user at step 2 with content pre-picked.
+ * Create Room — single-step (mockup structure).
+ * The picker lives in the Media Browser; this page only sets up the room.
+ *   - Arrives with ?video / ?videoUrl presets from the Media Browser → the
+ *     media card + settings are shown immediately.
+ *   - Arrives with nothing (deep link / home) → empty state → "Browse media".
+ *   - "Change" goes back to the Media Browser.
  */
 export default function CreateRoomPage() {
   const { user } = useAuth()
@@ -55,7 +55,6 @@ export default function CreateRoomPage() {
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const { toast } = useToast()
-  const browserRef = useRef(null)
 
   const presetVideo = searchParams.get('video') || ''
   const presetVideoUrl = searchParams.get('videoUrl') || ''
@@ -69,21 +68,17 @@ export default function CreateRoomPage() {
   // regenerate a fresh CDN token instead of echoing a dead one.
   const presetSourceUrl = searchParams.get('sourceUrl') || ''
 
-  // ── Flow state ────────────────────────────────────────────────────────
-  const [content, setContent] = useState(null) // picked content OR null = browsing
-  const [pasteUrl, setPasteUrl] = useState('')
-  const [browserTask, setBrowserTask] = useState(null) // { type:'show', slug, name, thumb }
+  // ── State ───────────────────────────────────────────────────────────────
+  const [content, setContent] = useState(null) // picked content (from presets)
   // Custom room title override. Starts EMPTY on purpose — the picked content's
   // title is the default, shown as the input placeholder, so we never render
-  // the same title twice (once in the picked card, once in the field).
+  // the same title twice (once in the media card, once in the field).
   const [title, setTitle] = useState('')
   const [capacity, setCapacity] = useState(12)
   const [isPrivate, setIsPrivate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
 
-  // Single-step flow (mockup): picking content shows the create panel
-  // (summary + settings + CTA) on the same screen. "Change" returns to browse.
   const pickContent = useCallback((next) => {
     setContent(next)
     setError(null)
@@ -133,65 +128,16 @@ export default function CreateRoomPage() {
       })
       return
     }
-    // O2TV show page / slug → open the browser at seasons (step 1)
+    // O2TV show page / slug → the picker (seasons) lives in the Media
+    // Browser's Direct layer now — hand off there instead of embedding a
+    // second browser here.
     const slug = presetShowSlug || parseShowSlugFromUrl(presetVideoUrl)
     if (slug) {
-      setBrowserTask({ type: 'show', slug, name: presetShowName || presetTitle || 'TV Show', thumb: presetThumb })
+      const q = presetShowName || presetTitle || slug
+      navigate(`/media?layer=direct&q=${encodeURIComponent(q)}`, { replace: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]) // run once per user/preset — presets come from navigation
-
-  useEffect(() => {
-    if (!browserTask || !browserRef.current) return
-    if (browserTask.type === 'show') {
-      browserRef.current.openShowBySlug(browserTask.slug, browserTask.name, browserTask.thumb)
-    }
-    setBrowserTask(null)
-  }, [browserTask])
-
-
-  // ── Paste-link handling ───────────────────────────────────────────────
-  const usePastedLink = async (e) => {
-    e?.preventDefault()
-    const value = String(pasteUrl || '').trim()
-    if (!value) return
-    const id = extractVideoId(value)
-    if (id) {
-      pickContent({
-        kind: 'youtube',
-        videoId: id,
-        url: `https://youtube.com/watch?v=${id}`,
-        title: presetTitle || 'YouTube video',
-        thumbnail: null,
-        videoType: 'youtube',
-      })
-      setPasteUrl('')
-      return
-    }
-    if (isDirectVideoUrl(value)) {
-      const isM3u8 = /\.m3u8(\?|#|$)/i.test(value)
-      pickContent({
-        kind: 'direct',
-        url: normalizePlaybackUrl(value),
-        title: presetTitle || 'Direct video',
-        thumbnail: null,
-        videoType: isM3u8 ? 'iptv' : 'direct',
-        isLive: isM3u8,
-      })
-      setPasteUrl('')
-      return
-    }
-    if (isO2TvUrl(value)) {
-      const slug = parseShowSlugFromUrl(value)
-      if (slug) {
-        setPasteUrl('')
-        browserRef.current?.openShowBySlug(slug, presetTitle || slug.replace(/-/g, ' '), presetThumb)
-        return
-      }
-    }
-    setPasteUrl('')
-    browserRef.current?.openPageUrl(value, presetTitle || 'Media page')
-  }
 
   // ── Create room ───────────────────────────────────────────────────────
   const create = async (e) => {
@@ -232,49 +178,32 @@ export default function CreateRoomPage() {
     else navigate('/media')
   }
 
+  const browseMedia = () => navigate('/media', { state: { from: location.pathname } })
+
   return (
     <div className={styles.page}>
       <Card className={styles.card}>
         <h1 className={styles.title}>New room</h1>
         <p className={styles.subtitle}>
-          Search a show, paste a link, or pick something to watch — everyone syncs instantly.
+          Pick something to watch in the Media Browser, then set up the room here — everyone syncs instantly.
         </p>
 
-        {/* Browse pane — hidden while content is picked (stays mounted so
-            browser state survives "Change") */}
-        <div className={content ? styles.paneHidden : styles.pane}>
-          {/* Paste a link */}
-          <form className={styles.pasteRow} onSubmit={usePastedLink}>
-            <div className={styles.pasteWrap}>
-              <Link2 size={15} className={styles.pasteIcon} />
-              <Input
-                placeholder="Paste a YouTube, .mp4 / .m3u8 / .mkv or TV-show page link…"
-                value={pasteUrl}
-                onChange={(e) => setPasteUrl(e.target.value)}
-                className={styles.pasteInput}
-              />
+        {!content ? (
+          /* No content yet (deep link / home) — route to the picker */
+          <div className={styles.emptyState}>
+            <div className={styles.emptyIcon}>
+              <Compass size={26} />
             </div>
-            <Button type="submit" variant="secondary" size="md">Use link</Button>
-          </form>
-
-          <div className={styles.divider}>
-            <span>or browse</span>
+            <h2 className={styles.emptyTitle}>Pick something to watch</h2>
+            <p className={styles.emptyText}>
+              Browse the Media Browser for a YouTube video, a live channel, a sports match, or a TV show — then come back here to start the room.
+            </p>
+            <Button type="button" variant="cta" onClick={browseMedia}>
+              Browse media
+            </Button>
           </div>
-
-          {/* The one browser (TV shows / YouTube) */}
-          <ShowBrowser ref={browserRef} onPick={pickContent} />
-
-          {error && <p className={styles.error}>{error}</p>}
-
-          <p className={styles.footer}>
-            <button type="button" className={styles.cancelLink} onClick={goBack}>
-              Cancel
-            </button>
-          </p>
-        </div>
-
-        {/* Create panel — one step: picked summary + settings + CTA */}
-        {content && (
+        ) : (
+          /* Create panel — media card + grouped settings + CTA (the only form) */
           <div className={styles.pane}>
             {/* Media preview card — thumb + color-coded source chip + title + Change */}
             <div className={styles.mediaCard}>
@@ -298,7 +227,7 @@ export default function CreateRoomPage() {
                 </span>
                 <h3 className={styles.mediaTitle}>{cleanMediaTitle(content.title) || 'Selected video'}</h3>
               </div>
-              <button type="button" className={styles.changeBtn} onClick={() => { setContent(null); setError(null) }}>
+              <button type="button" className={styles.changeBtn} onClick={browseMedia}>
                 Change
               </button>
             </div>
