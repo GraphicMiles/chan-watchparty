@@ -478,7 +478,7 @@ export default function RoomPage() {
             onClick={isHost ? toggleLock : undefined}
             disabled={!isHost}
             title={isHost ? 'Tap to unlock' : 'Room is locked'}
-            aria-pressed={room.locked}
+            aria-pressed={Boolean(room?.locked)}
           >
             <Lock size={11} />
             Locked
@@ -490,7 +490,7 @@ export default function RoomPage() {
             onClick={isHost ? toggleLock : undefined}
             disabled={!isHost}
             title={isHost ? 'Tap to lock' : 'Room is open'}
-            aria-pressed={room.locked}
+            aria-pressed={Boolean(room?.locked)}
           >
             <Unlock size={11} />
             Open
