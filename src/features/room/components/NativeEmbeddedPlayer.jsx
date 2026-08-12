@@ -395,17 +395,15 @@ export default function NativeEmbeddedPlayer({
             VideoPlayerPlugin.setVisible({ visible: false }).catch(() => {})
           } else {
             VideoPlayerPlugin.setVisible({ visible: true }).catch(() => {})
-            // Requirement: native surface covers ONLY the video frame — the strip
-            // where the app's control bar lives stays native-surface-free so the
-            // WebView underneath receives touches. The strip height is tracked
-            // live by the parent (ResizeObserver on the control bar).
-            const stripPx = Math.max(0, Math.round((controlsHeightRef.current || 0) * dpr))
-            const h = Math.max(0, Math.round(hCss * dpr) - stripPx)
+            // The native surface matches the video box EXACTLY (w × hCss).
+            // The app's control bars sit BELOW/OUTSIDE the box, so no height
+            // subtraction here — subtracting the bar height is what shifted
+            // the video up inside the box with a black gap below it.
             VideoPlayerPlugin.setRect({
               x: Math.round(r.left * dpr),
               y: Math.round(r.top * dpr),
               w: Math.round(r.width * dpr),
-              h,
+              h: Math.max(0, Math.round(hCss * dpr)),
             }).catch(() => {})
           }
         } catch { /* keep last rect */ }

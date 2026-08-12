@@ -634,6 +634,9 @@ export default function RoomPage() {
                       ? Math.min((window.innerHeight || 800) * 0.7, 520)
                       : 0
                   }
+                  // Modals (Share, Change Video, confirms) must render ABOVE
+                  // the video — hide the native surface while any is open.
+                  surfaceHidden={shareOpen || changeVideoOpen || endConfirmOpen || leaveConfirmOpen || Boolean(autoNextPrompt)}
                 />
               </ErrorBoundary>
             ) : (

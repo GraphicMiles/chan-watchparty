@@ -372,14 +372,12 @@ public class RoomPlayerOverlayView extends FrameLayout {
             btnFullscreen.setText(fullscreen ? "⤡" : "⛶");
             btnFullscreen.setContentDescription(fullscreen ? "Minimize" : "Fullscreen");
         }
-        if (fullscreen) {
-            // Native chrome visible in fullscreen (play/seek/time/PiP/⛶-minimize).
-            controlsBar.setVisibility(VISIBLE);
-            setControlsVisible(true);
-        } else {
-            // Back to embedded: restore interactive preference (set by plugin).
-            controlsBar.setVisibility(interactive ? (controlsVisible ? VISIBLE : GONE) : GONE);
-        }
+        // ALWAYS hide the native chrome bar — the app's in-app controls
+        // overlay (React) is the one true control surface in fullscreen too.
+        // Showing the native bar here was the "native controls in fullscreen"
+        // bug. The web layer renders its own fullscreen overlay on top.
+        controlsBar.setVisibility(GONE);
+        setControlsVisible(false);
     }
 
     /** Hide/show the whole native surface (panels must render above it). */

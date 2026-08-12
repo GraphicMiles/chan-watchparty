@@ -356,14 +356,19 @@ public class VideoPlayerPlugin extends Plugin {
                         FrameLayout.LayoutParams.MATCH_PARENT
                 );
                 overlay.setLayoutParams(params);
-                // Native chrome ON in fullscreen: bar + Exit button visible.
-                overlay.setInteractive(true);
+                // NO native chrome in fullscreen — the app's in-app controls
+                // (React overlay) drive everything, exactly like inline mode.
+                overlay.setInteractive(false);
+                overlay.setVisible(true);
                 hideSystemUi();
             } else {
                 // Restore the embedded stage rect (re-anchors the surface back
                 // into the room bounds, NOT just a boolean flip), restore the
                 // chrome preference, and restore system UI.
-                if (lastRect != null) overlay.setLayoutParams(lastRect);
+                if (lastRect != null) {
+                    overlay.setLayoutParams(lastRect);
+                    overlay.setVisible(true);
+                }
                 overlay.setInteractive(chromeEnabled);
                 showSystemUi();
             }
