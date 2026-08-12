@@ -74,14 +74,16 @@ export interface VideoEffects {
 }
 
 export interface NativeRoomOptions {
-  url: string
-  title?: string
-  referer?: string
-  headers?: Record<string, string>
-  container?: string
-  codec?: string | null
+  /** Room credentials — the native room reads everything from Firestore. */
+  roomId: string
+  uid: string
+  displayName?: string
+  idToken: string
+  projectId: string
+  apiKey?: string
+  apiBase?: string
+  /** Resume position (playerState.currentTime). */
   startSeconds?: number
-  isLive?: boolean
 }
 
 export interface NativeRoomResult {

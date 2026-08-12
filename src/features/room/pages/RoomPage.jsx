@@ -5,7 +5,7 @@ import {
   Pencil, Monitor, Film, ChevronDown, ChevronRight, AlertTriangle,
   Video, Link2, ListVideo, Play, Sparkles
 } from 'lucide-react'
-import { collection, onSnapshot, query, orderBy, limit, deleteDoc, doc } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, limit, deleteDoc, doc, getDoc } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 import { useRoom } from '../hooks/useRoom.js'
@@ -26,7 +26,7 @@ import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
 import { proxyTargetUrl, resolveDownloadLink, refreshDownloadDescriptor } from '../../../shared/lib/mediaApi.js'
 import { ShowBrowser } from '../../../shared/components/ShowBrowser.jsx'
-import { apiPath } from '../../../shared/lib/api.js'
+import { apiPath, API_URL } from '../../../shared/lib/api.js'
 import { isNativeRoomSupported, launchNativeRoom, onNativeRoomResult } from '../nativeRoomBridge.js'
 
 const SOUND_FX_URLS = {
@@ -108,12 +108,13 @@ export default function RoomPage() {
 
   const { isHost, writePlayerState, canControl } = usePlayerSync(roomId, room, playerRef)
 
-  // ── Native room (Option B) ────────────────────────────────────────────
-  // On Android, non-YouTube content launches in the fully-native player
-  // (NativeRoomActivity). The web room stays mounted underneath but does NOT
-  // mount its video until the native screen closes — so nothing plays twice.
-  // On return, the position is frozen via the API and the web room resumes
-  // from it (host reconciliation restores the saved position).
+  // ── Native room: the ONE watch room (mobile app) ──────────────────────
+  // On Android, non-YouTube rooms launch NativeRoomActivity with the room
+  // credentials. The native activity reads the room from Firestore REST
+  // (videoUrl, media, participants, messages, queue, playerState) — nothing
+  // else needed. The web room stays mounted underneath purely as the launch
+  // shell (it also keeps the seat + host heartbeat alive); its video stays
+  // unmounted so nothing ever double-plays.
   const directContent = Boolean(room?.videoUrl) && room?.videoType !== 'youtube'
   const nativeSupported = directContent && isNativeRoomSupported()
   const [nativeGate, setNativeGate] = useState(() => (isNativeRoomSupported() ? 'launching' : 'done'))
@@ -121,28 +122,40 @@ export default function RoomPage() {
 
   useEffect(() => {
     if (!nativeSupported || nativeGate !== 'launching' || nativeLaunchedRef.current) return
-    if (!user || !room?.videoUrl) return
+    if (!user || !room?.videoUrl || !roomId) return
     nativeLaunchedRef.current = true
-    const media = room.media || {}
-    const timer = setTimeout(() => {
-      launchNativeRoom({
-        url: media.streamUrl || room.videoUrl,
-        title: room.title || 'Chan video',
-        referer: media.referer || undefined,
-        headers: media.headers || undefined,
-        container: media.container || undefined,
-        codec: media.codec || undefined,
-        startSeconds: 0,
-        isLive: Boolean(room.isLive || room.videoType === 'iptv' || room.videoType === 'sports'),
-      }).catch(() => {
-        // Native launch failed — fall back to the web room.
-        nativeLaunchedRef.current = false
-        setNativeGate('done')
-      })
-    }, 700)
-    return () => clearTimeout(timer)
+    let cancelled = false
+    const run = async () => {
+      try {
+        const [idToken, psSnap] = await Promise.all([
+          user.getIdToken(),
+          getDoc(doc(db, 'rooms', roomId, 'playerState', 'current')).catch(() => null),
+        ])
+        if (cancelled) return
+        const ps = psSnap?.exists?.() ? psSnap.data() : null
+        const startSeconds = Number(ps?.currentTime) > 0 ? Number(ps.currentTime) : 0
+        await launchNativeRoom({
+          roomId,
+          uid: user.uid,
+          displayName: user.displayName || 'Viewer',
+          idToken,
+          projectId: db.app.options.projectId || '',
+          apiKey: db.app.options.apiKey || '',
+          apiBase: API_URL || '',
+          startSeconds,
+        })
+      } catch (err) {
+        console.error('Native room launch failed:', err)
+        if (!cancelled) {
+          nativeLaunchedRef.current = false
+          setNativeGate('done')
+        }
+      }
+    }
+    const timer = setTimeout(run, 600)
+    return () => { cancelled = true; clearTimeout(timer) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nativeSupported, nativeGate, user, room?.videoUrl])
+  }, [nativeSupported, nativeGate, user, room?.videoUrl, roomId])
 
   useEffect(() => {
     if (!nativeSupported || nativeGate !== 'launching') return
@@ -153,7 +166,7 @@ export default function RoomPage() {
       if (res && typeof res.positionMs === 'number' && res.positionMs > 0) {
         const currentTime = Math.max(0, res.positionMs / 1000)
         reportPlayerPosition?.(currentTime, Boolean(res.wasPlaying))
-        // Freeze playerState so the web room resumes at the native position.
+        // Freeze playerState so a re-entry resumes at the native position.
         user.getIdToken().then((token) => {
           fetch(apiPath('/api/room'), {
             method: 'POST',
@@ -163,7 +176,7 @@ export default function RoomPage() {
           }).catch(() => {})
         })
       }
-      setNativeGate('done')
+      setNativeGate('returned')
     })
     return () => {
       disposed = true
@@ -651,15 +664,16 @@ export default function RoomPage() {
     )
   }
 
-  // Native room gate: while the native player is (or will be) open, keep the
-  // web video unmounted so audio/video never double-plays.
+  // Native room gate: while the native room is open, keep the web video
+  // unmounted (the native activity plays it). After it closes, offer to
+  // reopen it, fall back to the web player, or leave.
   if (nativeGate === 'launching' && nativeSupported) {
     return (
       <Layout header={header} wide className={styles.layout}>
         <div className={styles.joining}>
-          <p>Opening native player…</p>
+          <p>Opening room…</p>
           <p style={{ fontSize: '0.875rem', color: '#888', marginTop: '1rem' }}>
-            {room?.title || 'This room'} is playing in the full-screen native player.
+            {room?.title || 'This room'} is playing in the native player.
           </p>
           <Button
             variant="secondary"
@@ -671,6 +685,41 @@ export default function RoomPage() {
           >
             Use web player instead
           </Button>
+        </div>
+      </Layout>
+    )
+  }
+
+  if (nativeGate === 'returned' && nativeSupported) {
+    return (
+      <Layout header={header} wide className={styles.layout}>
+        <div className={styles.joining}>
+          <p>You&apos;re back in the room</p>
+          <p style={{ fontSize: '0.875rem', color: '#888', marginTop: '1rem' }}>
+            Resume watching here, or reopen the native room player.
+          </p>
+          <div style={{ display: 'flex', gap: 12, marginTop: '1rem', flexWrap: 'wrap' }}>
+            <Button
+              onClick={() => {
+                nativeLaunchedRef.current = false
+                setNativeGate('launching')
+              }}
+            >
+              Reopen Native Room
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                try { localStorage.setItem('chan:forceWebRoom', '1') } catch { /* ignore */ }
+                setNativeGate('done')
+              }}
+            >
+              Use Web Player
+            </Button>
+            <Button variant="secondary" onClick={() => { leave().catch(() => {}) }}>
+              Leave Room
+            </Button>
+          </div>
         </div>
       </Layout>
     )

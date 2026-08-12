@@ -10,7 +10,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Configuration;
 import androidx.core.graphics.drawable.IconCompat;
-import android.os.Bundle;
 import android.util.Log;
 import android.util.Rational;
 import android.view.View;
@@ -375,41 +374,48 @@ public class VideoPlayerPlugin extends Plugin {
         });
     }
 
-    // ── Native room (Option B): launch the fully-native room player ─────
-    // The web room stays mounted underneath; the native screen returns
-    // { positionMs, durationMs, ended, wasPlaying } via 'nativeRoomResult'.
+    // ── Native room: the ONE watch room for the mobile app ──────────────
+    // Launched with the room credentials; the activity reads the room from
+    // Firestore REST itself (videoUrl, media descriptor, participants,
+    // messages, queue, playerState) using the user's Firebase ID token.
+    // On close it returns { positionMs, durationMs, ended, wasPlaying } via
+    // 'nativeRoomResult' so the web shell can freeze/resume.
 
     private static final int REQ_NATIVE_ROOM = 0x4E52; // "NR"
 
     @PluginMethod
     public void openNativeRoom(PluginCall call) {
         try {
-            String url = call.getString("url");
-            if (url == null || url.trim().isEmpty()) {
-                call.reject("URL is required");
+            String roomId = call.getString("roomId");
+            String uid = call.getString("uid");
+            String idToken = call.getString("idToken");
+            if (roomId == null || roomId.trim().isEmpty() || uid == null || idToken == null || idToken.trim().isEmpty()) {
+                call.reject("roomId, uid and idToken are required");
                 return;
             }
             Intent intent = new Intent(
                     getActivity(),
                     com.chan.watchparty.nativeplayer.NativeRoomActivity.class
             );
-            intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_URL, url);
+            intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_ROOM_ID, roomId);
+            intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_UID, uid);
+            intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_ID_TOKEN, idToken);
             intent.putExtra(
-                    com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_TITLE,
-                    call.getString("title", "Chan Video")
+                    com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_DISPLAY_NAME,
+                    call.getString("displayName", "Viewer")
             );
-            String referer = call.getString("referer");
-            if (referer != null && !referer.isEmpty()) {
-                intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_REFERER, referer);
-            }
-            String container = call.getString("container");
-            if (container != null && !container.isEmpty()) {
-                intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_CONTAINER, container);
-            }
-            String codec = call.getString("codec");
-            if (codec != null && !codec.isEmpty()) {
-                intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_CODEC, codec);
-            }
+            intent.putExtra(
+                    com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_PROJECT_ID,
+                    call.getString("projectId", "")
+            );
+            intent.putExtra(
+                    com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_API_KEY,
+                    call.getString("apiKey", "")
+            );
+            intent.putExtra(
+                    com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_API_BASE,
+                    call.getString("apiBase", "")
+            );
             Double startSeconds = call.getDouble("startSeconds");
             if (startSeconds != null && startSeconds > 0) {
                 intent.putExtra(
@@ -417,26 +423,11 @@ public class VideoPlayerPlugin extends Plugin {
                         Math.round(startSeconds * 1000)
                 );
             }
-            Boolean isLive = call.getBoolean("isLive", false);
-            if (Boolean.TRUE.equals(isLive)) {
-                intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_IS_LIVE, true);
-            }
-            JSObject h = call.getObject("headers");
-            if (h != null) {
-                Bundle bundle = new Bundle();
-                java.util.Iterator<String> it = h.keys();
-                while (it.hasNext()) {
-                    String key = it.next();
-                    Object v = h.opt(key);
-                    if (v != null) bundle.putString(key, String.valueOf(v));
-                }
-                intent.putExtra(com.chan.watchparty.nativeplayer.NativeRoomActivity.EXTRA_HEADERS, bundle);
-            }
             getActivity().startActivityForResult(intent, REQ_NATIVE_ROOM);
             call.resolve();
         } catch (Exception e) {
             Log.e(TAG, "openNativeRoom failed", e);
-            call.reject("Could not open native player: " + e.getMessage());
+            call.reject("Could not open the room: " + e.getMessage());
         }
     }
 

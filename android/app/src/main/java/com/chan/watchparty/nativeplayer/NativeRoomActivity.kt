@@ -19,40 +19,40 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.graphics.drawable.IconCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.chan.watchparty.nativeplayer.data.FirestoreClient
+import com.chan.watchparty.nativeplayer.data.RoomRepository
 import com.chan.watchparty.nativeplayer.player.ManagedPlayer
 import com.chan.watchparty.nativeplayer.ui.ChanNativeTheme
-import com.chan.watchparty.nativeplayer.ui.RoomPlayerScreen
+import com.chan.watchparty.nativeplayer.ui.NativeRoomScreen
 
 /**
- * NativeRoomActivity — Option B: the watch-room playback surface, fully native.
+ * NativeRoomActivity — the ONE watch room for the mobile app.
  *
- * Launched from the web layer (VideoPlayerPlugin.openNativeRoom) with the
- * stream descriptor; renders the video edge-to-edge with a Compose control
- * surface that is inset-aware (status bar, gesture bar, display cutout) and
- * responsive across portrait/landscape and small screens.
+ * Everything except YouTube plays here: the room renders inline (room
+ * details → tabs → video box → controls → participants) with chat/queue/share
+ * panels layered ON TOP of the video. Data comes straight from Firestore REST
+ * (and /api/room) using the user's Firebase ID token.
  *
- * On close it returns { positionMs, durationMs, ended, wasPlaying } so the
- * web room can freeze playerState and resume where the viewer left off.
- *
- * PiP: home-button auto-PiP while playing + a PiP button in the top bar
- * (Android 8+). While in PiP only the video surface is drawn.
+ * The web shell stays mounted underneath purely as the launch pad; on close
+ * this activity returns { positionMs, durationMs, ended, wasPlaying } so the
+ * web layer can freeze playerState and let the next entry resume.
  */
 class NativeRoomActivity : ComponentActivity() {
 
     companion object {
-        const val EXTRA_URL = "url"
-        const val EXTRA_TITLE = "title"
-        const val EXTRA_REFERER = "referer"
-        const val EXTRA_HEADERS = "headers"
-        const val EXTRA_CONTAINER = "container"
-        const val EXTRA_CODEC = "codec"
+        const val EXTRA_ROOM_ID = "roomId"
+        const val EXTRA_UID = "uid"
+        const val EXTRA_DISPLAY_NAME = "displayName"
+        const val EXTRA_ID_TOKEN = "idToken"
+        const val EXTRA_PROJECT_ID = "projectId"
+        const val EXTRA_API_KEY = "apiKey"
+        const val EXTRA_API_BASE = "apiBase"
         const val EXTRA_START_MS = "startMs"
-        const val EXTRA_IS_LIVE = "isLive"
 
         const val RESULT_POSITION_MS = "positionMs"
         const val RESULT_DURATION_MS = "durationMs"
@@ -62,67 +62,123 @@ class NativeRoomActivity : ComponentActivity() {
         private const val ACTION_TOGGLE_PLAY = "com.chan.watchparty.NATIVE_ROOM_TOGGLE"
     }
 
-    private lateinit var player: ManagedPlayer
-    // Compose state (not a plain field) so the UI recomposes when PiP changes.
+    private lateinit var repo: RoomRepository
+    private var player: ManagedPlayer? by mutableStateOf(null)
     private val pipMode = mutableStateOf(false)
     private var resultDelivered = false
     private var pipReceiver: BroadcastReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Edge-to-edge: the video surface draws behind system bars; the
-        // control bars apply their own insets (safeDrawingPadding).
         enableEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        val url = intent.getStringExtra(EXTRA_URL)
-        if (url.isNullOrBlank()) {
+        val roomId = intent.getStringExtra(EXTRA_ROOM_ID)
+        val uid = intent.getStringExtra(EXTRA_UID)
+        val token = intent.getStringExtra(EXTRA_ID_TOKEN)
+        val projectId = intent.getStringExtra(EXTRA_PROJECT_ID)
+        val apiKey = intent.getStringExtra(EXTRA_API_KEY)
+        val apiBase = intent.getStringExtra(EXTRA_API_BASE)
+        val displayName = intent.getStringExtra(EXTRA_DISPLAY_NAME) ?: "Viewer"
+        val startMs = intent.getLongExtra(EXTRA_START_MS, 0L)
+
+        if (roomId.isNullOrBlank() || uid.isNullOrBlank() || token.isNullOrBlank() || projectId.isNullOrBlank()) {
             setResult(Activity.RESULT_CANCELED)
             finish()
             return
         }
 
-        val title = intent.getStringExtra(EXTRA_TITLE) ?: "Chan Video"
-        val referer = intent.getStringExtra(EXTRA_REFERER)
-        val container = intent.getStringExtra(EXTRA_CONTAINER)
-        val codec = intent.getStringExtra(EXTRA_CODEC)
-        val startMs = intent.getLongExtra(EXTRA_START_MS, 0L)
-        val isLive = intent.getBooleanExtra(EXTRA_IS_LIVE, false)
-        val headers = readHeaders(intent)
-
-        player = ManagedPlayer(
+        val fs = FirestoreClient(projectId, apiKey ?: "", idToken = { token })
+        repo = RoomRepository(
             context = this,
-            url = url,
-            title = title,
-            referer = referer,
-            headers = headers,
-            container = container,
-            codec = codec,
-            startMs = startMs,
-            isLive = isLive,
+            fs = fs,
+            apiBase = apiBase ?: "",
+            roomId = roomId,
+            uid = uid,
+            displayName = displayName,
+            idToken = { token },
+            myRole = {
+                val r = repo.room.value
+                when {
+                    r == null -> "viewer"
+                    r.hostId == uid -> "host"
+                    r.coHosts.contains(uid) -> "co-host"
+                    else -> "viewer"
+                }
+            },
         )
+        repo.start()
 
         setContent {
             ChanNativeTheme {
-                val state by player.state.collectAsStateWithLifecycle()
+                val room by repo.room.collectAsState()
+                val sync by repo.playerSync.collectAsState()
 
-                // Keep the screen on only while actually playing.
-                LaunchedEffect(state.isPlaying) {
-                    if (state.isPlaying) {
-                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    } else {
-                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                // Create the player once the room (and its stream) is known;
+                // if the room switches video (queue play-next), load the new
+                // stream on the existing player.
+                LaunchedEffect(room?.videoUrl) {
+                    val r = room ?: return@LaunchedEffect
+                    val url = r.videoUrl ?: return@LaunchedEffect
+                    val m = r.media
+                    val isLive = r.isLive || r.videoType == "iptv" || r.videoType == "sports"
+                    if (player == null) {
+                        player = ManagedPlayer(
+                            context = this@NativeRoomActivity,
+                            url = url,
+                            title = r.title,
+                            referer = m["referer"] as? String,
+                            headers = stringMap(m["headers"]),
+                            container = m["container"] as? String,
+                            codec = m["codec"] as? String,
+                            startMs = if (sync.currentTime > 0) (sync.currentTime * 1000).toLong() else startMs,
+                            isLive = isLive,
+                        )
+                    } else if (url != player?.currentUrl()) {
+                        player?.loadNew(
+                            url, r.title,
+                            m["referer"] as? String,
+                            stringMap(m["headers"]),
+                            m["container"] as? String,
+                            m["codec"] as? String,
+                            0L,
+                        )
                     }
                 }
 
-                RoomPlayerScreen(
+                NativeRoomScreen(
+                    roomTitle = room?.title ?: "Loading room…",
+                    roomSubtitle = when {
+                        room == null -> "Connecting…"
+                        room.status != "live" -> "This room has ended"
+                        room.videoType == "iptv" || room.videoType == "sports" -> "Live stream"
+                        else -> "Watch party"
+                    },
+                    isLive = room?.isLive == true || room?.videoType == "iptv" || room?.videoType == "sports",
                     player = player,
-                    title = title,
-                    isLive = isLive,
-                    pipMode = pipMode.value,
+                    repo = repo,
+                    uid = uid,
                     onBack = { finishWithResult() },
+                    onEndRoom = {
+                        repo.endRoom()
+                        finishWithResult()
+                    },
                     onTogglePip = { enterPip() },
-                    onToggleFullscreen = { toggleImmersive() },
+                    onBrightness = { v ->
+                        val lp = window.attributes
+                        lp.screenBrightness = v
+                        window.attributes = lp
+                    },
+                    onFullscreenChange = { immersive ->
+                        val controller = WindowCompat.getInsetsController(window, window.decorView)
+                        if (immersive) {
+                            controller.hide(WindowInsetsCompat.Type.systemBars())
+                            controller.systemBarsBehavior =
+                                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                        } else {
+                            controller.show(WindowInsetsCompat.Type.systemBars())
+                        }
+                    },
                 )
             }
         }
@@ -130,36 +186,18 @@ class NativeRoomActivity : ComponentActivity() {
         registerPipReceiver()
     }
 
-    private fun readHeaders(intent: Intent): Map<String, String> {
-        val bundle = intent.getBundleExtra(EXTRA_HEADERS) ?: return emptyMap()
+    private fun stringMap(value: Any?): Map<String, String> {
+        if (value !is Map<*, *>) return emptyMap()
         val out = LinkedHashMap<String, String>()
-        for (key in bundle.keySet()) {
-            bundle.getString(key)?.let { out[key] = it }
-        }
+        for ((k, v) in value) if (k != null && v != null) out[k.toString()] = v.toString()
         return out
     }
 
-    // ── Immersive (fullscreen) toggle ───────────────────────────────────
-
-    private var immersive = false
-
-    private fun toggleImmersive() {
-        immersive = !immersive
-        val controller = WindowCompat.getInsetsController(window, window.decorView)
-        if (immersive) {
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        } else {
-            controller.show(WindowInsetsCompat.Type.systemBars())
-        }
-    }
-
-    // ── Picture-in-Picture (Android 8+) ─────────────────────────────────
+    // ── PiP (Android 8+) ─────────────────────────────────────────────────
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (player.isPlayingNow() && Build.VERSION.SDK_INT >= 26) enterPip()
+        if (player?.isPlayingNow() == true && Build.VERSION.SDK_INT >= 26) enterPip()
     }
 
     override fun onPictureInPictureModeChanged(
@@ -175,9 +213,7 @@ class NativeRoomActivity : ComponentActivity() {
         try {
             val toggleIntent = Intent(ACTION_TOGGLE_PLAY)
             val pending = PendingIntent.getBroadcast(
-                this,
-                2,
-                toggleIntent,
+                this, 2, toggleIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             val icon = IconCompat.createWithResource(this, android.R.drawable.ic_media_play)
@@ -197,7 +233,7 @@ class NativeRoomActivity : ComponentActivity() {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (intent.action == ACTION_TOGGLE_PLAY) {
-                    if (player.isPlayingNow()) player.pause() else player.play()
+                    if (player?.isPlayingNow() == true) player?.pause() else player?.play()
                 }
             }
         }
@@ -219,11 +255,13 @@ class NativeRoomActivity : ComponentActivity() {
     private fun finishWithResult() {
         if (resultDelivered) return
         resultDelivered = true
+        // Freeze the position so the web layer / next entry resumes here.
+        try { repo.freezePlayerState((player?.positionMs() ?: 0L) / 1000.0) } catch (_: Exception) {}
         val data = Intent().apply {
-            putExtra(RESULT_POSITION_MS, player.positionMs())
-            putExtra(RESULT_DURATION_MS, player.durationMs())
-            putExtra(RESULT_ENDED, player.isEndedNow())
-            putExtra(RESULT_WAS_PLAYING, player.isPlayingNow())
+            putExtra(RESULT_POSITION_MS, player?.positionMs() ?: 0L)
+            putExtra(RESULT_DURATION_MS, player?.durationMs() ?: 0L)
+            putExtra(RESULT_ENDED, player?.isEndedNow() ?: false)
+            putExtra(RESULT_WAS_PLAYING, player?.isPlayingNow() ?: false)
         }
         setResult(Activity.RESULT_OK, data)
         finish()
@@ -232,7 +270,8 @@ class NativeRoomActivity : ComponentActivity() {
     override fun onDestroy() {
         pipReceiver?.let { runCatching { unregisterReceiver(it) } }
         pipReceiver = null
-        player.release()
+        repo.stop()
+        player?.release()
         super.onDestroy()
     }
 }

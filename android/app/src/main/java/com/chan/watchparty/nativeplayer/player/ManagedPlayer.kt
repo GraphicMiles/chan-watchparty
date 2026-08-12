@@ -40,12 +40,12 @@ private const val POSITION_POLL_MS = 500L
  */
 class ManagedPlayer(
     private val context: Context,
-    private val url: String,
-    private val title: String,
-    private val referer: String?,
-    private val headers: Map<String, String>,
-    private val container: String?,
-    private val codec: String?,
+    private var url: String,
+    private var title: String,
+    private var referer: String?,
+    private var headers: Map<String, String>,
+    private var container: String?,
+    private var codec: String?,
     startMs: Long,
     val isLive: Boolean,
 ) {
@@ -383,6 +383,8 @@ class ManagedPlayer(
 
     // ── Read state (used by the Activity for results / PiP) ─────────────
 
+    fun currentUrl(): String = url
+
     fun positionMs(): Long = currentPositionMs()
 
     fun durationMs(): Long = currentDurationMs()
@@ -407,6 +409,72 @@ class ManagedPlayer(
         }
     }
 
+    // ── Subtitles (CC) ──────────────────────────────────────────────────
+    // Parsed from the app's VTT; the Compose UI draws the active cue at the
+    // TOP of the video box (both engines render subtitles at the bottom).
+    private var subtitleCues: List<SubtitleCue> = emptyList()
+
+    fun setSubtitles(vttText: String?) {
+        subtitleCues = if (vttText.isNullOrBlank()) emptyList() else parseVtt(vttText)
+    }
+
+    /** Active CC text at the given position, or null. */
+    fun cueAt(positionMs: Long): String? {
+        val cues = subtitleCues
+        if (cues.isEmpty()) return null
+        for (cue in cues) {
+            if (positionMs >= cue.startMs && positionMs < cue.endMs) return cue.text
+            if (positionMs < cue.startMs) break
+        }
+        return null
+    }
+
+    private class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
+
+    private fun parseVtt(vtt: String): List<SubtitleCue> {
+        val cues = ArrayList<SubtitleCue>()
+        val lines = vtt.replace("\uFEFF", "").replace("\r\n", "\n").replace('\r', '\n').split("\n")
+        var text: String? = null
+        var start: Long? = null
+        var end: Long? = null
+        for (raw in lines) {
+            val line = raw.trim()
+            if (line.isEmpty()) {
+                if (text != null && start != null && end != null) cues.add(SubtitleCue(start, end, text))
+                text = null; start = null; end = null
+                continue
+            }
+            if (line.startsWith("WEBVTT") || line.startsWith("NOTE") || line.startsWith("STYLE") || line.startsWith("REGION")) continue
+            val arrow = line.indexOf("-->")
+            if (arrow >= 0) {
+                start = parseTs(line.substring(0, arrow).trim())
+                end = parseTs(line.substring(arrow + 3).trim().split(Regex("\\s+"), 2)[0].trim())
+                text = ""
+            } else if (start != null && end != null && text != null) {
+                if (text.isNotEmpty()) text += "\n"
+                text += line
+            }
+        }
+        if (text != null && start != null && end != null) cues.add(SubtitleCue(start, end, text))
+        cues.sortBy { it.startMs }
+        return cues
+    }
+
+    private fun parseTs(raw: String): Long? {
+        val s = raw.replace(',', '.').trim()
+        val parts = s.split(":")
+        return try {
+            val sec = when (parts.size) {
+                3 -> parts[0].toDouble() * 3600.0 + parts[1].toDouble() * 60.0 + parts[2].toDouble()
+                2 -> parts[0].toDouble() * 60.0 + parts[1].toDouble()
+                else -> parts[0].toDouble()
+            }
+            (sec * 1000.0).toLong()
+        } catch (_: NumberFormatException) {
+            null
+        }
+    }
+
     // ── Teardown ────────────────────────────────────────────────────────
 
     fun release() {
@@ -416,6 +484,43 @@ class ManagedPlayer(
         surfaceContainer = null
         attachedView = null
         started = false
+    }
+
+    /**
+     * Switch to a different media (queue play-next, change video).
+     * Releases both engines, resets state, and starts fresh with the new URL.
+     */
+    fun loadNew(
+        newUrl: String,
+        newTitle: String,
+        newReferer: String?,
+        newHeaders: Map<String, String>,
+        newContainer: String?,
+        newCodec: String?,
+        startMs: Long,
+    ) {
+        main.post {
+            releaseExo()
+            releaseVlc()
+            attachedView = null
+            started = false
+            pendingSeekMs = startMs.coerceAtLeast(0L)
+            playbackRate = 1f
+            _state.value = PlayerState(
+                positionMs = startMs.coerceAtLeast(0L),
+                isPlaying = false,
+                engineName = "",
+            )
+            // Note: url/title/referer/headers/container/codec are captured in
+            // startPrimary() via fields — update them before re-starting.
+            this.url = newUrl
+            this.title = newTitle
+            this.referer = newReferer
+            this.headers = newHeaders
+            this.container = newContainer
+            this.codec = newCodec
+            surfaceContainer?.let { attachSurface(it) }
+        }
     }
 
     private fun releaseExo() {

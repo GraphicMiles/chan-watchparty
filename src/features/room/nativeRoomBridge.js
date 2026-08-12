@@ -2,12 +2,13 @@ import { Capacitor } from '@capacitor/core'
 import { VideoPlayerPlugin } from '../../native/VideoPlayerPlugin'
 
 /**
- * Native room bridge (Option B).
+ * Native room bridge.
  *
- * On Android, non-YouTube content plays in the fully-native room player
- * (NativeRoomActivity — Compose + Media3/VLC). The web room stays mounted
- * underneath and resumes from the returned position when the native screen
- * closes, so nothing ever plays twice.
+ * The watch room is NATIVE on Android for everything except YouTube. The web
+ * room page acts as the launch shell: it joins the room (keeps the seat warm
+ * + host heartbeat), hands the room credentials to NativeRoomActivity, and
+ * stays mounted underneath. When the native room closes, the web shell
+ * freezes the returned position and offers to reopen or use the web player.
  *
  * Opt out at runtime (e.g. for debugging): localStorage 'chan:forceWebRoom' = '1'
  */
