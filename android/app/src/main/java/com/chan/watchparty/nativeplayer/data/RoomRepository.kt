@@ -37,9 +37,12 @@ data class RoomData(
     val media: Map<String, Any?> = emptyMap(),
 ) {
     /**
-     * Absolute URL for native playback: media.streamUrl (absolute CDN) first,
-     * else videoUrl only when it is already absolute. room.videoUrl is often
-     * a relative /api/proxy path (web-only) that native engines cannot open.
+     * Absolute URL for native playback:
+     *   1. media.streamUrl (absolute CDN) — the ideal direct source.
+     *   2. videoUrl when it is already absolute.
+     *   3. apiBase + videoUrl when videoUrl is a relative /api/proxy path
+     *      (the web API origin serves the stream with Range support, so the
+     *      native engines can open it directly).
      */
     val playableUrl: String?
         get() {
@@ -48,7 +51,12 @@ data class RoomData(
                 return stream
             }
             val v = videoUrl ?: return null
-            return if (v.startsWith("http://") || v.startsWith("https://")) v else null
+            if (v.startsWith("http://") || v.startsWith("https://")) return v
+            if (v.startsWith("/api/")) {
+                val base = apiBase.trimEnd('/')
+                return if (base.isNotEmpty()) base + v else null
+            }
+            return null
         }
 }
 

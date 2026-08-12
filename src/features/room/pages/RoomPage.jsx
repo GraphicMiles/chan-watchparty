@@ -138,7 +138,7 @@ export default function RoomPage() {
           idToken,
           projectId: db.app.options.projectId || '',
           apiKey: db.app.options.apiKey || '',
-          apiBase: API_URL || '',
+          apiBase: API_URL || 'https://chan-yz3p.vercel.app',
           startSeconds,
         })
         // ONE room: the native room IS the room. Park the web app at home —

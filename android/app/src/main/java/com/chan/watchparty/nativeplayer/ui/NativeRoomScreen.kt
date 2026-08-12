@@ -31,7 +31,38 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Brightness6
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Flare
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PersonRemove
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.ScreenShare
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
@@ -444,10 +475,10 @@ private fun RoomHeader(
         if (isDirect) MiniBadge("Direct", ChanColors.Accent)
         Spacer(Modifier.width(4.dp))
         if (isHost) {
-            HeaderIconBtn("✎", "Edit title", onEditTitle)
-            HeaderIconBtn("⛔", "End room", onEnd)
+            IconBtn(Icons.Filled.Edit, onEditTitle, "Edit title")
+            IconBtn(Icons.Filled.Stop, onEnd, "End room", tint = ChanColors.Danger)
         } else {
-            HeaderIconBtn("⏻", "Leave", onLeave)
+            IconBtn(Icons.AutoMirrored.Filled.ArrowBack, onLeave, "Leave")
         }
     }
 }
@@ -485,17 +516,23 @@ private fun MiniBadge(text: String, tint: Color) {
 }
 
 @Composable
-private fun HeaderIconBtn(label: String, title: String, onClick: () -> Unit) {
+private fun IconBtn(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    title: String? = null,
+    tint: Color = ChanColors.TextPrimary,
+    size: Int = 34,
+) {
     Box(
         Modifier
             .padding(start = 4.dp)
-            .size(34.dp)
+            .size(size.dp)
             .clip(CircleShape)
             .background(ChanColors.Raised)
             .clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = ChanColors.TextPrimary, fontSize = 14.sp)
+        Icon(icon, contentDescription = title ?: "Button", tint = tint, modifier = Modifier.size((size - 14).dp))
     }
 }
 
@@ -654,7 +691,7 @@ private fun BoxScope.VideoBox(
             ) {
                 Text(msg, color = ChanColors.TextPrimary, fontSize = 14.sp, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(10.dp))
-                PillText("Retry", onClick = { player?.retry() })
+                ActionBtn(Icons.Filled.Refresh, "Retry", onClick = { player?.retry() })
             }
         }
     }
@@ -696,7 +733,12 @@ private fun TransportControls(
                 .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PillText(if (state.isPlaying) "❚❚" else "▶", onClick = { player?.playOrPause() }, title = if (state.isPlaying) "Pause" else "Play")
+            IconBtn(
+                if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                onClick = { player?.playOrPause() },
+                title = if (state.isPlaying) "Pause" else "Play",
+                size = 36,
+            )
             Text(formatTime(position), color = ChanColors.TextPrimary, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp))
             if (!isLive) {
                 Slider(
@@ -713,8 +755,18 @@ private fun TransportControls(
                 )
             }
             Text(formatTime(duration), color = ChanColors.TextSecondary, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-            PillText(if (fullscreen) "⤡" else "⛶", onClick = onToggleFullscreen, title = if (fullscreen) "Minimize" else "Maximize")
-            PillText(if (secondaryOpen) "⌄" else "⌃", onClick = onToggleSecondary, title = "Secondary controls")
+            IconBtn(
+                if (fullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                onClick = onToggleFullscreen,
+                title = if (fullscreen) "Minimize" else "Maximize",
+                size = 34,
+            )
+            IconBtn(
+                if (secondaryOpen) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp,
+                onClick = onToggleSecondary,
+                title = "Secondary controls",
+                size = 34,
+            )
         }
 
         // Secondary bar
@@ -730,10 +782,15 @@ private fun TransportControls(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                PillText(if (muted || volume == 0f) "🔇" else "🔊", onClick = {
-                    muted = !muted
-                    player?.setVolume(if (muted) 0f else volume)
-                })
+                IconBtn(
+                    if (muted || volume == 0f) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                    onClick = {
+                        muted = !muted
+                        player?.setVolume(if (muted) 0f else volume)
+                    },
+                    title = if (muted) "Unmute" else "Mute",
+                    size = 32,
+                )
                 Slider(
                     value = if (muted) 0f else volume,
                     onValueChange = {
@@ -749,21 +806,36 @@ private fun TransportControls(
                         inactiveTrackColor = Color.White.copy(alpha = 0.3f),
                     ),
                 )
-                PillText("-10s", onClick = { player?.seekTo(state.positionMs - 10_000) })
-                PillText("+10s", onClick = { player?.seekTo(state.positionMs + 10_000) })
-                PillText(if (brightnessIdx == 0) "Bright" else "${Math.round(BRIGHTNESS_LEVELS[brightnessIdx] * 100)}%", onClick = {
-                    brightnessIdx = (brightnessIdx + 1) % BRIGHTNESS_LEVELS.size
-                    onBrightness(BRIGHTNESS_LEVELS[brightnessIdx])
-                })
-                PillText(if (ccEnabled) "CC:On" else "CC", onClick = {
-                    ccEnabled = !ccEnabled
-                    player?.setSubtitles(if (ccEnabled) "x" else null)
-                })
-                PillText(formatSpeed(SPEEDS[speedIdx]), onClick = {
-                    speedIdx = (speedIdx + 1) % SPEEDS.size
-                    player?.setRate(SPEEDS[speedIdx])
-                })
-                PillText("PiP", onClick = onTogglePip)
+                IconBtn(Icons.Filled.Replay10, { player?.seekTo(state.positionMs - 10_000) }, "-10s", size = 32)
+                IconBtn(Icons.Filled.Forward10, { player?.seekTo(state.positionMs + 10_000) }, "+10s", size = 32)
+                IconBtn(
+                    Icons.Filled.Brightness6,
+                    {
+                        brightnessIdx = (brightnessIdx + 1) % BRIGHTNESS_LEVELS.size
+                        onBrightness(BRIGHTNESS_LEVELS[brightnessIdx])
+                    },
+                    if (brightnessIdx == 0) "Brightness" else "${Math.round(BRIGHTNESS_LEVELS[brightnessIdx] * 100)}%",
+                    size = 32,
+                )
+                IconBtn(
+                    Icons.Filled.Subtitles,
+                    {
+                        ccEnabled = !ccEnabled
+                        player?.setSubtitles(if (ccEnabled) "x" else null)
+                    },
+                    if (ccEnabled) "Captions on" else "Captions",
+                    size = 32,
+                )
+                IconBtn(
+                    Icons.Filled.Speed,
+                    {
+                        speedIdx = (speedIdx + 1) % SPEEDS.size
+                        player?.setRate(SPEEDS[speedIdx])
+                    },
+                    "Speed ${formatSpeed(SPEEDS[speedIdx])}",
+                    size = 32,
+                )
+                IconBtn(Icons.Filled.PictureInPictureAlt, onTogglePip, "Picture in picture", size = 32)
             }
         }
     }
@@ -793,28 +865,36 @@ private fun HostControlsCard(
             .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        ActionBtn("Change Video", onClick = onChangeVideo)
-        ActionBtn("Share Screen", onClick = {
+        ActionBtn(Icons.Filled.Movie, "Change Video", onClick = onChangeVideo)
+        ActionBtn(Icons.Filled.ScreenShare, "Share Screen", onClick = {
             android.widget.Toast.makeText(context, "Screen share requires a desktop browser", android.widget.Toast.LENGTH_SHORT).show()
         })
-        ActionBtn("Queue ($queueCount/5)", onClick = onOpenQueue)
-        ActionBtn(if (vibe) "Vibe Glow: On" else "Vibe Glow: Off", onClick = onToggleVibe)
-        ActionBtn(if (locked) "Unlock Room" else "Lock Room", onClick = onToggleLock)
-        ActionBtn("Edit Title", onClick = onEditTitle)
+        ActionBtn(Icons.Filled.QueueMusic, "Queue ($queueCount/5)", onClick = onOpenQueue)
+        ActionBtn(Icons.Filled.Flare, if (vibe) "Vibe Glow: On" else "Vibe Glow: Off", onClick = onToggleVibe)
+        ActionBtn(if (locked) Icons.Filled.LockOpen else Icons.Filled.Lock, if (locked) "Unlock Room" else "Lock Room", onClick = onToggleLock)
+        ActionBtn(Icons.Filled.Edit, "Edit Title", onClick = onEditTitle)
     }
 }
 
 @Composable
-private fun ActionBtn(text: String, onClick: () -> Unit) {
-    Box(
+private fun ActionBtn(
+    icon: androidx.compose.ui.graphics.vector.ImageVector?,
+    text: String,
+    onClick: () -> Unit,
+) {
+    Row(
         Modifier
             .clip(RoundedCornerShape(10.dp))
             .background(ChanColors.Raised)
             .border(1.dp, ChanColors.Divider, RoundedCornerShape(10.dp))
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center,
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = ChanColors.TextPrimary, modifier = Modifier.size(15.dp))
+        }
         Text(text, color = ChanColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
@@ -861,7 +941,12 @@ private fun MetaBar(
             MetaText("Queue: $queueCount waiting")
         }
         Spacer(Modifier.weight(1f))
-        Text(if (expanded) "⌃" else "⌄", color = ChanColors.TextSecondary, fontSize = 16.sp)
+        Icon(
+            if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+            contentDescription = if (expanded) "Collapse" else "Expand",
+            tint = ChanColors.TextSecondary,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -914,13 +999,16 @@ private fun ParticipantsSection(
                 }
                 if (p.muted) MiniBadge("Muted", ChanColors.TextSecondary)
                 if (hostId == uid && p.uid != uid) {
-                    ActionBtn("Kick") { repo.kick(p.uid) {} }
-                    Spacer(Modifier.width(4.dp))
-                    ActionBtn(if (coHosts.contains(p.uid)) "Demote" else "Promote") {
+                    IconBtn(Icons.Filled.PersonRemove, { repo.kick(p.uid) {} }, "Kick", size = 32)
+                    IconBtn(Icons.Filled.Star, {
                         repo.promote(p.uid, if (coHosts.contains(p.uid)) "viewer" else "co-host") {}
-                    }
-                    Spacer(Modifier.width(4.dp))
-                    ActionBtn(if (p.muted) "Unmute" else "Mute") { repo.mute(p.uid, !p.muted) {} }
+                    }, if (coHosts.contains(p.uid)) "Demote" else "Promote", size = 32)
+                    IconBtn(
+                        if (p.muted) Icons.Filled.Mic else Icons.Filled.MicOff,
+                        { repo.mute(p.uid, !p.muted) {} },
+                        if (p.muted) "Unmute" else "Mute",
+                        size = 32,
+                    )
                 }
             }
         }
@@ -1003,7 +1091,7 @@ private fun ChatPanel(
                         ) { Text(emoji, fontSize = 14.sp) }
                     }
                 }
-                PillText("🔊", onClick = onSendReaction.let { { onSendReaction("🔊") } }, title = "Sound effects")
+                IconBtn(Icons.Filled.VolumeUp, { onSendReaction("🔊") }, "Sound effects", size = 30)
             }
             Spacer(Modifier.height(8.dp))
             // AI tools row
@@ -1061,13 +1149,18 @@ private fun ChatPanel(
                     )
                 }
                 Spacer(Modifier.width(8.dp))
-                PillText("Send", onClick = {
-                    if (input.isNotBlank()) {
-                        onSend(input)
-                        input = ""
-                        onTypingChange(false)
-                    }
-                })
+                IconBtn(
+                    Icons.AutoMirrored.Filled.Send,
+                    onClick = {
+                        if (input.isNotBlank()) {
+                            onSend(input)
+                            input = ""
+                            onTypingChange(false)
+                        }
+                    },
+                    title = "Send",
+                    size = 36,
+                )
             }
         }
     }
@@ -1135,9 +1228,9 @@ private fun QueuePanel(
                                 Text(item.title, color = ChanColors.TextPrimary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("by ${item.addedByName}", color = ChanColors.TextSecondary, fontSize = 11.sp)
                             }
-                            if (canControl) PillText("Play") { onPlayNext(item) }
+                            if (canControl) IconBtn(Icons.Filled.PlayArrow, { onPlayNext(item) }, "Play now", size = 32)
                             Spacer(Modifier.width(6.dp))
-                            PillText("✕") { onRemove(item) }
+                            IconBtn(Icons.Filled.Close, { onRemove(item) }, "Remove", size = 30)
                         }
                     }
                 }
@@ -1216,7 +1309,7 @@ private fun PanelShell(title: String, onClose: () -> Unit, content: @Composable 
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(title, color = ChanColors.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                HeaderIconBtn("✕", "Close", onClose)
+                IconBtn(Icons.Filled.Close, onClose, "Close")
             }
             Spacer(Modifier.height(6.dp))
             content()
@@ -1313,7 +1406,7 @@ private fun FullscreenLayout(
                         .padding(horizontal = 6.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    HeaderIconBtn("←", "Minimize", onMinimize)
+                    IconBtn(Icons.AutoMirrored.Filled.ArrowBack, onMinimize, "Minimize")
                     Text(
                         title,
                         color = Color.White,
@@ -1323,7 +1416,7 @@ private fun FullscreenLayout(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     )
-                    PillText("⤡", onClick = onMinimize, title = "Minimize")
+                    IconBtn(Icons.Filled.FullscreenExit, onMinimize, "Minimize")
                 }
 
                 if (!state.isPlaying) {
@@ -1354,7 +1447,7 @@ private fun FullscreenLayout(
                             Spacer(Modifier.width(6.dp))
                             Text("LIVE", color = ChanColors.Live, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             Spacer(Modifier.weight(1f))
-                            PillText("⤡", onClick = onMinimize, title = "Minimize")
+                            IconBtn(Icons.Filled.FullscreenExit, onMinimize, "Minimize", size = 36)
                         }
                     } else {
                         dragMs?.let {
@@ -1368,7 +1461,12 @@ private fun FullscreenLayout(
                             )
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            PillText(if (state.isPlaying) "❚❚" else "▶", onClick = onTogglePlay)
+                            IconBtn(
+                                if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                onClick = onTogglePlay,
+                                title = if (state.isPlaying) "Pause" else "Play",
+                                size = 38,
+                            )
                             Text(formatTime(position), color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                             Slider(
                                 value = position.toFloat(),
@@ -1383,19 +1481,19 @@ private fun FullscreenLayout(
                                 ),
                             )
                             Text(formatTime(duration), color = Color.White.copy(alpha = 0.8f), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                            PillText("⤡", onClick = onMinimize, title = "Minimize")
+                            IconBtn(Icons.Filled.FullscreenExit, onMinimize, "Minimize", size = 36)
                         }
                         Row(
                             Modifier.fillMaxWidth().padding(top = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            PillText("-10s", onClick = { onSeek(state.positionMs - 10_000) })
-                            PillText("+10s", onClick = { onSeek(state.positionMs + 10_000) })
-                            PillText(formatSpeed(SPEEDS[speedIdx]), onClick = {
+                            IconBtn(Icons.Filled.Replay10, { onSeek(state.positionMs - 10_000) }, "-10s", size = 34)
+                            IconBtn(Icons.Filled.Forward10, { onSeek(state.positionMs + 10_000) }, "+10s", size = 34)
+                            IconBtn(Icons.Filled.Speed, {
                                 speedIdx = (speedIdx + 1) % SPEEDS.size
                                 player.setRate(SPEEDS[speedIdx])
-                            })
+                            }, "Speed ${formatSpeed(SPEEDS[speedIdx])}", size = 34)
                         }
                     }
                 }

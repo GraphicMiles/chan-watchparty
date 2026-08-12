@@ -223,7 +223,7 @@ export default function CreateRoomPage() {
           idToken,
           projectId: db.app.options.projectId || '',
           apiKey: db.app.options.apiKey || '',
-          apiBase: API_URL || '',
+          apiBase: API_URL || 'https://chan-yz3p.vercel.app',
           startSeconds: 0,
         })
         navigate('/', { replace: true })
