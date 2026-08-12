@@ -146,15 +146,6 @@ fun NativeRoomScreen(
             }
             delay(1500)
         }
-                )
-            } else {
-                val target = (sync.currentTime * 1000).toLong()
-                if (kotlin.math.abs(p.positionMs() - target) > 600) p.seekTo(target)
-                if (sync.isPlaying && !p.isPlayingNow()) p.play()
-                if (!sync.isPlaying && p.isPlayingNow() && sync.updatedBy != uid) p.pause()
-            }
-            delay(1500)
-        }
     }
 
     LaunchedEffect(fullscreen) { onFullscreenChange(fullscreen) }
