@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -769,9 +770,10 @@ private fun TransportControls(
             )
         }
 
-        // Secondary bar
+        // Secondary bar — wraps onto multiple lines on narrow screens instead
+        // of overflowing the screen edge.
         if (secondaryOpen) {
-            Row(
+            androidx.compose.foundation.layout.FlowRow(
                 Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp)
@@ -779,7 +781,7 @@ private fun TransportControls(
                     .background(ChanColors.Surface)
                     .border(1.dp, ChanColors.Divider, RoundedCornerShape(12.dp))
                     .padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 IconBtn(
@@ -799,7 +801,7 @@ private fun TransportControls(
                         player?.setVolume(it)
                     },
                     valueRange = 0f..1f,
-                    modifier = Modifier.width(80.dp),
+                    modifier = Modifier.widthIn(min = 48.dp, max = 96.dp).weight(1f, fill = false),
                     colors = SliderDefaults.colors(
                         thumbColor = Color.White,
                         activeTrackColor = Color.White,
@@ -855,7 +857,7 @@ private fun HostControlsCard(
     onOpenQueue: () -> Unit,
 ) {
     val context = LocalContext.current
-    Row(
+    androidx.compose.foundation.layout.FlowRow(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -863,6 +865,7 @@ private fun HostControlsCard(
             .background(ChanColors.Surface)
             .border(1.dp, ChanColors.Divider, RoundedCornerShape(12.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ActionBtn(Icons.Filled.Movie, "Change Video", onClick = onChangeVideo)
