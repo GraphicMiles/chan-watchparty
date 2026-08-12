@@ -8,9 +8,10 @@ import { Input } from '../../../shared/ui/index.js'
 import styles from './QueuePanel.module.scss'
 import { apiPath } from '../../../shared/lib/api.js'
 
-export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast }) {
+export default function QueuePanel({ roomId, user, canControl, onPlayNext, onChangeVideo, toast }) {
   const [queue, setQueue] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [changeUrl, setChangeUrl] = useState('')
   const [activeTab, setActiveTab] = useState('youtube') // 'youtube' or 'direct'
   const { results, loading, search, clear } = useUnifiedSearch()
 
@@ -170,6 +171,37 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast
 
   return (
     <div className={styles.queuePanel}>
+      {/* Change the CURRENT video — paste a link (host/co-host). This is the
+          single place to change video now (ShowBrowser modal removed). */}
+      {canControl && onChangeVideo && (
+        <div className={styles.changeVideoRow}>
+          <form
+            className={styles.composerBar}
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (changeUrl.trim()) {
+                onChangeVideo(changeUrl.trim())
+                setChangeUrl('')
+              }
+            }}
+          >
+            <span className={styles.changeVideoLabel} title="Change the currently playing video">
+              <Play size={13} />
+              Change video
+            </span>
+            <Input
+              value={changeUrl}
+              onChange={(e) => setChangeUrl(e.target.value)}
+              placeholder="Paste YouTube URL or .mp4 / .m3u8 / .mkv link…"
+              className={styles.searchInput}
+            />
+            <button type="submit" className={styles.trailingBtn} title="Change video" aria-label="Change video">
+              <Loader2 size={14} className={loading ? 'spin' : 'hidden'} />
+              <Play size={14} />
+            </button>
+          </form>
+        </div>
+      )}
       {/* Merged source toggle + search — one composer bar, tap the chip to
           switch YouTube ⇄ Direct (icon + label + placeholder + trailing icon
           all swap together) */}
