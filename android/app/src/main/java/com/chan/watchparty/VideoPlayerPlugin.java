@@ -100,6 +100,12 @@ public class VideoPlayerPlugin extends Plugin {
         fsControlsView.setVerticalScrollBarEnabled(false);
         fsControlsView.setHorizontalScrollBarEnabled(false);
         fsControlsView.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+        // Enable JS + file access + DOM storage so the controls page actually
+        // runs its script and can load from the bundled asset.
+        android.webkit.WebSettings s = fsControlsView.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setAllowFileAccess(true);
+        s.setDomStorageEnabled(true);
         fsControlsView.setWebViewClient(new android.webkit.WebViewClient() {
             @Override
             public void onPageFinished(android.webkit.WebView view, String url) {
@@ -115,12 +121,39 @@ public class VideoPlayerPlugin extends Plugin {
                     try { view.evaluateJavascript("window.chanTitle && window.chanTitle('" + t + "');", null); } catch (Exception ignored) { }
                 });
             }
+
+            @Override
+            public void onReceivedError(android.webkit.WebView view, int errorCode, String description, String failingUrl) {
+                // A failed load must NOT be treated as ready (no blank page).
+                fsControlsLoaded = false;
+                android.util.Log.w(TAG, "fullscreen controls load error: " + errorCode + " " + description + " " + failingUrl);
+            }
+
+            @Override
+            public void onReceivedError(android.webkit.WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
+                if (request != null && request.isForMainFrame()) {
+                    fsControlsLoaded = false;
+                    android.util.Log.w(TAG, "fullscreen controls main-frame error: " + error.getErrorCode());
+                }
+            }
         });
         fsControlsView.addJavascriptInterface(new FsBridge(), "ChanNative");
+        // Attach to the window ABOVE the native video overlay. GONE until
+        // fullscreen; harmless while hidden, and it guarantees the page is
+        // rendered (a view with no parent can never show).
+        ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        );
+        decor.addView(fsControlsView, params);
         fsControlsView.setVisibility(android.view.View.GONE);
         try {
             fsControlsView.loadUrl("file:///android_asset/public/fullscreen-controls/index.html");
-        } catch (Exception ignored) { }
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "fullscreen controls load failed", e);
+            fsControlsLoaded = false;
+        }
     }
 
     /** JS bridge for the fullscreen controls page. All commands → main thread. */

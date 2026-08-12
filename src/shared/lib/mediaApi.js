@@ -85,7 +85,7 @@ export async function resolveDownloadLink(user, pageUrl, title) {
   const raw = proxyTargetUrl(pageUrl)
   if (!user) throw new Error('Sign in to use media tools')
   if (!/downloadwella\.com|fsmc/i.test(raw)) {
-    throw new Error('Not a DownloadWella / fsmc link')
+    throw new Error("This link isn't a supported download page — try another source.")
   }
 
   let data
@@ -126,7 +126,7 @@ export async function resolveDownloadDescriptor(user, pageUrl, title) {
   const raw = proxyTargetUrl(pageUrl)
   if (!user) throw new Error('Sign in to use media tools')
   if (!/downloadwella\.com|fsmc/i.test(raw)) {
-    throw new Error('Not a DownloadWella / fsmc link')
+    throw new Error("This link isn't a supported download page — try another source.")
   }
   const data = await mediaPost(user, {
     action: 'nkiriResolve',
@@ -148,7 +148,7 @@ export async function refreshDownloadDescriptor(user, sourceUrl, title) {
   const raw = proxyTargetUrl(sourceUrl)
   if (!user) throw new Error('Sign in to use media tools')
   if (!/downloadwella\.com|fsmc/i.test(raw)) {
-    throw new Error('Not a DownloadWella / fsmc link')
+    throw new Error("This link isn't a supported download page — try another source.")
   }
   const data = await mediaPost(user, {
     action: 'nkiriRefresh',
