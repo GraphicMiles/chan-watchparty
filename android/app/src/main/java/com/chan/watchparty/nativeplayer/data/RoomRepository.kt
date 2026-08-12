@@ -34,7 +34,12 @@ data class RoomData(
     val thumbnail: String? = null,
     /** Stream descriptor { streamUrl (absolute), referer, headers, container, codec }. */
     val media: Map<String, Any?> = emptyMap(),
-    /** Absolute URL for native playback: media.streamUrl, else videoUrl if absolute. */
+) {
+    /**
+     * Absolute URL for native playback: media.streamUrl (absolute CDN) first,
+     * else videoUrl only when it is already absolute. room.videoUrl is often
+     * a relative /api/proxy path (web-only) that native engines cannot open.
+     */
     val playableUrl: String?
         get() {
             val stream = media["streamUrl"] as? String
@@ -43,8 +48,8 @@ data class RoomData(
             }
             val v = videoUrl ?: return null
             return if (v.startsWith("http://") || v.startsWith("https://")) v else null
-        },
-)
+        }
+}
 
 data class ChatMessage(
     val id: String,
