@@ -6,7 +6,7 @@ import { useAuth } from '../auth/hooks/useAuth.jsx'
 import { isO2TvUrl, isDirectVideoUrl, normalizePlaybackUrl, getThumbnail } from '../lib/youtube.js'
 import { isSuitableThumbnail } from '../lib/mediaHelper.js'
 import { cleanMediaTitle } from '../lib/titleFormat.js'
-import { mediaPost, resolveDownloadLink, friendlyApiError } from '../lib/mediaApi.js'
+import { mediaPost, resolveDownloadLink, friendlyApiError, proxyTargetUrl } from '../lib/mediaApi.js'
 import { useToast } from '../ui/index.js'
 
 function parseShowSlugFromUrl(value) {
@@ -240,9 +240,22 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       // Some flows (Nkiri flat episodes, pasted links) never set a show slug.
       // Calling o2tvResolve without one makes the server 400 with a raw
       // "showSlug required" validation string — instead resolve the episode
-      // page directly (scrape / form-walk) which works for any page URL.
+      // page directly: DownloadWella pages via the form-walk resolver, any
+      // other page via the generic scrape (works for any page URL).
       if (!epSlug && ep.url) {
-        const playUrl = await resolveDownloadLink(user, ep.url, ep.title || showName || `Episode ${epNum}`)
+        const epUrl = proxyTargetUrl(ep.url)
+        const isDw = /downloadwella\.com|fsmc/i.test(epUrl)
+          && !/\.(mp4|m3u8|mkv|webm|avi|mov|flv|ts)(\?|#|$)/i.test(epUrl)
+        let playUrl
+        if (isDw) {
+          playUrl = await resolveDownloadLink(user, epUrl, ep.title || showName || `Episode ${epNum}`)
+        } else {
+          const scraped = await mediaPost(user, { action: 'scrape', url: epUrl })
+          const direct = (scraped.results || []).find((r) => r.isDirect || r.playableInRoom || /\/api\/proxy\?/i.test(r.url || ''))
+            || (scraped.results || [])[0]
+          if (!direct?.url) throw new Error('Could not resolve a playable link for this episode')
+          playUrl = normalizePlaybackUrl(direct.url)
+        }
         if (reqId !== abortRef.current) return
         emit({
           kind: 'direct',
@@ -369,11 +382,19 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       return
     }
 
-    // DownloadWella episode link → resolve immediately (form-walk to the CDN file)
-    if (/downloadwella\.com|fsmc/i.test(candidateStr)) {
+    // DownloadWella episode link → resolve immediately (form-walk to the CDN
+    // file). Guard tightly: ONLY resolve when the raw URL is genuinely a
+    // DownloadWella/fsmc PAGE (the domain + a non-media path). Some search
+    // results carry a downloadwella string in a thumbnail/query/related link
+    // but are really NetNaija/movie pages — those must fall through to the
+    // generic scrape instead of erroring with "Not a DownloadWella / fsmc link".
+    const rawCandidate = proxyTargetUrl(candidateStr)
+    const isDwPage = /downloadwella\.com|fsmc/i.test(rawCandidate)
+      && !/\.(mp4|m3u8|mkv|webm|avi|mov|flv|ts)(\?|#|$)/i.test(rawCandidate)
+    if (isDwPage) {
       setResolvingIdx(-1)
       try {
-        const playUrl = await resolveDownloadLink(user, candidateStr, itemTitle)
+        const playUrl = await resolveDownloadLink(user, rawCandidate, itemTitle)
         emit({
           kind: 'direct',
           url: playUrl,

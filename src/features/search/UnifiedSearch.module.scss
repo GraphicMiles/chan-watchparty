@@ -6,7 +6,10 @@
   z-index: 1;
   background: var(--room-bg);
   color: var(--room-text-primary);
+  /* dvh = dynamic viewport (excludes browser chrome) so the page never
+     over-scrolls just because 100vh is taller than the visible screen */
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 @media (max-width: 600px) {
