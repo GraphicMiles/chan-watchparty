@@ -306,6 +306,7 @@ export default function VideoPlayer({
   }, [])
 
   const [brightnessPop, setBrightnessPop] = useState(false)
+  const [brightnessMenuUp, setBrightnessMenuUp] = useState(true)
 
   useEffect(() => {
     onReadyRef.current = onReady
@@ -1585,14 +1586,14 @@ export default function VideoPlayer({
                   <button
                     type="button"
                     className={`${styles.controlIconBtn} ${brightnessMultiplier !== 1 ? styles.activeBrightnessBtn : ''}`}
-                    onClick={(e) => { e.stopPropagation(); setBrightnessPop(!brightnessPop) }}
+                    onClick={(e) => { e.stopPropagation(); setBrightnessMenuUp(e.currentTarget.getBoundingClientRect().top > 220); setBrightnessPop(!brightnessPop) }}
                     title="Brightness (50%..200%)"
                   >
                     <Sun size={16} style={{ color: brightnessMultiplier !== 1 ? '#FAB005' : 'inherit' }} />
                     <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
                   </button>
                   {brightnessPop && (
-                    <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
+                    <div className={`${styles.popupMenu} ${brightnessMenuUp ? styles.popupUp : ''}`} onClick={(e) => e.stopPropagation()}>
                       <div className={styles.popupSliderRow}>
                         <Sun size={13} style={{ color: 'var(--room-text-secondary)' }} />
                         <input
@@ -1896,14 +1897,14 @@ export default function VideoPlayer({
               <button
                 type="button"
                 className={`${styles.controlIconBtn} ${brightnessMultiplier !== 1 ? styles.activeBrightnessBtn : ''}`}
-                onClick={(e) => { e.stopPropagation(); setBrightnessPop(!brightnessPop) }}
+                onClick={(e) => { e.stopPropagation(); setBrightnessMenuUp(e.currentTarget.getBoundingClientRect().top > 220); setBrightnessPop(!brightnessPop) }}
                 title="Brightness (50%..200%)"
               >
                 <Sun size={16} style={{ color: brightnessMultiplier !== 1 ? '#FAB005' : 'inherit' }} />
                 <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
               </button>
               {brightnessPop && (
-                <div className={styles.popupMenu} onClick={(e) => e.stopPropagation()}>
+                <div className={`${styles.popupMenu} ${brightnessMenuUp ? styles.popupUp : ''}`} onClick={(e) => e.stopPropagation()}>
                   <div className={styles.popupSliderRow}>
                     <Sun size={13} style={{ color: 'var(--room-text-secondary)' }} />
                     <input

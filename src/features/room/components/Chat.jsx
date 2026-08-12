@@ -28,6 +28,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   const [replyTo, setReplyTo] = useState(null)
   const [showReactions, setShowReactions] = useState(false)
   const [showAiMenu, setShowAiMenu] = useState(false)
+  const [aiMenuUp, setAiMenuUp] = useState(true)
   const [atBottom, setAtBottom] = useState(true)
   const [unseen, setUnseen] = useState(0)
   const [optimistic, setOptimistic] = useState([])
@@ -451,7 +452,11 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
             <button
               type="button"
               className={styles.aiChip}
-              onClick={() => setShowAiMenu(!showAiMenu)}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect()
+                setAiMenuUp(r.bottom < window.innerHeight * 0.6)
+                setShowAiMenu(!showAiMenu)
+              }}
               title="AI tools"
             >
               <Bot size={14} />
@@ -461,7 +466,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
               )}
             </button>
             {showAiMenu && (
-              <div className={styles.emojiGrid} style={{ right: 0, left: 'auto', gridTemplateColumns: '1fr', gap: '4px', minWidth: '170px', bottom: '100%', top: 'auto', marginBottom: 6 }}>
+              <div className={`${styles.aiMenuPop} ${aiMenuUp ? styles.aiMenuPopUp : styles.aiMenuPopDown}`}>
                 <button
                   type="button"
                   className={styles.emojiButton}
@@ -512,15 +517,15 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
           >
             <Smile size={16} />
           </button>
-          <Button
+          <button
             type="submit"
-            disabled={cooldown || !text.trim()}
-            size="sm"
             className={styles.sendButton}
-            variant="cta"
+            disabled={cooldown || !text.trim()}
+            aria-label="Send message"
+            title="Send"
           >
-            <Send size={16} />
-          </Button>
+            <Send size={15} />
+          </button>
         </form>
         {nearLimit && (
           <div className={styles.counter} aria-live="polite">

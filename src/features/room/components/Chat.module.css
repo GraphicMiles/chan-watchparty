@@ -342,16 +342,6 @@
   color: #0B0B0C;
 }
 
-.sendButton {
-  border-radius: 100px !important;
-  width: 32px !important;
-  height: 32px !important;
-  padding: 0 !important;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
 
 .emojiGrid {
   position: absolute;
@@ -387,27 +377,75 @@
 
 .sendButton {
   flex-shrink: 0;
-  width: 36px !important;
-  height: 36px !important;
-  min-width: 36px;
-  padding: 0 !important;
-  border-radius: var(--radius-pill) !important;
-  background: var(--accent-orange) !important;
-  color: #fff !important;
-  box-shadow: none !important;
-  border: none !important;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent-orange, #F5F5F7);
+  color: #0B0B0C;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.sendButton svg {
+  width: 15px;
+  height: 15px;
+}
+
+.sendButton:active {
+  transform: scale(0.92);
 }
 
 .sendButton:hover:not(:disabled) {
-  background: #e85e22 !important;
+  background: #e8e5e0;
 }
 
+/* AI menu popup — viewport-safe: flips up/down, clamped height */
+.aiMenuPop {
+  position: absolute;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  min-width: 170px;
+  max-height: min(50vh, 240px);
+  overflow-y: auto;
+  padding: var(--s-2);
+  background: var(--room-surface);
+  border: 1px solid var(--room-divider);
+  border-radius: var(--radius-card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 60;
+}
+
+.aiMenuPopUp {
+  bottom: calc(100% + 6px);
+  right: 0;
+}
+
+.aiMenuPopDown {
+  top: calc(100% + 6px);
+  right: 0;
+}
+
+/* AI summary / bot message — centered, styled card */
 .system {
   text-align: center;
-  color: var(--room-text-secondary);
-  font-size: 12px;
-  padding: var(--s-1) 0;
-  font-style: italic;
+  color: var(--room-text-primary);
+  font-size: 12.5px;
+  padding: 8px 12px;
+  margin: 6px auto;
+  max-width: 92%;
+  background: var(--room-surface-raised);
+  border: 1px solid var(--room-divider);
+  border-radius: 12px;
+  font-style: normal;
+  line-height: 1.45;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .newPill {
