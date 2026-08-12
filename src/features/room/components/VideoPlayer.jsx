@@ -1135,6 +1135,17 @@ export default function VideoPlayer({
         if (next) await window.screen?.orientation?.lock?.('landscape')?.catch?.(() => {})
         else window.screen?.orientation?.unlock?.()
       } catch { /* orientation unsupported */ }
+      // Exiting fullscreen: the plugin re-applies lastRect immediately, but
+      // the layout may still be settling (system bars returning, orientation
+      // unlock). Force a re-measure + re-anchor of the surface to the room's
+      // video box so it never gets stuck full-screen/black.
+      if (!next) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            try { VideoPlayerPlugin.setVisible({ visible: true }) } catch { /* ignore */ }
+          })
+        })
+      }
       return
     }
     const root = playerWrapperRef.current
