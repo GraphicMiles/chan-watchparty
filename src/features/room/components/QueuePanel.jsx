@@ -1,39 +1,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import { collection, onSnapshot, query, orderBy, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
-import { Plus, Trash2, Play, Search, Film, Info } from 'lucide-react'
+import { Plus, Trash2, Play, Search, Film, Youtube, Link2, Loader2 } from 'lucide-react'
 import { db } from '../../../shared/lib/firebase.js'
 import { useUnifiedSearch } from '../../../hooks/useUnifiedSearch.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, extractVideoId, getThumbnail } from '../../../shared/lib/youtube.js'
-import { Button, Input } from '../../../shared/ui/index.js'
+import { Input } from '../../../shared/ui/index.js'
 import styles from './QueuePanel.module.scss'
 import { apiPath } from '../../../shared/lib/api.js'
-
-const HINT_KEY = 'chan:queueHintDismissed'
 
 export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast }) {
   const [queue, setQueue] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState('youtube') // 'youtube' or 'direct'
-  const [hintVisible, setHintVisible] = useState(() => {
-    try {
-      return window.localStorage.getItem(HINT_KEY) !== '1'
-    } catch {
-      return true
-    }
-  })
   const { results, loading, search, clear } = useUnifiedSearch()
-
-  // Collapse the instructional paragraph once the user has actually used the
-  // queue (or explicitly dismissed it) — keeps the panel from stacking
-  // explanation + tabs + search + empty state on first open.
-  const dismissHint = useCallback(() => {
-    setHintVisible(false)
-    try {
-      window.localStorage.setItem(HINT_KEY, '1')
-    } catch {
-      /* ignore quota */
-    }
-  }, [])
 
   useEffect(() => {
     if (!roomId) return undefined
@@ -128,12 +107,10 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast
     try {
       await addDoc(collection(db, 'rooms', roomId, 'queue'), payload)
       toast('Added to queue!', { variant: 'success' })
-      // First successful use → the how-to paragraph has served its purpose.
-      dismissHint()
     } catch (err) {
       toast(err.message || 'Could not add to queue', { variant: 'error' })
     }
-  }, [queue.length, activeTab, user, roomId, toast, fetchEpisodes, dismissHint])
+  }, [queue.length, activeTab, user, roomId, toast, fetchEpisodes])
 
   // Declared AFTER addToQueue/fetchEpisodes so it closes over already-defined
   // callbacks — fixes 'used before defined' + makes the dependency array exhaustive.
@@ -193,62 +170,31 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, toast
 
   return (
     <div className={styles.queuePanel}>
-      <div className={styles.header}>
-        <h3>
-          Smart Queue ({queue.length}/5)
+      {/* Merged source toggle + search — one composer bar, tap the chip to
+          switch YouTube ⇄ Direct (icon + label + placeholder + trailing icon
+          all swap together) */}
+      <div className={styles.queueControls}>
+        <form onSubmit={handleSearch} className={styles.composerBar}>
           <button
             type="button"
-            className={styles.hintInfo}
-            onClick={dismissHint}
-            aria-label="How the queue works"
-            title="Add up to 5 videos. When the current stream finishes, the next queued item plays automatically!"
+            className={styles.sourceChip}
+            onClick={() => { setActiveTab(activeTab === 'youtube' ? 'direct' : 'youtube'); clear() }}
+            title={activeTab === 'youtube' ? 'Switch to Direct / Movies' : 'Switch to YouTube'}
           >
-            <Info size={13} />
+            {activeTab === 'youtube' ? <Youtube size={14} /> : <Link2 size={14} />}
+            {activeTab === 'youtube' ? 'YouTube' : 'Direct'}
           </button>
-        </h3>
-        {hintVisible && (
-          <p className={styles.hint}>
-            Add up to 5 videos. When the current stream finishes, the next queued item plays automatically!
-            <button type="button" className={styles.hintDismiss} onClick={dismissHint} aria-label="Dismiss tip" title="Dismiss tip">
-              ×
-            </button>
-          </p>
-        )}
-      </div>
-
-      {/* Merged search + source toggle: segmented prefix inside the input */}
-      <form onSubmit={handleSearch} className={styles.searchForm}>
-        <div className={styles.searchMerge}>
-          <div className={styles.sourceSeg}>
-            <button
-              type="button"
-              className={activeTab === 'youtube' ? styles.segActive : styles.seg}
-              onClick={() => { setActiveTab('youtube'); clear() }}
-              title="YouTube Search"
-            >
-              YouTube
-            </button>
-            <button
-              type="button"
-              className={activeTab === 'direct' ? styles.segActive : styles.seg}
-              onClick={() => { setActiveTab('direct'); clear() }}
-              title="Direct / Movies"
-            >
-              Direct
-            </button>
-          </div>
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={`Search ${activeTab === 'direct' ? 'movies/shows' : 'YouTube'} or paste URL...`}
+            placeholder={activeTab === 'direct' ? 'Paste a video link…' : 'Search YouTube…'}
             className={styles.searchInput}
           />
-          <Button type="submit" size="sm" loading={loading}>
-            <Search size={14} />
-          </Button>
-        </div>
-      </form>
-
+          <button type="submit" className={styles.trailingBtn} title="Search" aria-label="Search">
+            {loading ? <Loader2 size={14} className="spin" /> : <Search size={14} />}
+          </button>
+        </form>
+      </div>
       {/* Search results list in Card style */}
       {results.length > 0 && (
         <div className={styles.searchResultsSection}>

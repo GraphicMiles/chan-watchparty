@@ -6,82 +6,6 @@
   gap: 8px;
 }
 
-.chatActionsBar {
-  /* One shared toolbar: reactions + sound fx + AI tools in the same container.
-     Previously two stacked rows read as two disconnected feature sets. */
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 8px;
-  padding: 6px 8px;
-  background: var(--room-surface);
-  border: 1px solid var(--room-divider);
-  border-radius: var(--radius-card);
-  flex-shrink: 0;
-}
-
-.floatingReactionsBar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.floatingReactionBtn {
-  background: var(--room-surface-raised);
-  border: 1px solid var(--room-divider);
-  border-radius: var(--radius-pill);
-  padding: 4px 8px;
-  font-size: 15px;
-  cursor: pointer;
-  transition: transform 0.15s ease, background 0.15s ease;
-  line-height: 1;
-}
-
-.floatingReactionBtn:hover {
-  transform: scale(1.18);
-  background: rgba(255, 255, 255, 0.1);
-}
-
-/* Single AI-tools menu button (Summary / Catch Up / Quiz behind one icon) */
-.aiMenuBtn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: var(--room-surface-raised);
-  border: 1px solid var(--room-divider);
-  color: var(--room-text-primary);
-  cursor: pointer;
-  transition: transform 0.15s ease, background 0.15s ease;
-}
-
-.aiMenuBtn:hover {
-  transform: scale(1.12);
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.aiCooldownBadge {
-  position: absolute;
-  top: -4px;
-  right: -6px;
-  min-width: 18px;
-  height: 14px;
-  border-radius: 999px;
-  background: var(--room-danger, #ff5a4f);
-  color: #fff;
-  font-size: 9px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 3px;
-}
-
-/* Active Quiz Card (#4) */
 .quizCard {
   background: var(--room-surface-raised);
   border: 1.5px solid var(--accent-orange);
@@ -255,6 +179,25 @@
   padding-right: 2px;
 }
 
+.suggestChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--room-surface-raised);
+  border: 1px solid var(--room-divider);
+  border-radius: 20px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--room-text-primary);
+  cursor: pointer;
+  font-family: var(--font-body);
+}
+
+.suggestChip:hover {
+  background: var(--room-surface);
+}
+
 .empty {
   color: var(--room-text-secondary);
   font-size: 13px;
@@ -287,43 +230,127 @@
   40% { transform: translateY(-3px); }
 }
 
-.form {
-  margin-top: var(--s-2);
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
+.composer {
   flex-shrink: 0;
-  /* Android safe-area: keep the input + send above the system nav bar */
-  padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
+  padding: 8px 10px 12px;
 }
 
-.replyPreview {
+/* Hidden reaction strip — expands above the composer bar */
+.reactionStrip {
+  display: flex;
+  gap: 4px;
+  background: var(--room-surface-raised);
+  border-radius: 16px;
+  padding: 5px;
+  width: fit-content;
+  margin: 0 0 8px 10px;
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.2s ease, opacity 0.2s ease, margin 0.2s ease;
+}
+
+.reactionStripOpen {
+  max-height: 40px;
+  opacity: 1;
+}
+
+.reactionStripBtn {
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--s-2);
-  padding: var(--s-2) var(--s-3);
-  background: rgba(255, 106, 43, 0.1);
-  border-radius: var(--radius-sm);
-  font-size: 12px;
+  justify-content: center;
+  font-size: 14px;
+  border-radius: 50%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Composer bar: AI chip + input + reaction + send in one rounded bar */
+.composerBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--room-surface-raised);
+  border-radius: 20px;
+  padding: 5px 6px;
+  border: 1px solid transparent;
+}
+
+.composerBar:focus-within {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.aiChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--room-surface);
+  border: none;
+  border-radius: 14px;
+  padding: 8px 11px;
+  font-size: 11px;
+  font-weight: 700;
   color: var(--room-text-secondary);
-  border-left: 3px solid var(--accent-orange);
+  flex-shrink: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s, color 0.15s;
 }
 
-.inputRow {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
+.aiChip:hover {
+  color: var(--room-text-primary);
 }
 
-.input {
+.composerBar .input {
   flex: 1;
   min-width: 0;
+  background: none;
+  border: none;
+  color: var(--room-text-primary);
+  font-size: 13px;
+  height: auto;
+  padding: 8px 2px;
 }
 
-.emojiPicker {
-  position: relative;
+.composerBar .input:focus {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.reactBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--room-surface);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--room-text-secondary);
   flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.reactBtnActive {
+  background: var(--accent-orange, #F5F5F7);
+  color: #0B0B0C;
+}
+
+.sendButton {
+  border-radius: 100px !important;
+  width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .emojiGrid {
