@@ -32,8 +32,18 @@ data class RoomData(
     val videoUrl: String? = null,
     val videoType: String = "direct",
     val thumbnail: String? = null,
-    /** Stream descriptor map { referer, headers, container, codec, ... }. */
+    /** Stream descriptor { streamUrl (absolute), referer, headers, container, codec }. */
     val media: Map<String, Any?> = emptyMap(),
+    /** Absolute URL for native playback: media.streamUrl, else videoUrl if absolute. */
+    val playableUrl: String?
+        get() {
+            val stream = media["streamUrl"] as? String
+            if (!stream.isNullOrBlank() && (stream.startsWith("http://") || stream.startsWith("https://"))) {
+                return stream
+            }
+            val v = videoUrl ?: return null
+            return if (v.startsWith("http://") || v.startsWith("https://")) v else null
+        },
 )
 
 data class ChatMessage(

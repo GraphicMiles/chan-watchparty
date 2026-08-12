@@ -119,9 +119,13 @@ class NativeRoomActivity : ComponentActivity() {
                 // Create the player once the room (and its stream) is known;
                 // if the room switches video (queue play-next), load the new
                 // stream on the existing player.
+                //
+                // IMPORTANT: play the ABSOLUTE CDN url (media.streamUrl) with
+                // its referer/headers. room.videoUrl is often a relative
+                // /api/proxy?... path (web-only) that native engines can't open.
                 LaunchedEffect(room?.videoUrl) {
                     val r = room ?: return@LaunchedEffect
-                    val url = r.videoUrl ?: return@LaunchedEffect
+                    val url = r.playableUrl ?: return@LaunchedEffect
                     val m = r.media
                     val isLive = r.isLive || r.videoType == "iptv" || r.videoType == "sports"
                     if (player == null) {

@@ -125,7 +125,7 @@ fun NativeRoomScreen(
             if (controller) {
                 repo.writePlayerState(p.positionMs() / 1000.0, p.isPlayingNow())
             } else {
-                val vUrl = sync.videoUrl
+                val vUrl = room?.playableUrl
                 if (vUrl != null && vUrl != p.currentUrl()) {
                     val m = room?.media.orEmpty()
                     p.loadNew(

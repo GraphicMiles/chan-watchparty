@@ -108,13 +108,10 @@ export default function RoomPage() {
 
   const { isHost, writePlayerState, canControl } = usePlayerSync(roomId, room, playerRef)
 
-  // ── Native room: the ONE watch room (mobile app) ──────────────────────
-  // On Android, non-YouTube rooms launch NativeRoomActivity with the room
-  // credentials. The native activity reads the room from Firestore REST
-  // (videoUrl, media, participants, messages, queue, playerState) — nothing
-  // else needed. The web room stays mounted underneath purely as the launch
-  // shell (it also keeps the seat + host heartbeat alive); its video stays
-  // unmounted so nothing ever double-plays.
+  // ── Native room launch (the room is native on Android) ────────────────
+  // The web room stays mounted underneath (keeps the seat + heartbeat); its
+  // video stays unmounted while the native room is open so nothing plays
+  // twice. When the native room closes, the web room resumes inline.
   const directContent = Boolean(room?.videoUrl) && room?.videoType !== 'youtube'
   const nativeSupported = directContent && isNativeRoomSupported()
   const [nativeGate, setNativeGate] = useState(() => (isNativeRoomSupported() ? 'launching' : 'done'))
@@ -166,7 +163,6 @@ export default function RoomPage() {
       if (res && typeof res.positionMs === 'number' && res.positionMs > 0) {
         const currentTime = Math.max(0, res.positionMs / 1000)
         reportPlayerPosition?.(currentTime, Boolean(res.wasPlaying))
-        // Freeze playerState so a re-entry resumes at the native position.
         user.getIdToken().then((token) => {
           fetch(apiPath('/api/room'), {
             method: 'POST',
@@ -176,7 +172,7 @@ export default function RoomPage() {
           }).catch(() => {})
         })
       }
-      setNativeGate('returned')
+      setNativeGate('done')
     })
     return () => {
       disposed = true
@@ -664,73 +660,12 @@ export default function RoomPage() {
     )
   }
 
-  // Native room gate: while the native room is open, keep the web video
-  // unmounted (the native activity plays it). After it closes, offer to
-  // reopen it, fall back to the web player, or leave.
-  if (nativeGate === 'launching' && nativeSupported) {
-    return (
-      <Layout header={header} wide className={styles.layout}>
-        <div className={styles.joining}>
-          <p>Opening room…</p>
-          <p style={{ fontSize: '0.875rem', color: '#888', marginTop: '1rem' }}>
-            {room?.title || 'This room'} is playing in the native player.
-          </p>
-          <Button
-            variant="secondary"
-            style={{ marginTop: '1rem' }}
-            onClick={() => {
-              try { localStorage.setItem('chan:forceWebRoom', '1') } catch { /* ignore */ }
-              setNativeGate('done')
-            }}
-          >
-            Use web player instead
-          </Button>
-        </div>
-      </Layout>
-    )
-  }
-
-  if (nativeGate === 'returned' && nativeSupported) {
-    return (
-      <Layout header={header} wide className={styles.layout}>
-        <div className={styles.joining}>
-          <p>You&apos;re back in the room</p>
-          <p style={{ fontSize: '0.875rem', color: '#888', marginTop: '1rem' }}>
-            Resume watching here, or reopen the native room player.
-          </p>
-          <div style={{ display: 'flex', gap: 12, marginTop: '1rem', flexWrap: 'wrap' }}>
-            <Button
-              onClick={() => {
-                nativeLaunchedRef.current = false
-                setNativeGate('launching')
-              }}
-            >
-              Reopen Native Room
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                try { localStorage.setItem('chan:forceWebRoom', '1') } catch { /* ignore */ }
-                setNativeGate('done')
-              }}
-            >
-              Use Web Player
-            </Button>
-            <Button variant="secondary" onClick={() => { leave().catch(() => {}) }}>
-              Leave Room
-            </Button>
-          </div>
-        </div>
-      </Layout>
-    )
-  }
-
   return (
     <Layout header={header} wide className={styles.layout}>
       <div className={styles.main}>
         <div className={styles.stage}>
           <div className={styles.playerWrap} style={{ boxShadow: vibeGlowStyle, transition: 'box-shadow 0.4s ease' }}>
-            {isYoutube || isDirectVideo ? (
+            {(isYoutube || isDirectVideo) && !(nativeGate === 'launching' && nativeSupported) ? (
               <ErrorBoundary fallback={(error, resetError) => (
                 <div className={styles.errorContainer}>
                   <h3>Video Player Error</h3>
