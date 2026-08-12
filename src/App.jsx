@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './shared/auth/hooks/useAuth.jsx'
 import { ToastProvider } from './shared/ui/index.js'
 import { ConnectionBanner } from './shared/components/ConnectionBanner.jsx'
+import { ErrorBoundary } from './shared/components/ErrorBoundary.jsx'
 import { AuthPage } from './features/auth/index.js'
 import { HomePage } from './features/home/index.js'
 
@@ -21,18 +22,20 @@ function App() {
       <ToastProvider>
         <BrowserRouter>
           <ConnectionBanner />
-          <Suspense fallback={<Loading />}>
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/auth" element={<AuthPage />} />
-              <Route path="/create" element={<CreateRoomPage />} />
-              <Route path="/room/:roomId" element={<RoomPage />} />
-              <Route path="/search" element={<UnifiedSearch />} />
-              <Route path="/media" element={<UnifiedSearch />} />
-              <Route path="/scraper" element={<Navigate to="/search" replace />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
+          <ErrorBoundary>
+            <Suspense fallback={<Loading />}>
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/auth" element={<AuthPage />} />
+                <Route path="/create" element={<CreateRoomPage />} />
+                <Route path="/room/:roomId" element={<RoomPage />} />
+                <Route path="/search" element={<UnifiedSearch />} />
+                <Route path="/media" element={<UnifiedSearch />} />
+                <Route path="/scraper" element={<Navigate to="/search" replace />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
+          </ErrorBoundary>
         </BrowserRouter>
       </ToastProvider>
     </AuthProvider>
