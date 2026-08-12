@@ -229,6 +229,7 @@
   color: var(--room-text-primary);
   margin: 0;
   font-family: var(--font-display);
+  text-align: center; /* center the "Up Next in Room" heading */
 }
 
 .emptyQueue {
