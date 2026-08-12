@@ -318,6 +318,83 @@
 }
 
 /* Sidebar / Chat */
+/* ── Secondary actions row (Share · Queue · Chat · End Room) ──────────── */
+.roomActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px 12px;
+  border-bottom: 1px solid var(--room-divider);
+  flex-shrink: 0;
+}
+
+.roomActionBtn {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--room-surface);
+  border: 1px solid var(--room-divider);
+  color: var(--room-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.roomActionBtn:hover {
+  background: var(--room-surface-raised);
+  color: var(--room-text-primary);
+}
+
+.roomActionActive {
+  background: var(--accent-orange, #F5F5F7);
+  border-color: var(--accent-orange, #F5F5F7);
+  color: #0B0B0C;
+}
+
+.roomActionBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--room-danger, #ff5a4f);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+}
+
+.roomActionsSpacer {
+  flex: 1;
+}
+
+.roomEndBtn {
+  border: 1px solid rgba(228, 72, 61, 0.4);
+  background: rgba(228, 72, 61, 0.1);
+  color: var(--room-danger, #ff5a4f);
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: var(--font-body);
+}
+
+.roomEndBtn:hover {
+  background: rgba(228, 72, 61, 0.2);
+}
+
 /* ── Merged Chat/Queue bottom sheet ─────────────────────────────── */
 .roomSheet {
   position: fixed;

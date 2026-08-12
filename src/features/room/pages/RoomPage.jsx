@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   X, Radio, Lock, Unlock,
   Pencil, Monitor, Film, ChevronDown, ChevronRight, ChevronLeft, AlertTriangle,
-  Video, Play, Sparkles, MessageSquare, ListVideo
+  Video, Play, Sparkles, MessageSquare, ListVideo, Share2
 } from 'lucide-react'
 import { collection, onSnapshot, query, orderBy, limit, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
@@ -585,6 +585,56 @@ export default function RoomPage() {
   return (
     <Layout header={header} wide className={styles.layout}>
       <div className={styles.main}>
+        {/* Secondary actions row — Share · Queue · Chat · End Room (host) */}
+        <div className={styles.roomActions}>
+          <button
+            type="button"
+            className={styles.roomActionBtn}
+            onClick={() => setShareOpen(true)}
+            aria-label="Share room"
+            title="Share room"
+          >
+            <Share2 size={16} />
+          </button>
+          <button
+            type="button"
+            className={`${styles.roomActionBtn} ${showChat && sidebarTab === 'queue' ? styles.roomActionActive : ''}`}
+            onClick={() => { setShowChat(true); setSidebarTab('queue') }}
+            aria-label="Queue"
+            title="Queue"
+          >
+            <ListVideo size={16} />
+            {queueItems.length > 0 && <span className={styles.roomActionBadge}>{queueItems.length}</span>}
+          </button>
+          <button
+            type="button"
+            className={`${styles.roomActionBtn} ${showChat && sidebarTab === 'chat' ? styles.roomActionActive : ''}`}
+            onClick={() => { setShowChat(true); setSidebarTab('chat') }}
+            aria-label="Chat"
+            title="Chat"
+          >
+            <MessageSquare size={16} />
+          </button>
+          <span className={styles.roomActionsSpacer} />
+          {room && isHost ? (
+            <button
+              type="button"
+              className={styles.roomEndBtn}
+              onClick={() => setEndConfirmOpen(true)}
+            >
+              End Room
+            </button>
+          ) : room ? (
+            <button
+              type="button"
+              className={styles.roomEndBtn}
+              onClick={requestLeave}
+            >
+              Leave
+            </button>
+          ) : null}
+        </div>
+
         <div className={styles.stage}>
           <div className={styles.playerWrap} style={{ boxShadow: vibeGlowStyle, transition: 'box-shadow 0.4s ease' }}>
             {(isYoutube || isDirectVideo) ? (
