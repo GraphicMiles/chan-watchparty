@@ -22,7 +22,54 @@ function App() {
       <ToastProvider>
         <BrowserRouter>
           <ConnectionBanner />
-          <ErrorBoundary>
+          <ErrorBoundary fallback={(error, resetError) => (
+            <div style={{
+              minHeight: '100vh',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexDirection: 'column',
+              gap: 12,
+              padding: 24,
+              background: '#0B0B0D',
+              color: '#F2EFEA',
+              fontFamily: 'system-ui, sans-serif',
+            }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>Something went wrong</div>
+              <pre style={{
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                maxWidth: '90vw',
+                maxHeight: '40vh',
+                overflow: 'auto',
+                background: '#141417',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 10,
+                padding: 12,
+                fontSize: 12,
+                color: '#FF8A80',
+              }}>
+                {error?.message || String(error || 'Unknown error')}
+                {'\n\n'}
+                {error?.stack || ''}
+              </pre>
+              <button
+                type="button"
+                onClick={resetError}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: 999,
+                  border: 'none',
+                  background: '#F2EFEA',
+                  color: '#0B0B0D',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          )}>
             <Suspense fallback={<Loading />}>
               <Routes>
                 <Route path="/" element={<HomePage />} />
