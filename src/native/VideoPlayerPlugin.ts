@@ -73,40 +73,9 @@ export interface VideoEffects {
   hue: number
 }
 
-export interface NativeRoomOptions {
-  /** Room credentials — the native room reads everything from Firestore. */
-  roomId: string
-  uid: string
-  displayName?: string
-  idToken: string
-  projectId: string
-  apiKey?: string
-  apiBase?: string
-  /** Resume position (playerState.currentTime). */
-  startSeconds?: number
-}
-
-export interface NativeRoomResult {
-  positionMs?: number
-  durationMs?: number
-  ended?: boolean
-  wasPlaying?: boolean
-}
-
 export interface VideoPlayerPlugin {
   /** Show the embedded native player over the room stage. */
   showEmbedded(options: ShowEmbeddedOptions): Promise<void>
-  /**
-   * Option B: launch the fully-native room player (NativeRoomActivity).
-   * The web room stays mounted underneath; the activity returns the playback
-   * result through the 'nativeRoomResult' listener when it closes.
-   */
-  openNativeRoom(options: NativeRoomOptions): Promise<void>
-  /** Result of a closed NativeRoomActivity. */
-  addListener(
-    eventName: 'nativeRoomResult',
-    handler: (event: NativeRoomResult) => void
-  ): Promise<{ remove: () => void }>
   /** Apply brightness/contrast/saturation/hue to the active native engine. */
   setVideoEffects(options: VideoEffects): Promise<void>
   /** Attach a VTT subtitle track (empty detaches). */

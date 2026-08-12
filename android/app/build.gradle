@@ -1,6 +1,4 @@
 apply plugin: 'com.android.application'
-apply plugin: 'org.jetbrains.kotlin.android'
-apply plugin: 'org.jetbrains.kotlin.plugin.compose'
 
 // CI versioning: pass via -PversionCode=X -PversionName=Y
 def ciVersionCode = project.hasProperty('versionCode') ? project.property('versionCode') as int : 1
@@ -12,8 +10,6 @@ android {
 
     buildFeatures {
         buildConfig true
-        // Compose for the native room player (Option B)
-        compose true
     }
 
     defaultConfig {
@@ -65,15 +61,10 @@ android {
     }
 
     // Allow mixed content (HTTP streams) — app uses HTTPS proxy but some CDN probes use HTTP
-    // Capacitor 8's capacitor.build.gradle (applied below) forces Java 21 —
-    // Kotlin must match or Gradle fails with "Inconsistent JVM-target compatibility".
+    // Capacitor 8's capacitor.build.gradle (applied below) forces Java 21.
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_21
         targetCompatibility JavaVersion.VERSION_21
-    }
-
-    kotlinOptions {
-        jvmTarget = '21'
     }
 }
 
@@ -105,20 +96,6 @@ dependencies {
     implementation 'androidx.media3:media3-ui:1.2.1'
     implementation 'androidx.media3:media3-effect:1.2.1'
     implementation 'org.videolan.android:libvlc-all:3.6.5'
-    // QR codes for the room share panel
-    implementation 'com.google.zxing:core:3.5.3'
-
-    // Compose — native room player (Option B)
-    implementation platform('androidx.compose:compose-bom:2024.09.03')
-    implementation 'androidx.compose.ui:ui'
-    implementation 'androidx.compose.ui:ui-tooling-preview'
-    implementation 'androidx.compose.foundation:foundation'
-    implementation 'androidx.compose.material3:material3'
-    // Full Material icon set (Play/Pause/Volume/Fullscreen/... real vector icons)
-    implementation 'androidx.compose.material:material-icons-extended'
-    implementation 'androidx.activity:activity-compose:1.9.2'
-    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.8.7'
-    debugImplementation 'androidx.compose.ui:ui-tooling'
 }
 
 apply from: 'capacitor.build.gradle'
