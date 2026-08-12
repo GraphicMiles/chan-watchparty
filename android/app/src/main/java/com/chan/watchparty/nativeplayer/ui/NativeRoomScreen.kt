@@ -2,10 +2,6 @@ package com.chan.watchparty.nativeplayer.ui
 
 import android.graphics.Color as AndroidColor
 import android.widget.FrameLayout
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -128,16 +124,28 @@ fun NativeRoomScreen(
         while (true) {
             if (controller) {
                 repo.writePlayerState(p.positionMs() / 1000.0, p.isPlayingNow())
-            } else if (sync.videoUrl != null && sync.videoUrl != p.currentUrl()) {
-                val m = room?.media.orEmpty()
-                p.loadNew(
-                    sync.videoUrl,
-                    roomTitle,
-                    m["referer"] as? String,
-                    stringMap(m["headers"]),
-                    m["container"] as? String,
-                    m["codec"] as? String,
-                    (sync.currentTime * 1000).toLong(),
+            } else {
+                val vUrl = sync.videoUrl
+                if (vUrl != null && vUrl != p.currentUrl()) {
+                    val m = room?.media.orEmpty()
+                    p.loadNew(
+                        vUrl,
+                        roomTitle,
+                        m["referer"] as? String,
+                        stringMap(m["headers"]),
+                        m["container"] as? String,
+                        m["codec"] as? String,
+                        (sync.currentTime * 1000).toLong(),
+                    )
+                } else {
+                    val target = (sync.currentTime * 1000).toLong()
+                    if (kotlin.math.abs(p.positionMs() - target) > 600) p.seekTo(target)
+                    if (sync.isPlaying && !p.isPlayingNow()) p.play()
+                    if (!sync.isPlaying && p.isPlayingNow() && sync.updatedBy != uid) p.pause()
+                }
+            }
+            delay(1500)
+        }
                 )
             } else {
                 val target = (sync.currentTime * 1000).toLong()
@@ -231,12 +239,7 @@ fun NativeRoomScreen(
             )
 
             // Panels render ON TOP of the video (requirement).
-            AnimatedVisibility(
-                visible = activeTab != null,
-                enter = fadeIn(tween(180)),
-                exit = fadeOut(tween(180)),
-                modifier = Modifier.fillMaxSize(),
-            ) {
+            if (activeTab != null) {
                 Box(Modifier.fillMaxSize()) {
                     when (activeTab) {
                         RoomTab.CHAT -> ChatPanel(
@@ -303,8 +306,8 @@ private fun BoxScope.VideoBox(
     onTogglePlay: () -> Unit,
     onSeek: (Long) -> Unit,
 ) {
-    val emptyState = remember { PlayerState() }
-    val state by (player?.state ?: emptyState).collectAsState()
+    val emptyFlow = remember { kotlinx.coroutines.flow.MutableStateFlow(PlayerState()) }
+    val state by (player?.state ?: emptyFlow).collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
 
     LaunchedEffect(controlsVisible, state.isPlaying, state.isBuffering) {
@@ -368,14 +371,10 @@ private fun BoxScope.VideoBox(
             )
         }
 
-        AnimatedVisibility(
-            visible = controlsVisible && !state.isPlaying,
-            enter = fadeIn(tween(120)),
-            exit = fadeOut(tween(120)),
-            modifier = Modifier.align(Alignment.Center),
-        ) {
+        if (controlsVisible && !state.isPlaying) {
             Box(
                 Modifier
+                    .align(Alignment.Center)
                     .size(64.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.5f))
@@ -435,8 +434,8 @@ private fun ControlsSection(
     onTogglePip: () -> Unit,
     onBrightness: (Float) -> Unit,
 ) {
-    val emptyState = remember { PlayerState() }
-    val state by (player?.state ?: emptyState).collectAsState()
+    val emptyFlow = remember { kotlinx.coroutines.flow.MutableStateFlow(PlayerState()) }
+    val state by (player?.state ?: emptyFlow).collectAsState()
     var dragMs by remember { mutableStateOf<Long?>(null) }
     var volume by remember { mutableStateOf(1f) }
     var muted by remember { mutableStateOf(false) }
@@ -479,7 +478,7 @@ private fun ControlsSection(
         }
 
         // Secondary bar
-        AnimatedVisibility(visible = secondaryOpen, enter = fadeIn(tween(150)), exit = fadeOut(tween(150))) {
+        if (secondaryOpen) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -561,7 +560,7 @@ private fun ParticipantsSection(
             )
             Text(if (expanded) "⌃" else "⌄", color = ChanColors.TextSecondary, fontSize = 16.sp)
         }
-        AnimatedVisibility(visible = expanded, enter = fadeIn(tween(150)), exit = fadeOut(tween(150))) {
+        if (expanded) {
             Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
                 participants.forEach { p ->
                     Row(
@@ -911,12 +910,7 @@ private fun FullscreenLayout(
             )
         }
 
-        AnimatedVisibility(
-            visible = controlsVisible,
-            enter = fadeIn(tween(200)),
-            exit = fadeOut(tween(200)),
-            modifier = Modifier.fillMaxSize(),
-        ) {
+        if (controlsVisible) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f))) {
                 Row(
                     Modifier
@@ -999,7 +993,7 @@ private fun FullscreenLayout(
                             Text(formatTime(duration), color = Color.White.copy(alpha = 0.8f), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                             PillText("⤡", onClick = onMinimize, title = "Minimize")
                         }
-                        AnimatedVisibility(visible = secondaryOpen, enter = fadeIn(tween(150)), exit = fadeOut(tween(150))) {
+                        if (secondaryOpen) {
                             Row(
                                 Modifier.fillMaxWidth().padding(top = 6.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),

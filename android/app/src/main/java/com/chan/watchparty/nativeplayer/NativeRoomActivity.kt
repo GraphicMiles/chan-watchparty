@@ -114,6 +114,7 @@ class NativeRoomActivity : ComponentActivity() {
             ChanNativeTheme {
                 val room by repo.room.collectAsState()
                 val sync by repo.playerSync.collectAsState()
+                val currentRoom = room
 
                 // Create the player once the room (and its stream) is known;
                 // if the room switches video (queue play-next), load the new
@@ -148,14 +149,14 @@ class NativeRoomActivity : ComponentActivity() {
                 }
 
                 NativeRoomScreen(
-                    roomTitle = room?.title ?: "Loading room…",
+                    roomTitle = currentRoom?.title ?: "Loading room…",
                     roomSubtitle = when {
-                        room == null -> "Connecting…"
-                        room.status != "live" -> "This room has ended"
-                        room.videoType == "iptv" || room.videoType == "sports" -> "Live stream"
+                        currentRoom == null -> "Connecting…"
+                        currentRoom.status != "live" -> "This room has ended"
+                        currentRoom.videoType == "iptv" || currentRoom.videoType == "sports" -> "Live stream"
                         else -> "Watch party"
                     },
-                    isLive = room?.isLive == true || room?.videoType == "iptv" || room?.videoType == "sports",
+                    isLive = currentRoom?.isLive == true || currentRoom?.videoType == "iptv" || currentRoom?.videoType == "sports",
                     player = player,
                     repo = repo,
                     uid = uid,
