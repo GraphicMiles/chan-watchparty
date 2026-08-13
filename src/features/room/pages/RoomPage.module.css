@@ -255,6 +255,11 @@
   min-width: 0;
 }
 
+/* Lock background scrolling while the sheet / child overlays are open */
+.stageLocked {
+  overflow: hidden !important;
+}
+
 /* Synopsis — mockup meta block under the video (2-line clamp) */
 .synopsis {
   margin: 10px 4px 0;

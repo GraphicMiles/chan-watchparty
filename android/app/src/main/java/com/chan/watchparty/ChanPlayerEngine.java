@@ -232,13 +232,21 @@ public class ChanPlayerEngine {
             // VLC: libVLC 3.6.5's Java API has no adjust filter, but the C API
             // (libvlc_video_set_adjust_float) is exported by libvlc.so and works
             // at RUNTIME — our tiny JNI bridge (chanvlcbrightness) reaches it via
-            // dlopen/dlsym on the media player's native handle. Real brightness,
-            // live, zero playback impact. If the bridge is unavailable, fall back
-            // to the old media-options re-prepare path.
-            if (vlcPlayer != null) {
+            // dlopen/dlsym on the media player's native handle. CRITICAL: the
+            // adjust filter is enabled at MEDIA BUILD TIME (addAdjustOptions
+            // always adds it), so runtime calls only TWEAK the brightness value
+            // — never insert the filter mid-stream (which restarts the vout and
+            // can SIGSEGV, especially across a media switch). Guards: never call
+            // on a released/zeroed player (disposed/isReleased/ptr==0).
+            if (vlcPlayer != null && !disposed) {
                 boolean applied = false;
                 try {
-                    applied = nativeSetAdjustVlcBrightness(vlcPlayer.getInstance(), brightness);
+                    if (!vlcPlayer.isReleased()) {
+                        long ptr = vlcPlayer.getInstance();
+                        if (ptr != 0L) {
+                            applied = nativeSetAdjustVlcBrightness(ptr, brightness);
+                        }
+                    }
                 } catch (Throwable t) {
                     Log.w(TAG, "VLC JNI adjust unavailable", t);
                 }
@@ -295,9 +303,12 @@ public class ChanPlayerEngine {
         }
     }
 
-    /** Apply the adjust filter via libVLC media options when effects are active. */
+    /** Apply the adjust filter via libVLC media options. ALWAYS adds the
+     *  filter (even at neutral) so the pipeline has it from media start —
+     *  runtime JNI calls then only tweak values, never insert the filter
+     *  mid-stream (which would restart the vout and could crash). */
     private void addAdjustOptions(Media media) {
-        if (effectsNeutral || media == null) return;
+        if (media == null) return;
         try {
             media.addOption(":video-filter=adjust");
             media.addOption(":adjust-brightness=" + Math.max(0f, Math.min(2f, lastBrightness)));

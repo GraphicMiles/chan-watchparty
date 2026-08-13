@@ -57,6 +57,23 @@ export default function RoomPage() {
 
   const [sidebarTab, setSidebarTab] = useState('chat')
   const [showChat, setShowChat] = useState(() => (typeof window !== 'undefined' ? window.innerWidth > 768 : true))
+
+  // Child overlays (episodes popup in QueuePanel) signal their open state so
+  // the room can lock background scrolling while ANY overlay is active.
+  const [childOverlayOpen, setChildOverlayOpen] = useState(false)
+  useEffect(() => {
+    const onModal = (e) => setChildOverlayOpen(Boolean(e?.detail))
+    window.addEventListener('chan:overlay', onModal)
+    return () => window.removeEventListener('chan:overlay', onModal)
+  }, [])
+
+  // Lock background scroll while the chat/queue sheet OR a child overlay
+  // (episodes popup) is open — the background must not scroll behind them.
+  const backgroundLocked = showChat || childOverlayOpen
+  useEffect(() => {
+    document.body.style.overflow = backgroundLocked ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
+  }, [backgroundLocked])
   const [isNarrow, setIsNarrow] = useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false))
   useEffect(() => {
     const onResize = () => setIsNarrow(window.innerWidth <= 768)
@@ -593,7 +610,7 @@ export default function RoomPage() {
           ) : null}
         </div>
 
-        <div className={styles.stage}>
+        <div className={`${styles.stage} ${backgroundLocked ? styles.stageLocked : ''}`}>
           <div className={styles.playerWrap} style={{ boxShadow: vibeGlowStyle, transition: 'box-shadow 0.4s ease' }}>
             {(isYoutube || isDirectVideo) ? (
               <ErrorBoundary fallback={(error, resetError) => (

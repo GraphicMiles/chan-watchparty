@@ -451,19 +451,19 @@
   background: rgba(234, 51, 35, 0.3);
 }
 
-/* ── Episodes popup — modeless, centered, portaled to <body> ───────── */
-/* The overlay itself never blocks the background: it lets clicks pass
-   through (pointer-events: none) so the video/sheet stay interactive.
-   Only the popup panel catches pointer events. */
+/* ── Episodes popup — modal, centered, portaled to <body> ──────────── */
+/* The dim scrim blocks ALL background interaction (scroll + taps) while
+   the popup is open. Tapping the scrim closes it. */
 .episodesOverlay {
   position: fixed;
   inset: 0;
   z-index: 500;
+  background: rgba(0, 0, 0, 0.65);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
-  pointer-events: none;
+  animation: epFade 0.15s ease;
 }
 
 .episodesModal {
@@ -477,7 +477,6 @@
   overflow: hidden;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
   animation: epPop 0.18s ease;
-  pointer-events: auto;
 }
 
 .episodesHeader {
