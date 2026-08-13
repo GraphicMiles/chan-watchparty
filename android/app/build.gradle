@@ -8,6 +8,9 @@ android {
     namespace "com.chan.watchparty"
     compileSdk rootProject.ext.compileSdkVersion
 
+    // Version present on GitHub Actions ubuntu runners (see .github/workflows).
+    ndkVersion "26.1.10909125"
+
     buildFeatures {
         buildConfig true
     }
@@ -24,6 +27,13 @@ android {
         // are arm64; add armeabi-v7a later only if you need older 32-bit phones.
         ndk {
             abiFilters 'arm64-v8a'
+        }
+
+        // chanvlcbrightness: dlopen/dlsym bridge to libvlc's adjust API.
+        externalNativeBuild {
+            cmake {
+                cFlags "-Wall"
+            }
         }
         
         aaptOptions {
@@ -54,9 +64,15 @@ android {
             minifyEnabled false
             shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            if (file("app/chan-release.keystore").exists()) {
-                signingConfig signingConfigs.release
-            }
+        if (file("app/chan-release.keystore").exists()) {
+            signingConfig signingConfigs.release
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1"
         }
     }
 

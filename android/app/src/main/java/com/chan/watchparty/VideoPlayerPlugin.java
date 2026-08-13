@@ -191,12 +191,21 @@ public class VideoPlayerPlugin extends Plugin {
      *    live; VLC uses the debounced re-prepare + resume). Only the >100%
      *    path touches the engine, and it's debounced so it can't hiccup.
      */
+    /**
+     * REAL brightness, 0.5..2 (50%..200%).
+     *   <= 1.0 → black dim overlay (alpha = 1-b is an exact multiply:
+     *            out = video * b) — pure UI, zero playback impact.
+     *   >  1.0 → engine Brightness effect: Exo applies it live via
+     *            setVideoEffects; VLC gets libvlc_video_set_adjust_float
+     *            through the JNI bridge (real-time, no media re-prepare).
+     * The white-wash overlay is gone — brightening is real, not a blend.
+     */
     private void applyBrightness(float brightness) {
-        // Brightness is a PURE OVERLAY effect (dim black layer <=100%,
-        // brighten white layer >100%) — it never touches the engine, so
-        // playback can never skip/freeze/rebuffer (the old >100% path used
-        // the engine's Brightness effect, which re-prepared VLC media).
-        if (overlay != null) overlay.setBrightnessDim(brightness);
+        float b = Math.max(0.5f, Math.min(2f, brightness));
+        if (overlay != null) overlay.setBrightnessDim(b);
+        if (engine != null) {
+            engine.setVideoEffects(b > 1.001f ? b : 1f, 1f, 1f, 0f);
+        }
     }
 
     @PluginMethod
@@ -204,6 +213,35 @@ public class VideoPlayerPlugin extends Plugin {
         Double value = call.getDouble("brightness", 1.0);
         applyBrightness(value == null ? 1f : value.floatValue());
         call.resolve();
+    }
+
+    private boolean brightnessPopupWired = false;
+
+    /** Show the native brightness popup OVER the video (video keeps playing). */
+    @PluginMethod
+    public void showBrightnessPopup(PluginCall call) {
+        Boolean visible = call.getBoolean("visible", true);
+        Double brightness = call.getDouble("brightness", 1.0);
+        ensureOverlay();
+        overlay.showBrightnessPopup(visible == null || visible, brightness == null ? 1f : brightness.floatValue());
+        wireBrightnessPopupListener();
+        call.resolve();
+    }
+
+    private void wireBrightnessPopupListener() {
+        if (brightnessPopupWired || overlay == null) return;
+        brightnessPopupWired = true;
+        overlay.setBrightnessPopupListener(new RoomPlayerOverlayView.BrightnessPopupListener() {
+            @Override
+            public void onBrightnessChanged(float brightness) {
+                applyBrightness(brightness);
+                notifyListeners("brightnessChanged", new JSObject().put("brightness", (double) brightness));
+            }
+            @Override
+            public void onBrightnessPopupClosed() {
+                notifyListeners("brightnessPopupClosed", new JSObject());
+            }
+        });
     }
 
     private void rotateOrientation() {

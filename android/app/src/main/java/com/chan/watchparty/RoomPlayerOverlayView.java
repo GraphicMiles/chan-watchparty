@@ -39,7 +39,23 @@ public class RoomPlayerOverlayView extends FrameLayout {
     private TextView statusView;
     private TextView subtitleText;
     private View dimView; // brightness dim layer — pure UI, never touches the engine
-    private View brightenView; // brightness brighten layer (white wash) — pure UI too
+
+    // Brightness popup — a native-drawn panel rendered OVER the video surface
+    // (the only layer that can actually sit above it). Real brightness is
+    // applied to the engine (Exo live effect / VLC adjust via JNI); the dim
+    // layer only handles the <=100% (true multiply) path.
+    private View brightnessScrim;
+    private LinearLayout brightnessPopup;
+    private SeekBar brightnessSeek;
+    private TextView brightnessValue;
+    private float lastBrightness = 1f;
+
+    /** Callbacks from the brightness popup to the plugin (applies + syncs JS). */
+    public interface BrightnessPopupListener {
+        void onBrightnessChanged(float brightness);
+        void onBrightnessPopupClosed();
+    }
+    private BrightnessPopupListener brightnessPopupListener;
 
     private LinearLayout controlsBar;
     private ImageButton btnPlayPause;
@@ -124,8 +140,8 @@ public class RoomPlayerOverlayView extends FrameLayout {
         ));
 
         // Brightness dim layer — a translucent black view over the video.
-        // Adjusting this NEVER affects stream playability (no engine touch,
-        // no media re-prepare) — it only darkens the rendered output.
+        // alpha = 1 - b is an exact multiply (out = video * b) — REAL
+        // brightness for the <=100% path. Pure UI — never touches the engine.
         dimView = new View(context);
         dimView.setBackgroundColor(Color.BLACK);
         dimView.setAlpha(0f);
@@ -134,18 +150,7 @@ public class RoomPlayerOverlayView extends FrameLayout {
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
 
-        // Brightness brighten layer — a translucent WHITE view. A white wash
-        // with alpha a outputs video*(1-a) + white*a = video + a*(1-video),
-        // which brightens the image exactly like a screen blend. PURE UI —
-        // no engine Brightness effect, no media re-prepare, so playback can
-        // never skip/freeze/rebuffer on the >100% path.
-        brightenView = new View(context);
-        brightenView.setBackgroundColor(Color.WHITE);
-        brightenView.setAlpha(0f);
-        addView(brightenView, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        ));
+        buildBrightnessPopup(context);
 
         // Friendly status text (fetching / buffering / finished / errors)
         statusView = new TextView(context);
@@ -424,17 +429,127 @@ public class RoomPlayerOverlayView extends FrameLayout {
     }
 
     /**
-     * Brightness via pure overlay layers — 0.5..2 (50%..200%).
-     *   <= 1.0  → black dim layer (alpha = 1 - b) darkens the output.
-     *   >  1.0  → white brighten layer (alpha = (b - 1) * 0.8) washes the
-     *             output brighter.
-     * NEVER touches the engine, NEVER re-prepares media — playback can't
-     * skip, freeze or rebuffer at any brightness level.
+     * Dim layer for the <=100% brightness path. alpha = 1 - b is an exact
+     * multiply (out = video * b) — REAL brightness. Pure UI, never touches
+     * the engine. Brightening (>100%) is handled by the engine itself
+     * (Exo live Brightness effect / VLC adjust via JNI).
      */
     public void setBrightnessDim(float brightness) {
-        float b = Math.max(0.5f, Math.min(2f, brightness));
-        if (dimView != null) dimView.setAlpha(b <= 1f ? (1f - b) : 0f);
-        if (brightenView != null) brightenView.setAlpha(b > 1f ? Math.min(0.8f, (b - 1f) * 0.8f) : 0f);
+        float b = Math.max(0f, Math.min(1f, brightness));
+        if (dimView != null) dimView.setAlpha(1f - b);
+    }
+
+    /** Build the centered brightness popup (scrim + panel + slider). */
+    private void buildBrightnessPopup(Context context) {
+        int dp = (int) (context.getResources().getDisplayMetrics().density + 0.5f);
+
+        // Scrim behind the panel — tap to close.
+        brightnessScrim = new View(context);
+        brightnessScrim.setBackgroundColor(0x66000000);
+        brightnessScrim.setVisibility(GONE);
+        brightnessScrim.setOnClickListener(v -> hideBrightnessPopup());
+        addView(brightnessScrim, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
+        brightnessPopup = new LinearLayout(context);
+        brightnessPopup.setOrientation(LinearLayout.VERTICAL);
+        brightnessPopup.setPadding(18 * dp, 16 * dp, 18 * dp, 14 * dp);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0xFF18191D);
+        bg.setCornerRadius(16 * dp);
+        bg.setStroke(dp, 0x29FFFFFF);
+        brightnessPopup.setBackground(bg);
+        brightnessPopup.setVisibility(GONE);
+
+        // Title row
+        TextView title = new TextView(context);
+        title.setText("Brightness");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(13f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setPadding(0, 0, 0, 10 * dp);
+        brightnessPopup.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        // Slider row: seekbar + live % value
+        LinearLayout sliderRow = new LinearLayout(context);
+        sliderRow.setOrientation(LinearLayout.HORIZONTAL);
+        sliderRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        brightnessSeek = new SeekBar(context);
+        brightnessSeek.setMax(150); // 50..200
+        brightnessSeek.setProgress(50);
+        brightnessValue = new TextView(context);
+        brightnessValue.setText("100%");
+        brightnessValue.setTextColor(0xFFF5F5F7);
+        brightnessValue.setTextSize(12f);
+        brightnessValue.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        brightnessValue.setPadding(10 * dp, 0, 0, 0);
+        brightnessValue.setMinWidth(46 * dp);
+        brightnessValue.setGravity(Gravity.CENTER_VERTICAL);
+
+        sliderRow.addView(brightnessSeek, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        sliderRow.addView(brightnessValue);
+        brightnessPopup.addView(sliderRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        // Hint
+        TextView hint = new TextView(context);
+        hint.setText("50% – 200%");
+        hint.setTextColor(0xFFA6A6B0);
+        hint.setTextSize(10.5f);
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(0, 8 * dp, 0, 0);
+        brightnessPopup.addView(hint, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        brightnessSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (!fromUser) return;
+                float b = (50 + progress) / 100f; // 0.5..2.0
+                lastBrightness = b;
+                if (brightnessValue != null) brightnessValue.setText(Math.round(b * 100f) + "%");
+                if (brightnessPopupListener != null) brightnessPopupListener.onBrightnessChanged(b);
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) { }
+            @Override public void onStopTrackingTouch(SeekBar sb) { }
+        });
+
+        FrameLayout.LayoutParams popupLp = new FrameLayout.LayoutParams(
+                (int) (290 * dp),
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+        );
+        addView(brightnessPopup, popupLp);
+    }
+
+    /** Show/hide the brightness popup (video keeps playing — it's just an overlay). */
+    public void showBrightnessPopup(boolean visible, float brightness) {
+        if (visible) {
+            lastBrightness = Math.max(0.5f, Math.min(2f, brightness));
+            if (brightnessSeek != null) brightnessSeek.setProgress(Math.round((lastBrightness - 0.5f) * 100f));
+            if (brightnessValue != null) brightnessValue.setText(Math.round(lastBrightness * 100f) + "%");
+        }
+        if (brightnessScrim != null) brightnessScrim.setVisibility(visible ? VISIBLE : GONE);
+        if (brightnessPopup != null) brightnessPopup.setVisibility(visible ? VISIBLE : GONE);
+        if (!visible && brightnessPopupListener != null) brightnessPopupListener.onBrightnessPopupClosed();
+    }
+
+    /** Hide the popup programmatically (used by the scrim tap). */
+    private void hideBrightnessPopup() {
+        showBrightnessPopup(false, lastBrightness);
+    }
+
+    public void setBrightnessPopupListener(BrightnessPopupListener listener) {
+        brightnessPopupListener = listener;
     }
 
     // ── Teardown ─────────────────────────────────────────────────────────
