@@ -200,11 +200,21 @@ public class VideoPlayerPlugin extends Plugin {
      *            through the JNI bridge (real-time, no media re-prepare).
      * The white-wash overlay is gone — brightening is real, not a blend.
      */
+    private float lastEngineBrightness = 1f;
+
     private void applyBrightness(float brightness) {
         float b = Math.max(0.5f, Math.min(2f, brightness));
         if (overlay != null) overlay.setBrightnessDim(b);
-        if (engine != null) {
-            engine.setVideoEffects(b > 1.001f ? b : 1f, 1f, 1f, 0f);
+        // Engine effect only when the ENGINE value actually changes:
+        // <=100% is the dim overlay (real multiply, no engine call);
+        // >100% needs the engine effect. Crossing back below 100% resets
+        // the engine to neutral. This keeps the JNI hot path minimal.
+        boolean needEngine = b > 1.001f || lastEngineBrightness > 1.001f;
+        if (needEngine && engine != null && Math.abs(b - lastEngineBrightness) > 0.001f) {
+            engine.setVideoEffects(b, 1f, 1f, 0f);
+            lastEngineBrightness = b;
+        } else if (!needEngine) {
+            lastEngineBrightness = 1f;
         }
     }
 
@@ -220,12 +230,17 @@ public class VideoPlayerPlugin extends Plugin {
     /** Show the native brightness popup OVER the video (video keeps playing). */
     @PluginMethod
     public void showBrightnessPopup(PluginCall call) {
-        Boolean visible = call.getBoolean("visible", true);
-        Double brightness = call.getDouble("brightness", 1.0);
-        ensureOverlay();
-        overlay.showBrightnessPopup(visible == null || visible, brightness == null ? 1f : brightness.floatValue());
-        wireBrightnessPopupListener();
-        call.resolve();
+        try {
+            Boolean visible = call.getBoolean("visible", true);
+            Double brightness = call.getDouble("brightness", 1.0);
+            ensureOverlay();
+            overlay.showBrightnessPopup(visible == null || visible, brightness == null ? 1f : brightness.floatValue());
+            wireBrightnessPopupListener();
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "showBrightnessPopup failed", e);
+            try { call.reject("Brightness popup failed: " + e.getMessage()); } catch (Exception ignored) { }
+        }
     }
 
     private void wireBrightnessPopupListener() {

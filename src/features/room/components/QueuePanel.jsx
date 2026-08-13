@@ -70,7 +70,13 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
 
   const closeEpisodes = useCallback(() => setEpisodesModal(null), [])
 
-  // Modeless popup: no backdrop click — close via Esc (or the X button).
+  // Tell the room to lock background scrolling while the popup is open
+  // (and unlock when it closes).
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('chan:overlay', { detail: Boolean(episodesModal) }))
+  }, [episodesModal])
+
+  // Close via Escape (or the X button).
   useEffect(() => {
     if (!episodesModal) return undefined
     const onKey = (e) => {
@@ -489,16 +495,18 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
         )}
       </div>
 
-      {/* Episodes popup — modeless, portaled to <body> so it truly centers on
-          the screen (the sheet's slide transform would otherwise hijack
-          position:fixed and pin it to the sheet's bottom). No blocking
-          scrim: the video/sheet behind stay interactive. Close via X or Esc. */}
+      {/* Episodes popup — portaled to <body> so it truly centers on the
+          screen (the sheet's slide transform would otherwise hijack
+          position:fixed and pin it to the sheet's bottom). Modal: the dim
+          scrim blocks ALL background interaction while it's open (scroll
+          + taps); close via scrim tap, X or Esc. */}
       {episodesModal && createPortal(
-        <div className={styles.episodesOverlay}>
+        <div className={styles.episodesOverlay} onClick={closeEpisodes}>
           <div
             className={styles.episodesModal}
             role="dialog"
             aria-label={`${episodesModal.title} episodes`}
+            onClick={(e) => e.stopPropagation()}
           >
             <div className={styles.episodesHeader}>
               <div className={styles.episodesHeaderText}>
