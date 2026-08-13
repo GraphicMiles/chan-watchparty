@@ -12,6 +12,9 @@ import androidx.media3.common.TrackGroup;
 import androidx.media3.common.Tracks;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.effect.Brightness;
+import androidx.media3.effect.Contrast;
+import androidx.media3.effect.HslAdjustment;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
@@ -218,33 +221,57 @@ public class ChanPlayerEngine {
     public boolean isEnded() { return ended; }
 
     /**
-     * Brightness/contrast/saturation/hue are intentionally a NO-OP on the
-     * native engines. Forcing any effect into the decode pipeline (the Exo
-     * GL RgbMatrix graph or libVLC's software adjust filter) broke playback
-     * with the generic "unavailable or expired" error on real devices — the
-     * VLC filter conflicts with hardware HEVC decode, and the GL graph fails
-     * on GPUs that can't run it. The visual dim/brighten effect is provided
-     * purely by the overlay views in RoomPlayerOverlayView (never touches the
-     * decoders). Values are stored so any future caller can still read them.
+     * REAL video brightness/contrast/saturation/hue via the engines'
+     * native effect pipelines (no fake overlay wash):
+     *  - ExoPlayer: Media3 Brightness/Contrast/HslAdjustment effects.
+     *  - LibVLC:   :video-filter=adjust media options (re-prepared, resumed).
+     * Neutral (all ≈ identity) installs NO effects, so normal playback is
+     * never touched.
      */
     public void setVideoEffects(float brightness, float contrast, float saturation, float hueDeg) {
-        lastBrightness = Math.max(0f, Math.min(2f, brightness));
-        lastContrast = contrast;
-        lastSaturation = saturation;
-        lastHue = hueDeg;
-        effectsNeutral = Math.abs(lastBrightness - 1f) < 0.01f
-                && Math.abs(contrast - 1f) < 0.01f
-                && Math.abs(saturation - 1f) < 0.01f
-                && Math.abs(hueDeg) < 0.5f;
+        mainHandler.post(() -> {
+            lastBrightness = Math.max(0f, Math.min(2f, brightness));
+            lastContrast = contrast;
+            lastSaturation = saturation;
+            lastHue = hueDeg;
+            effectsNeutral = Math.abs(lastBrightness - 1f) < 0.01f
+                    && Math.abs(contrast - 1f) < 0.01f
+                    && Math.abs(saturation - 1f) < 0.01f
+                    && Math.abs(hueDeg) < 0.5f;
+            boolean neutral = effectsNeutral;
+            if (exoPlayer != null) {
+                try {
+                    if (neutral) {
+                        exoPlayer.setVideoEffects(java.util.Collections.emptyList());
+                    } else {
+                        java.util.List<androidx.media3.common.Effect> effects = new java.util.ArrayList<>();
+                        effects.add(new Brightness(lastBrightness - 1f)); // -1..1, 0 neutral
+                        effects.add(new Contrast(lastContrast - 1f));     // -1..1, 0 neutral
+                        HslAdjustment.Builder hsl = new HslAdjustment.Builder()
+                                .adjustHue(lastHue)
+                                .adjustSaturation((lastSaturation - 1f) * 100f); // -100..100
+                        effects.add(hsl.build());
+                        exoPlayer.setVideoEffects(effects);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Exo setVideoEffects failed", e);
+                }
+            }
+            // VLC: apply via a debounced media re-prepare (stop → rebuild with
+            // the adjust filter → resume at the same position).
+            if (vlcPlayer != null) {
+                if (!effectsQueued) {
+                    effectsQueued = true;
+                    mainHandler.postDelayed(effectsDebounce, 300);
+                }
+            }
+        });
     }
 
-    /** JNI tweak disabled — brightness never touches the decoder pipeline. */
-    private void applyVlcBrightnessLive() {
-        // Intentionally empty: see setVideoEffects. Engine brightness is
-        // disabled so playback can never be broken by an effect filter.
-    }
-
-    // ── VLC real-time brightness via JNI (see src/main/cpp/jni_bridge.c) ──
+    // ── VLC brightness: the adjust filter is applied by RE-PREPARING media
+    // with :video-filter=adjust (see applyEffectsNow / rebuildVlcMedia), not
+    // via the JNI bridge. The JNI lib load is kept only because the native
+    // method is still declared; it is never called. ──
     static {
         try {
             System.loadLibrary("chanvlcbrightness");
@@ -256,9 +283,15 @@ public class ChanPlayerEngine {
     private static native boolean nativeSetAdjustVlcBrightness(long mediaPlayerPtr, float brightness);
 
     private void applyEffectsNow() {
-        // Intentionally does NOT stop/rebuild — that skips. JNI only.
+        // Debounced VLC brightness change: stop, rebuild the media WITH the
+        // adjust filter, resume at the same position (pendingSeekMs applied on
+        // the next Playing event).
         effectsQueued = false;
-        applyVlcBrightnessLive();
+        if (vlcPlayer == null || disposed) return;
+        long pos = vlcPlayer.getTime();
+        pendingSeekMs = Math.max(0, pos);
+        try { vlcPlayer.stop(); } catch (Exception ignored) { }
+        rebuildVlcMedia();
     }
 
     /** Rebuild the VLC media (after effect changes) applying the adjust filter. */
@@ -284,12 +317,20 @@ public class ChanPlayerEngine {
         }
     }
 
-    /** DISABLED: never add the VLC adjust filter. The software adjust filter
-     *  conflicts with hardware HEVC decode (the "unavailable or expired"
-     *  error on every MKV stream), and the visual effect is handled by the
-     *  overlay views instead. Kept as a callable no-op for callers. */
+    /** Apply the adjust filter via libVLC media options ONLY when effects are
+     *  non-neutral. Neutral playback stays filter-free so hardware HEVC decode
+     *  is never disturbed. */
     private void addAdjustOptions(Media media) {
-        // Intentionally empty — see setVideoEffects.
+        if (effectsNeutral || media == null) return;
+        try {
+            media.addOption(":video-filter=adjust");
+            media.addOption(":adjust-brightness=" + Math.max(0f, Math.min(2f, lastBrightness)));
+            media.addOption(":adjust-contrast=" + Math.max(0f, Math.min(2f, lastContrast)));
+            media.addOption(":adjust-saturation=" + Math.max(0f, Math.min(3f, lastSaturation)));
+            media.addOption(":adjust-hue=" + (((lastHue % 360f) + 360f) % 360f));
+        } catch (Exception e) {
+            Log.e(TAG, "addAdjustOptions failed", e);
+        }
     }
 
     private int clampInt(int v, int lo, int hi) {
@@ -743,9 +784,6 @@ public class ChanPlayerEngine {
                         try { vlcPlayer.setTime(pendingSeekMs); } catch (Exception ignored) { }
                         pendingSeekMs = -1;
                     }
-                    // Vout is up — apply the current brightness (JNI is a
-                    // no-op before the video output exists).
-                    applyVlcBrightnessLive();
                     if (listener != null) {
                         listener.onReady();
                         listener.onPlaying();
@@ -883,4 +921,26 @@ public class ChanPlayerEngine {
 
     /** True if ExoPlayer is the active engine. */
     public boolean isExoActive() { return exoPlayer != null; }
+
+    /**
+     * Refresh the video surface after an orientation change (config change
+     * without activity recreation). libVLC does not always re-size its video
+     * output after a rotate, which left the fullscreen surface black while
+     * the controls stayed visible. Re-attaching the views forces libVLC to
+     * rebuild the vout to the new dimensions. ExoPlayer's texture view
+     * re-sizes on its own — nothing to do there.
+     */
+    public void refreshSurface() {
+        mainHandler.post(() -> {
+            if (disposed) return;
+            if (vlcPlayer != null && vlcLayout != null) {
+                try {
+                    vlcPlayer.detachViews();
+                    vlcPlayer.attachViews(vlcLayout, null, false, false);
+                } catch (Throwable t) {
+                    Log.w(TAG, "refreshSurface (VLC re-attach) failed", t);
+                }
+            }
+        });
+    }
 }

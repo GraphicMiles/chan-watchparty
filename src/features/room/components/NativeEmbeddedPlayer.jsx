@@ -557,8 +557,10 @@ export default function NativeEmbeddedPlayer({
             listenerHandle = { remove: () => { try { tapHandle.remove?.() } catch { /* */ } try { prevRemove?.() } catch { /* */ } } }
           }
         } catch { /* tap relay optional */ }
-        await showRef.current(cfgRef.current, stateRef.current.posSec || startSeconds)
-        measureAndSetRect()
+        // Start the position poll FIRST, before showing the player. If
+        // show()/recovery takes a retry, the poll must already be running —
+        // otherwise time/duration stay 0:00 and seek is broken (it depends on
+        // a known duration) even while the video visibly plays.
         poll = setInterval(async () => {
           if (cancelled || !sessionActiveRef.current) return
           try {
@@ -566,6 +568,9 @@ export default function NativeEmbeddedPlayer({
             if (p && !cancelled) {
               stateRef.current.posSec = (p.positionMs || 0) / 1000
               stateRef.current.durSec = (p.durationMs || 0) / 1000
+              // Trust the engine's own isPlaying so the play/pause button is
+              // correct even if a playbackState event was missed.
+              if (typeof p.isPlaying === 'boolean') stateRef.current.playing = p.isPlaying
               propsRef.current.onProgress?.({
                 currentSec: stateRef.current.posSec,
                 durationSec: stateRef.current.durSec,
@@ -576,6 +581,8 @@ export default function NativeEmbeddedPlayer({
             }
           } catch { /* poll best-effort */ }
         }, 1000)
+        measureAndSetRect()
+        await showRef.current(cfgRef.current, stateRef.current.posSec || startSeconds).catch(() => {})
       } catch (err) {
         if (!cancelled) handleEventRef.current?.({ state: 'error', kind: 'other', message: err?.message || 'Could not start the player' })
       }
