@@ -39,8 +39,7 @@ public class RoomPlayerOverlayView extends FrameLayout {
     private VLCVideoLayout vlcLayout;
     private TextView statusView;
     private TextView subtitleText;
-    private View dimView; // 0–100% black multiply — pure UI, never touches the engine
-    private View boostView; // 100–200% white screen blend — pure UI, no decoder touch
+    private View dimView; // 0–100% black multiply — real darkening, never touches the engine
 
     // Brightness popup — a native-drawn panel rendered OVER the video surface
     // (the only layer that can actually sit above it). Real brightness is
@@ -167,21 +166,6 @@ public class RoomPlayerOverlayView extends FrameLayout {
         dimView.setAlpha(0f);
         dimView.setClickable(false);
         addView(dimView, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        ));
-
-        // Brighten without touching Exo/VLC (setVideoEffects / VLC rebuild
-        // restart the decoder → skip + rebuffer). SCREEN blend on a white
-        // layer lifts midtones the same way CSS brightness() > 1 does.
-        boostView = new View(context);
-        boostView.setBackgroundColor(Color.WHITE);
-        boostView.setAlpha(0f);
-        boostView.setClickable(false);
-        android.graphics.Paint boostPaint = new android.graphics.Paint();
-        boostPaint.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SCREEN));
-        boostView.setLayerType(LAYER_TYPE_HARDWARE, boostPaint);
-        addView(boostView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
@@ -476,12 +460,10 @@ public class RoomPlayerOverlayView extends FrameLayout {
      *   1–2: white SCREEN layer (alpha scales with extra)
      */
     public void setBrightnessDim(float brightness) {
-        float b = Math.max(0f, Math.min(2f, brightness));
+        // <=100% only: an exact multiply dim (out = video * b). >100% is the
+        // engine's real Brightness effect — never a white wash.
+        float b = Math.max(0f, Math.min(1f, brightness));
         if (dimView != null) dimView.setAlpha(b < 1f ? (1f - b) : 0f);
-        if (boostView != null) {
-            float extra = b > 1f ? (b - 1f) : 0f; // 0..1
-            boostView.setAlpha(extra * 0.55f);
-        }
     }
 
     /** Build the centered brightness popup (scrim + panel + slider). */

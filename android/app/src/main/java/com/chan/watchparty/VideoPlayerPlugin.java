@@ -206,11 +206,19 @@ public class VideoPlayerPlugin extends Plugin {
         try {
             float b = Math.max(0f, Math.min(2f, brightness));
             lastEngineBrightness = b;
-            // Brightness is PURE overlay (dim layer <=100%, white screen-blend
-            // >100%) — it NEVER touches the engine/decoder pipeline. Engine
-            // effects broke playback with the generic "unavailable or expired"
-            // error on real devices, so they were removed.
-            if (overlay != null) overlay.setBrightnessDim(b);
+            // REAL brightness: <=100% is a true multiply dim overlay; >100% is
+            // the engine's actual Brightness effect (Exo effect / VLC adjust
+            // filter). Never a fake white wash — the video pixels themselves
+            // brighten/darken.
+            if (overlay != null) {
+                if (b <= 1f) {
+                    overlay.setBrightnessDim(b);
+                    if (engine != null) engine.setVideoEffects(1f, 1f, 1f, 0f); // neutral
+                } else {
+                    overlay.setBrightnessDim(1f); // no dim
+                    if (engine != null) engine.setVideoEffects(b, 1f, 1f, 0f);
+                }
+            }
         } catch (Throwable t) {
             Log.e(TAG, "applyBrightness failed", t);
         }
@@ -882,6 +890,23 @@ public class VideoPlayerPlugin extends Plugin {
     public void handleOnConfigurationChanged(Configuration newConfig) {
         super.handleOnConfigurationChanged(newConfig);
         // JS re-measures the stage on orientation change and calls setRect.
+        // In fullscreen the surface is MATCH_PARENT (setRect early-returns), so
+        // re-apply the fullscreen layout AND refresh the engine's video output.
+        // libVLC does not re-size its vout after a rotate without a re-attach,
+        // which left the fullscreen surface black while the controls stayed.
+        if (fullscreen && overlay != null) {
+            getActivity().runOnUiThread(() -> {
+                try {
+                    ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
+                    overlay.setLayoutParams(new FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT));
+                    overlay.requestLayout();
+                    overlay.setFullscreenUi(true);
+                    if (engine != null) engine.refreshSurface();
+                } catch (Exception ignored) { }
+            });
+        }
     }
 
     private boolean isInPip() {
