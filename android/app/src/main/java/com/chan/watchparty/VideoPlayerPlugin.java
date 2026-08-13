@@ -910,8 +910,17 @@ public class VideoPlayerPlugin extends Plugin {
     public void handleOnConfigurationChanged(Configuration newConfig) {
         super.handleOnConfigurationChanged(newConfig);
         // JS re-measures the stage on orientation change and calls setRect.
-        // The engine surfaces (ExoPlayer texture view / libVLC VLCVideoLayout)
-        // re-size themselves on a config change; no manual re-layout here.
+        // In fullscreen the overlay is already MATCH_PARENT for both
+        // orientations; only the ENGINE's video output needs re-fitting after
+        // a rotate (libVLC's vout does not re-size on its own). Do it after
+        // the rotation settles — NO layout-param or orientation changes here,
+        // which is what previously left the whole app stuck rotated. Leaving
+        // fullscreen already returns the app to portrait in setFullscreenUi.
+        if (fullscreen && engine != null) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                if (fullscreen && engine != null) engine.refreshSurface();
+            }, 400);
+        }
     }
 
     private boolean isInPip() {
