@@ -65,6 +65,26 @@ public class VideoPlayerPlugin extends Plugin {
     private android.webkit.WebView fsControlsView;
     private boolean fsControlsLoaded = false;
     private final android.os.Handler fsPushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    // Live progress pusher: the room's control bar needs position/duration/
+    // play-state. We push it over the SAME notifyListeners channel that is
+    // already proven to reach JS (error/ready/playing events) instead of
+    // depending on JS→Java getPosition() round-trips. This is what keeps the
+    // room clock/seek/play-pause in sync.
+    private final android.os.Handler progressPushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable progressPushRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (engine == null) return;
+            try {
+                JSObject o = new JSObject()
+                        .put("positionMs", engine.getPositionMs())
+                        .put("durationMs", engine.getDurationMs())
+                        .put("isPlaying", engine.isPlaying());
+                notifyListeners("playbackProgress", o);
+            } catch (Exception ignored) { }
+            progressPushHandler.postDelayed(this, 500);
+        }
+    };
     private String lastTitle = "Chan Video";
     private String lastVtt = "";
     private boolean lastIsLive = false;
@@ -483,6 +503,9 @@ public class VideoPlayerPlugin extends Plugin {
                     engine.prepare(url, title, referer,
                             (long) Math.max(0, startSeconds == null ? 0 : startSeconds * 1000),
                             headers, container, codec);
+                    // Start pushing live progress to the room's control bar.
+                    progressPushHandler.removeCallbacks(progressPushRunnable);
+                    progressPushHandler.post(progressPushRunnable);
                     call.resolve();
                 } catch (Exception e) {
                     Log.e(TAG, "showEmbedded failed", e);
@@ -779,6 +802,7 @@ public class VideoPlayerPlugin extends Plugin {
 
     private void teardown() {
         try { fsPushHandler.removeCallbacks(fsPushRunnable); } catch (Exception ignored) { }
+        try { progressPushHandler.removeCallbacks(progressPushRunnable); } catch (Exception ignored) { }
         if (fsControlsView != null) {
             try {
                 ((ViewGroup) getActivity().getWindow().getDecorView()).removeView(fsControlsView);

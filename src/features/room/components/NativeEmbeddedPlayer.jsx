@@ -123,6 +123,9 @@ export default function NativeEmbeddedPlayer({
   const [diag, setDiag] = useState(null) // on-device network probe result
   const [copied, setCopied] = useState(false)
   const [busyAction, setBusyAction] = useState(null) // 'retry' | 'reresolve'
+  // TEMPORARY diagnostic: forces a re-render each progress tick so the debug
+  // chip reflects live engine state. Remove once controls are verified.
+  const [, setTick] = useState(0)
 
   useEffect(() => {
     callbacksRef.current = { onReady, onPlayerEvent, onEnded, onError }
@@ -507,6 +510,7 @@ export default function NativeEmbeddedPlayer({
         stateRef.current.posSec = (p?.positionMs || 0) / 1000
         stateRef.current.durSec = (p?.durationMs || 0) / 1000
         if (typeof p?.isPlaying === 'boolean') stateRef.current.playing = p.isPlaying
+        setTick((t) => t + 1)
         propsRef.current.onProgress?.({
           currentSec: stateRef.current.posSec,
           durationSec: stateRef.current.durSec,
@@ -581,6 +585,29 @@ export default function NativeEmbeddedPlayer({
             listenerHandle = { remove: () => { try { tapHandle.remove?.() } catch { /* */ } try { prevRemove?.() } catch { /* */ } } }
           }
         } catch { /* tap relay optional */ }
+        // Live progress from Java (proven notifyListeners channel): update the
+        // room clock/seek/play-pause. This is the authoritative source; the
+        // getPosition() poll is a fallback.
+        try {
+          const progressHandle = await VideoPlayerPlugin.addListener('playbackProgress', (e) => {
+            if (cancelled) return
+            stateRef.current.posSec = (e?.positionMs || 0) / 1000
+            stateRef.current.durSec = (e?.durationMs || 0) / 1000
+            if (typeof e?.isPlaying === 'boolean') stateRef.current.playing = e.isPlaying
+            setTick((t) => t + 1)
+            propsRef.current.onProgress?.({
+              currentSec: stateRef.current.posSec,
+              durationSec: stateRef.current.durSec,
+              playing: stateRef.current.playing,
+              buffering: false,
+              percent: 0,
+            })
+          })
+          if (progressHandle?.remove) {
+            const prevRemove = listenerHandle?.remove
+            listenerHandle = { remove: () => { try { progressHandle.remove?.() } catch { /* */ } try { prevRemove?.() } catch { /* */ } } }
+          }
+        } catch { /* progress push optional */ }
         // Position poll is started by its OWN effect (see above) — it must
         // keep running even if show()/recovery below takes a retry path.
         measureAndSetRect()
@@ -696,6 +723,10 @@ export default function NativeEmbeddedPlayer({
 
   return (
     <div className={styles.surface} ref={surfaceRef} data-native-embedded>
+      {/* TEMPORARY debug chip (live engine state) — remove once controls verified */}
+      <div className={styles.debugChip}>
+        t={stateRef.current.posSec.toFixed(1)}s d={stateRef.current.durSec.toFixed(1)}s playing={String(stateRef.current.playing)}
+      </div>
       {/* No JS status overlay here: in native mode the video surface covers the
           stage and the app's control bar (driven by onProgress) shows buffering. */}
       {errorMsg && (
