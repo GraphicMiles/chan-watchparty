@@ -255,6 +255,19 @@
   min-width: 0;
 }
 
+/* Synopsis — mockup meta block under the video (2-line clamp) */
+.synopsis {
+  margin: 10px 4px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--room-text-secondary, #A6A6B0);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 720px;
+}
+
 .metaBar {
   border: 1px solid var(--room-divider);
   border-radius: var(--radius-card);

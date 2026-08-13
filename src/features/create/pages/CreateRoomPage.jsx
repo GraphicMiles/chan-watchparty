@@ -67,6 +67,7 @@ export default function CreateRoomPage() {
   // Original episode page URL (DownloadWella etc.) — kept so re-resolve can
   // regenerate a fresh CDN token instead of echoing a dead one.
   const presetSourceUrl = searchParams.get('sourceUrl') || ''
+  const presetSynopsis = searchParams.get('synopsis') || ''
 
   // ── State ───────────────────────────────────────────────────────────────
   const [content, setContent] = useState(null) // picked content (from presets)
@@ -152,7 +153,7 @@ export default function CreateRoomPage() {
         title: roomTitle,
         capacity: Number(capacity) || 12,
         isPrivate,
-        content,
+        content: { ...content, synopsis: content?.synopsis || presetSynopsis || null },
       })
       toast('Room created', { variant: 'success' })
       navigate(`/room/${roomId}${inviteCode ? `?invite=${inviteCode}` : ''}`)

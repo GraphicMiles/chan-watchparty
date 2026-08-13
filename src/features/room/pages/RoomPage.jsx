@@ -201,6 +201,7 @@ export default function RoomPage() {
         videoType: item.videoType || 'youtube',
         activityType: item.videoType || 'youtube',
         title: item.title || 'Untitled',
+        synopsis: item.synopsis || null,
       })
       await writePlayerState({
         videoId: item.videoId || '',
@@ -324,6 +325,7 @@ export default function RoomPage() {
           activityType: 'youtube',
           isLive: false,
           title: room.title,
+          synopsis: null,
         })
         await writePlayerState({ videoId: id, videoUrl: null, isPlaying: false, currentTime: 0 })
       } else if (isDirect || trimmedUrl) {
@@ -335,6 +337,7 @@ export default function RoomPage() {
           activityType: nextType,
           isLive: isM3u8,
           title: room.title,
+          synopsis: null,
         })
         await writePlayerState({ videoId: null, videoUrl: playbackUrl, isPlaying: false, currentTime: 0 })
       } else {
@@ -694,6 +697,13 @@ export default function RoomPage() {
                 </div>
               )}
             </Card>
+          )}
+
+          {/* Synopsis for the currently-playing video (mockup meta block) —
+              only when the source page provided one. Cleared when the video
+              changes (see changeVideo / onPlayNextQueueItem). */}
+          {room?.synopsis && (
+            <p className={styles.synopsis}>{room.synopsis}</p>
           )}
 
           <div className={styles.metaBar}>

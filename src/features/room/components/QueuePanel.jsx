@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { collection, onSnapshot, query, orderBy, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
-import { Plus, Trash2, Play, Search, Film, Youtube, Link2, Loader2, RefreshCw } from 'lucide-react'
+import { Plus, Trash2, Play, Search, Film, Youtube, Link2, Loader2, RefreshCw, X } from 'lucide-react'
 import { db } from '../../../shared/lib/firebase.js'
 import { useUnifiedSearch } from '../../../hooks/useUnifiedSearch.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, extractVideoId, getThumbnail } from '../../../shared/lib/youtube.js'
@@ -32,21 +32,15 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
     return unsub
   }, [roomId])
 
-  const [expandedSeasons, setExpandedSeasons] = useState({}) // { seasonUrl: episodes[] }
-  const [loadingEpisodes, setLoadingEpisodes] = useState({}) // { seasonUrl: boolean }
+  // Episodes popup — a centered overlay (one at a time), styled like the
+  // Media Browser's episode cards. { url, title, sourceItem, episodes,
+  // loading, synopsis }
+  const [episodesModal, setEpisodesModal] = useState(null)
 
-  const fetchEpisodes = useCallback(async (seasonUrl) => {
-    if (expandedSeasons[seasonUrl]) {
-      // Already loaded, toggle off
-      setExpandedSeasons(prev => {
-        const next = { ...prev }
-        delete next[seasonUrl]
-        return next
-      })
-      return
-    }
-
-    setLoadingEpisodes(prev => ({ ...prev, [seasonUrl]: true }))
+  const openEpisodes = useCallback(async (item) => {
+    const seasonUrl = item.url || item.link
+    if (!seasonUrl) return
+    setEpisodesModal({ url: seasonUrl, title: item.title || 'Episodes', sourceItem: item, episodes: [], loading: true, synopsis: null })
     try {
       const token = await user.getIdToken()
       const res = await fetch(apiPath('/api/media'), {
@@ -59,17 +53,21 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
       })
       const data = await res.json()
       if (data.results && data.results.length > 0) {
-        setExpandedSeasons(prev => ({ ...prev, [seasonUrl]: data.results }))
+        setEpisodesModal(prev => prev && prev.url === seasonUrl
+          ? { ...prev, episodes: data.results, loading: false, synopsis: data.synopsis || null }
+          : prev)
       } else {
+        setEpisodesModal(prev => prev && prev.url === seasonUrl ? { ...prev, loading: false } : prev)
         toast('No episodes found on this season page', { variant: 'error' })
       }
     } catch (err) {
       console.error('Failed to fetch episodes:', err)
       toast('Failed to load episodes', { variant: 'error' })
-    } finally {
-      setLoadingEpisodes(prev => ({ ...prev, [seasonUrl]: false }))
+      setEpisodesModal(prev => prev && prev.url === seasonUrl ? { ...prev, loading: false } : prev)
     }
-  }, [expandedSeasons, user, toast])
+  }, [user, toast])
+
+  const closeEpisodes = useCallback(() => setEpisodesModal(null), [])
 
   /** Resolve a Nkiri movie page to its playable file. Returns
    *  { url, title, thumbnail } or null. Never surfaces raw filenames. */
@@ -130,7 +128,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
       // Nkiri page — seasonal shows expand into an episode list; standalone
       // movies resolve straight to the playable file (never a nested card).
       if (isSeasonalResult(item)) {
-        await fetchEpisodes(item.url || item.link)
+        openEpisodes(item)
         return null
       }
       const resolved = await resolveNkiriMovie(item)
@@ -166,7 +164,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
       toast(err.message || 'Could not add to queue', { variant: 'error' })
       return null
     }
-  }, [queue.length, activeTab, user, roomId, toast, fetchEpisodes, resolveNkiriMovie])
+  }, [queue.length, activeTab, user, roomId, toast, openEpisodes, resolveNkiriMovie])
 
   /** Add to queue AND start playing it right away (host/co-host). */
   const addAndPlay = useCallback(async (item, episode = null) => {
@@ -358,9 +356,6 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
               const seasonal = isSeasonalResult(item)
               const standalone = isStandaloneResult(item)
               const showExpand = isNkiriPage && seasonal
-              const isExpanded = expandedSeasons[item.url || item.link]
-              const isLoading = loadingEpisodes[item.url || item.link]
-              const episodes = isExpanded || []
               // Standalone Nkiri movies are playable too (resolved on click).
               const playable = (item.type || activeTab) === 'youtube' && (item.id || extractVideoId(item.url))
                 || item.isDirect || isDirectVideoUrl(item.url || item.link)
@@ -385,10 +380,9 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
                       <button
                         type="button"
                         className={styles.addBtn}
-                        onClick={() => fetchEpisodes(item.url || item.link)}
-                        disabled={isLoading}
+                        onClick={() => openEpisodes(item)}
                       >
-                        {isLoading ? 'Loading...' : isExpanded ? 'Hide Episodes' : 'Show Episodes'}
+                        Show Episodes
                       </button>
                     ) : view === 'change' ? (
                       <button
@@ -426,36 +420,6 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
                     )}
                   </div>
 
-                  {/* Expanded Episodes for Nkiri Seasons */}
-                  {isExpanded && (
-                    <div className={styles.episodesList}>
-                      {episodes.map((ep, epIdx) => (
-                        <div key={epIdx} className={styles.episodeCard}>
-                          <div className={styles.episodeInfo}>
-                            <span className={styles.episodeTitle}>{cleanMediaTitle(ep.title) || 'Episode'}</span>
-                          </div>
-                          {view === 'change' ? (
-                            <button
-                              type="button"
-                              className={styles.addBtn}
-                              onClick={() => changeToResult(ep)}
-                            >
-                              <Play size={14} /> Play
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className={`${styles.addBtn} ${isFull ? styles.disabledBtn : ''}`}
-                              onClick={() => addToQueue(item, ep)}
-                              disabled={isFull}
-                            >
-                              <Plus size={14} /> Add
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )
             })}
@@ -513,6 +477,86 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
           </div>
         )}
       </div>
+
+      {/* Episodes popup — centered overlay over the queue panel */}
+      {episodesModal && (
+        <div className={styles.episodesOverlay} onClick={closeEpisodes}>
+          <div
+            className={styles.episodesModal}
+            role="dialog"
+            aria-label={`${episodesModal.title} episodes`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={styles.episodesHeader}>
+              <div className={styles.episodesHeaderText}>
+                <span className={styles.episodesHeaderTitle}>{cleanMediaTitle(episodesModal.title) || 'Episodes'}</span>
+                {episodesModal.synopsis && (
+                  <span className={styles.episodesHeaderSynopsis}>{episodesModal.synopsis}</span>
+                )}
+              </div>
+              <button type="button" className={styles.episodesClose} onClick={closeEpisodes} aria-label="Close">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className={styles.episodesList}>
+              {episodesModal.loading ? (
+                <div className={styles.episodesEmpty}>
+                  <Loader2 size={18} className="spin" />
+                  <span>Loading episodes…</span>
+                </div>
+              ) : episodesModal.episodes.length === 0 ? (
+                <div className={styles.episodesEmpty}>
+                  <span>No episodes found on this page.</span>
+                </div>
+              ) : (
+                episodesModal.episodes.map((ep, epIdx) => {
+                  const epThumb = ep.thumbnail || episodesModal.sourceItem?.thumbnail || null
+                  const isFull = queue.length >= 5
+                  return (
+                    <div key={epIdx} className={styles.epRow}>
+                      <div className={styles.epThumb}>
+                        {epThumb ? (
+                          <img src={epThumb} alt="" loading="lazy" />
+                        ) : (
+                          <div className={styles.epNoThumb}><Film size={20} /></div>
+                        )}
+                        <span className={styles.epPlayCircle}>▶</span>
+                      </div>
+                      <div className={styles.epBody}>
+                        <h4 className={styles.epTitle}>{cleanMediaTitle(ep.title) || `Episode ${epIdx + 1}`}</h4>
+                        <div className={styles.epMeta}>
+                          <span className={styles.epChip} data-source="direct">Episode</span>
+                          <span className={styles.epQuality}>{ep.container ? String(ep.container).toUpperCase() : 'Video'}</span>
+                        </div>
+                      </div>
+                      {view === 'change' ? (
+                        <button
+                          type="button"
+                          className={styles.addBtn}
+                          onClick={() => { changeToResult(ep); closeEpisodes() }}
+                        >
+                          <Play size={14} /> Play
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className={`${styles.addBtn} ${isFull ? styles.disabledBtn : ''}`}
+                          onClick={() => addToQueue(episodesModal.sourceItem, ep)}
+                          disabled={isFull}
+                          title={isFull ? 'Queue limit reached (max 5)' : 'Add to queue'}
+                        >
+                          <Plus size={14} /> Add
+                        </button>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
