@@ -19,7 +19,7 @@ import { resolveNsfwVideoUrl, isNsfwProviderUrl } from '../server-lib/nsfwResolv
 import { createHash, randomUUID } from 'node:crypto'
 import { searchNkiri, getNkiriEpisodes, resolveDownloadwellaPage, buildStreamDescriptor } from '../o2tv-worker/nkiriResolver.js'
 import { generateTitleSynopsis } from '../server-lib/aiHelper.js'
-import { cacheKeyFor, cacheGet, cacheSet, cacheDelete, negativeGet, negativeSet, cacheStats } from '../server-lib/resolveCache.js'
+import { cacheKeyFor, cacheDelete, negativeGet, negativeSet, cacheStats } from '../server-lib/resolveCache.js'
 
 const ALLOWED_ACTIONS = [
   'search',
@@ -383,12 +383,9 @@ async function handleNkiriResolve({ url, title, force = false }) {
   const started = Date.now()
   const key = cacheKeyFor(episodeUrl)
 
+  // Do NOT return a cached CDN URL. Tokens die in minutes; a 4h cache
+  // is why rooms open on "unavailable or expired". Always form-walk.
   if (!force) {
-    const cached = cacheGet(key)
-    if (cached && cached.streamUrl) {
-      auditResolve({ resolveId, host: hostOf(episodeUrl), outcome: 'cache-hit', ms: Date.now() - started })
-      return { ...shapeResolveResponse(cached, title), cache: 'hit' }
-    }
     const neg = negativeGet(key)
     if (neg) {
       throw Object.assign(new Error(neg.error || 'Download link temporarily unavailable — try again in a few minutes'), { status: 429 })
@@ -416,6 +413,7 @@ async function handleNkiriResolve({ url, title, force = false }) {
       title: title || 'Nkiri Video',
       referer,
       synopsis: resolved?.synopsis || null,
+      skipProbe: true,
     })
 
     if (!descriptor.streamUrl) {
@@ -426,7 +424,6 @@ async function handleNkiriResolve({ url, title, force = false }) {
       auditResolve({ resolveId, host: hostOf(episodeUrl), outcome: 'resolved-noprobe', ms: Date.now() - started })
     }
 
-    cacheSet(key, descriptor)
     auditResolve({
       resolveId, host: hostOf(episodeUrl), outcome: force ? 'refreshed' : 'resolved',
       ms: Date.now() - started, container: descriptor.container, codec: descriptor.codec,
