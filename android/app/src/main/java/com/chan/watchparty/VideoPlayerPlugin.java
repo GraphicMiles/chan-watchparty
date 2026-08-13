@@ -915,7 +915,8 @@ public class VideoPlayerPlugin extends Plugin {
         super.handleOnConfigurationChanged(newConfig);
         // JS re-measures the stage on orientation change and calls setRect.
         // In fullscreen the surface is MATCH_PARENT (setRect early-returns),
-        // so re-apply the fullscreen layout on rotate.
+        // so re-apply the fullscreen layout on rotate AND make sure the video
+        // surface re-renders at the new orientation size.
         if (fullscreen && overlay != null) {
             getActivity().runOnUiThread(() -> {
                 try {
@@ -923,20 +924,30 @@ public class VideoPlayerPlugin extends Plugin {
                     overlay.setLayoutParams(new FrameLayout.LayoutParams(
                             FrameLayout.LayoutParams.MATCH_PARENT,
                             FrameLayout.LayoutParams.MATCH_PARENT));
+                    overlay.setVisible(true);
                     overlay.setFullscreenUi(true);
+                    // Re-assert the correct surface visibility (Exo texture
+                    // view vs VLC layout) so the video isn't left hidden.
+                    if (engine != null) {
+                        if (engine.isExoActive()) overlay.showExo();
+                        else overlay.showVlc();
+                    }
                     overlay.requestLayout();
+                    // Refresh the engine surface ONLY once the overlay has
+                    // actually been laid out at the new dimensions (the
+                    // rotation animation means a fixed delay races the layout).
+                    final android.view.ViewTreeObserver vto = overlay.getViewTreeObserver();
+                    vto.addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                        @Override
+                        public void onGlobalLayout() {
+                            try { vto.removeOnGlobalLayoutListener(this); } catch (Exception ignored) { }
+                            if (!fullscreen) return;
+                            try { hideSystemUi(); } catch (Exception ignored) { }
+                            if (engine != null) engine.refreshSurface();
+                        }
+                    });
                 } catch (Exception ignored) { }
             });
-            // libVLC does not re-size its video output after a rotate without a
-            // detach/attach, and the new layout has NOT settled when this
-            // callback fires — refreshing immediately attaches at the OLD size
-            // (black screen). Wait for the relayout, then re-hide system UI and
-            // refresh the engine surface at the new dimensions.
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                if (!fullscreen) return;
-                try { hideSystemUi(); } catch (Exception ignored) { }
-                if (engine != null) engine.refreshSurface();
-            }, 300);
         }
     }
 
