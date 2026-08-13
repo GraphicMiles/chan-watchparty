@@ -213,7 +213,15 @@ export default function NativeEmbeddedPlayer({
         isLive: Boolean(isLive),
       })
     } catch (err) {
-      if (tok === sessionTokenRef.current && sessionActiveRef.current) terminalError('other', err?.message)
+      if (tok === sessionTokenRef.current && sessionActiveRef.current) {
+        // A showEmbedded() REJECTION is the one error path that carried no
+        // detail — the real reason ("Could not start the player: …" /
+        // "Activity is not ready" / "URL is required") was being swallowed
+        // behind the generic headline. Surface it in the copyable detail box.
+        const msg = String(err?.message || err)
+        setErrorDetail(JSON.stringify({ engine: 'plugin', cause: msg }, null, 2))
+        terminalError('other', msg)
+      }
     }
   }
 
