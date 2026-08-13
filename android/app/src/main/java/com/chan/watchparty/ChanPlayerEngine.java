@@ -63,6 +63,9 @@ public class ChanPlayerEngine {
     private long lastStartMs = 0;
     private String lastContainer = "";
     private String lastCodec = "";
+    // Structured detail from a failed Exo attempt, kept so a subsequent VLC
+    // failure can report the FULL engine chain instead of only VLC's part.
+    private String lastFallbackExoDetail = null;
     private DefaultTrackSelector trackSelector;
     // Parsed CC cues (from the app's VTT). Rendered by the overlay view at the
     // TOP of the video — both engines render their own subtitles at the bottom
@@ -106,17 +109,14 @@ public class ChanPlayerEngine {
     // ── Public API ───────────────────────────────────────────────────────
 
     public boolean shouldPreferVlc(String url, String container, String codec) {
-        String lower = String.valueOf(url).toLowerCase();
-        String c = String.valueOf(container).toLowerCase();
-        String k = String.valueOf(codec).toLowerCase();
-        if (c.contains("mkv")) return true;
-        if (k.contains("hevc") || k.contains("x265") || k.contains("vp9") || k.contains("av1") || k.contains("vp8")) return true;
-        return lower.contains(".mkv")
-                || lower.contains("downloadwella")
-                || lower.contains("fsmc")
-                || lower.contains("hevc")
-                || lower.contains("x265")
-                || lower.contains("h265");
+        // Media3/ExoPlayer is the FIRST engine for everything now — including
+        // MKV and HEVC. ExoPlayer 1.2.1 demuxes Matroska natively and decodes
+        // HEVC/H.264 through the platform's MediaCodec hardware decoder.
+        // Forcing every .mkv/downloadwella URL onto LibVLC was producing the
+        // generic "unavailable or expired" error on devices whose VLC path
+        // could not decode the stream (while ExoPlayer never got a chance).
+        // LibVLC remains the decode-failure fallback in onPlayerError.
+        return false;
     }
 
     private Map<String, String> extraHeaders = new HashMap<>();
@@ -139,6 +139,7 @@ public class ChanPlayerEngine {
         lastStartMs = startMs;
         lastContainer = container != null ? container : "";
         lastCodec = codec != null ? codec : "";
+        lastFallbackExoDetail = null;
         extraHeaders = headers != null ? new HashMap<>(headers) : new HashMap<>();
         if (shouldPreferVlc(playbackUrl, container, codec)) {
             startVlcPlayer("Using VLC engine…", playbackUrl, title, referer, startMs);
@@ -674,6 +675,9 @@ public class ChanPlayerEngine {
                     // failures are surfaced to JS so the recovery state machine can act
                     // (retry/refresh) — Exo rarely plays them better via VLC, but try once.
                     if (kind.equals("decode") && !disposed) {
+                        // Remember WHY Exo failed so a later VLC failure can
+                        // report the full chain to the room.
+                        lastFallbackExoDetail = detail;
                         startVlcPlayer("Switching engines…", url, title, referer, startMs);
                     } else if (!disposed && listener != null) {
                         listener.onError(friendlyMessageFor(kind), kind, detail);
@@ -753,10 +757,9 @@ public class ChanPlayerEngine {
                     if (listener != null) listener.onEnded();
                 } else if (event.type == MediaPlayer.Event.EncounteredError) {
                     if (listener != null) {
-                        listener.onError(
-                                friendlyMessageFor("other"),
-                                "other",
-                                buildErrorDetail("vlc", "", 0, "VLC EncounteredError — no HTTP/codec detail available from libVLC"));
+                        String d = buildErrorDetail("vlc", "", 0, "VLC EncounteredError — no HTTP/codec detail available from libVLC");
+                        if (lastFallbackExoDetail != null) d += " | exoFallback=" + lastFallbackExoDetail;
+                        listener.onError(friendlyMessageFor("other"), "other", d);
                     }
                 }
             }));
@@ -780,8 +783,9 @@ public class ChanPlayerEngine {
         } catch (Exception e) {
             Log.e(TAG, "Could not start LibVLC", e);
             if (!disposed && listener != null) {
-                listener.onError(friendlyMessageFor("other"), "other",
-                        buildErrorDetail("vlc", "", 0, "LibVLC start failed: " + e.getMessage()));
+                String d = buildErrorDetail("vlc", "", 0, "LibVLC start failed: " + e.getMessage());
+                if (lastFallbackExoDetail != null) d += " | exoFallback=" + lastFallbackExoDetail;
+                listener.onError(friendlyMessageFor("other"), "other", d);
             }
         }
     }

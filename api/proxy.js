@@ -206,6 +206,37 @@ async function pipeStreamToResponse(reader, res, abortSignal, { maxBytes = Infin
 }
 
 /**
+ * Map a generic/unknown upstream Content-Type to a real media MIME type
+ * using the URL's file extension. Several CDNs (DownloadWella's
+ * dwbe*.downloadwella.com in particular) serve .mkv/.mp4/.ts as
+ * `application/octet-stream`; players then can't identify the container.
+ * A proper video MIME type is set for the client while any already-specific
+ * upstream type (video/*, audio/*, mpegurl, json, text) is passed through.
+ */
+function mediaContentTypeFor(url, contentType) {
+  const ct = String(contentType || '').trim().toLowerCase()
+  const isSpecific = /^(video|audio)\//.test(ct)
+    || /mpegurl/.test(ct)
+    || /^(application\/(json|vnd\.apple\.mpegurl|x-mpegurl|mpegurl))/.test(ct)
+    || /^text\//.test(ct)
+  if (isSpecific && !/octet-stream/.test(ct)) return contentType || 'application/octet-stream'
+
+  let path = ''
+  try { path = new URL(url).pathname.toLowerCase() } catch { /* keep empty */ }
+  if (/\.mkv(\?|#|$)/i.test(path)) return 'video/x-matroska'
+  if (/\.mp4(\?|#|$)/i.test(path)) return 'video/mp4'
+  if (/\.m4v(\?|#|$)/i.test(path)) return 'video/x-m4v'
+  if (/\.ts(\?|#|$)/i.test(path)) return 'video/mp2t'
+  if (/\.webm(\?|#|$)/i.test(path)) return 'video/webm'
+  if (/\.m3u8?(\?|#|$)/i.test(path)) return 'application/vnd.apple.mpegurl'
+  if (/\.mov(\?|#|$)/i.test(path)) return 'video/quicktime'
+  if (/\.avi(\?|#|$)/i.test(path)) return 'video/x-msvideo'
+  if (/\.flv(\?|#|$)/i.test(path)) return 'video/x-flv'
+  if (/\.ogg?(\?|#|$)/i.test(path)) return 'video/ogg'
+  return contentType || 'application/octet-stream'
+}
+
+/**
  * Stream an upstream response, optionally clamping to a byte window for
  * large-file chunking under the Hobby 10s limit.
  */
@@ -216,7 +247,10 @@ async function streamDirectResponse(upstreamRes, req, res, options = {}) {
     deadlineMs = HOBBY_MAX_DURATION_MS,
   } = options
 
-  res.setHeader('Content-Type', contentType || 'application/octet-stream')
+  // Correct octet-stream → real video MIME so clients identify the container.
+  const targetUrl = upstreamRes.url || req.query?.url || ''
+  const servedContentType = mediaContentTypeFor(targetUrl, contentType)
+  res.setHeader('Content-Type', servedContentType || 'application/octet-stream')
   res.setHeader('Accept-Ranges', 'bytes')
   res.setHeader('Cache-Control', cacheControlForType(contentType))
   // Hint clients / CDNs that large media is intentionally ranged
