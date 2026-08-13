@@ -306,7 +306,6 @@ export default function VideoPlayer({
   }, [])
 
   const [brightnessPop, setBrightnessPop] = useState(false)
-  const [brightnessMenuUp, setBrightnessMenuUp] = useState(true)
 
   useEffect(() => {
     onReadyRef.current = onReady
@@ -1582,18 +1581,27 @@ export default function VideoPlayer({
                   <span>Pin</span>
                 </button>
 
-                <div className={styles.popupContainer}>
-                  <button
-                    type="button"
-                    className={`${styles.controlIconBtn} ${brightnessMultiplier !== 1 ? styles.activeBrightnessBtn : ''}`}
-                    onClick={(e) => { e.stopPropagation(); setBrightnessMenuUp(e.currentTarget.getBoundingClientRect().top > 220); setBrightnessPop(!brightnessPop) }}
-                    title="Brightness (50%..200%)"
-                  >
-                    <Sun size={16} style={{ color: brightnessMultiplier !== 1 ? '#FAB005' : 'inherit' }} />
-                    <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
-                  </button>
-                  {brightnessPop && (
-                    <div className={`${styles.popupMenu} ${brightnessMenuUp ? styles.popupUp : ''}`} onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  className={`${styles.controlIconBtn} ${brightnessMultiplier !== 1 ? styles.activeBrightnessBtn : ''}`}
+                  onClick={(e) => { e.stopPropagation(); setBrightnessPop(!brightnessPop) }}
+                  title="Brightness (50%..200%)"
+                >
+                  <Sun size={16} style={{ color: brightnessMultiplier !== 1 ? '#FAB005' : 'inherit' }} />
+                  <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
+                </button>
+                {brightnessPop && (
+                  <div className={styles.brightnessOverlay} onClick={() => setBrightnessPop(false)}>
+                    <div
+                      className={styles.brightnessPopup}
+                      onClick={(e) => e.stopPropagation()}
+                      role="dialog"
+                      aria-label="Brightness"
+                    >
+                      <div className={styles.brightnessHeader}>
+                        <Sun size={15} style={{ color: '#FAB005' }} />
+                        <span>Brightness</span>
+                      </div>
                       <div className={styles.popupSliderRow}>
                         <Sun size={13} style={{ color: 'var(--room-text-secondary)' }} />
                         <input
@@ -1607,9 +1615,10 @@ export default function VideoPlayer({
                         />
                         <span className={styles.popupSliderVal}>{Math.round(brightnessMultiplier * 100)}%</span>
                       </div>
+                      <span className={styles.brightnessHint}>50% – 200%</span>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 {/* AI Closed Captions / Subtitles Button */}
                 <button
@@ -1893,18 +1902,27 @@ export default function VideoPlayer({
             {/* Brightness / AI Upscale / CC / Filters are wired to the native
                 engine via setVideoEffects / setSubtitles in native mode. */}
             {/* Brightness Control */}
-            <div className={styles.popupContainer}>
-              <button
-                type="button"
-                className={`${styles.controlIconBtn} ${brightnessMultiplier !== 1 ? styles.activeBrightnessBtn : ''}`}
-                onClick={(e) => { e.stopPropagation(); setBrightnessMenuUp(e.currentTarget.getBoundingClientRect().top > 220); setBrightnessPop(!brightnessPop) }}
-                title="Brightness (50%..200%)"
-              >
-                <Sun size={16} style={{ color: brightnessMultiplier !== 1 ? '#FAB005' : 'inherit' }} />
-                <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
-              </button>
-              {brightnessPop && (
-                <div className={`${styles.popupMenu} ${brightnessMenuUp ? styles.popupUp : ''}`} onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className={`${styles.controlIconBtn} ${brightnessMultiplier !== 1 ? styles.activeBrightnessBtn : ''}`}
+              onClick={(e) => { e.stopPropagation(); setBrightnessPop(!brightnessPop) }}
+              title="Brightness (50%..200%)"
+            >
+              <Sun size={16} style={{ color: brightnessMultiplier !== 1 ? '#FAB005' : 'inherit' }} />
+              <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
+            </button>
+            {brightnessPop && (
+              <div className={styles.brightnessOverlay} onClick={() => setBrightnessPop(false)}>
+                <div
+                  className={styles.brightnessPopup}
+                  onClick={(e) => e.stopPropagation()}
+                  role="dialog"
+                  aria-label="Brightness"
+                >
+                  <div className={styles.brightnessHeader}>
+                    <Sun size={15} style={{ color: '#FAB005' }} />
+                    <span>Brightness</span>
+                  </div>
                   <div className={styles.popupSliderRow}>
                     <Sun size={13} style={{ color: 'var(--room-text-secondary)' }} />
                     <input
@@ -1918,9 +1936,10 @@ export default function VideoPlayer({
                     />
                     <span className={styles.popupSliderVal}>{Math.round(brightnessMultiplier * 100)}%</span>
                   </div>
+                  <span className={styles.brightnessHint}>50% – 200%</span>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* AI Closed Captions / Subtitles Button */}
             <button

@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react'
-import { Search, Loader2, ChevronLeft, Youtube, Tv, AlertCircle, Link2, Film } from 'lucide-react'
+import { Search, Loader2, ChevronLeft, ChevronRight, Youtube, Tv, AlertCircle, Link2, Film } from 'lucide-react'
 import styles from './ShowBrowser.module.css'
 import { useScraper } from '../../hooks/useScraper.js'
 import { useAuth } from '../auth/hooks/useAuth.jsx'
@@ -500,18 +500,28 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
               </button>
             </div>
           </div>
-          <div className={styles.grid}>
+          <div className={styles.resultList}>
             {seasons.map((season, idx) => (
               <button
                 key={season.seasonNum || season.url || idx}
                 type="button"
-                className={styles.tile}
+                className={styles.resultCard}
                 onClick={() => loadEpisodes(season)}
               >
-                {(season.thumbnail || showThumb) && (
-                  <img src={season.thumbnail || showThumb} alt="" className={styles.tileThumb} onError={(e) => { e.currentTarget.style.display = 'none' }} />
-                )}
-                <span className={styles.tileTitle}>{cleanMediaTitle(season.label || season.title) || `Season ${season.seasonNum || idx + 1}`}</span>
+                <div className={styles.resultThumb}>
+                  {(season.thumbnail || showThumb) ? (
+                    <img src={season.thumbnail || showThumb} alt="" className={styles.resultThumbImg} onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                  ) : (
+                    <div className={styles.resultNoThumb}><Film size={20} /></div>
+                  )}
+                </div>
+                <div className={styles.resultBody}>
+                  <h3 className={styles.resultTitle}>{cleanMediaTitle(season.label || season.title) || `Season ${season.seasonNum || idx + 1}`}</h3>
+                  <div className={styles.resultMeta}>
+                    <span className={styles.resultSource} data-source="o2tv">TV Show</span>
+                  </div>
+                </div>
+                <span className={styles.resultChevron}><ChevronRight size={16} /></span>
               </button>
             ))}
           </div>
@@ -540,20 +550,31 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
               </button>
             </div>
           </div>
-          <div className={styles.grid}>
+          <div className={styles.resultList}>
             {episodes.map((ep, idx) => (
               <button
                 key={ep.episodeNum || ep.url || idx}
                 type="button"
-                className={`${styles.tile} ${resolvingIdx === idx ? styles.tileBusy : ''}`}
+                className={`${styles.resultCard} ${resolvingIdx === idx ? styles.resultCardBusy : ''}`}
                 disabled={isBusy}
                 onClick={() => pickEpisode(ep, idx)}
               >
-                {(ep.thumbnail || showThumb) && (
-                  <img src={ep.thumbnail || showThumb} alt="" className={styles.tileThumb} onError={(e) => { e.currentTarget.style.display = 'none' }} />
-                )}
-                <span className={styles.tileTitle}>{cleanMediaTitle(ep.label || ep.title) || `Episode ${ep.episodeNum || idx + 1}`}</span>
-                {resolvingIdx === idx && <span className={styles.resolving}>Resolving…</span>}
+                <div className={styles.resultThumb}>
+                  {(ep.thumbnail || showThumb) ? (
+                    <img src={ep.thumbnail || showThumb} alt="" className={styles.resultThumbImg} onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                  ) : (
+                    <div className={styles.resultNoThumb}><Film size={20} /></div>
+                  )}
+                </div>
+                <div className={styles.resultBody}>
+                  <h3 className={styles.resultTitle}>{cleanMediaTitle(ep.label || ep.title) || `Episode ${ep.episodeNum || idx + 1}`}</h3>
+                  <div className={styles.resultMeta}>
+                    <span className={styles.resultSource} data-source="direct">Episode</span>
+                  </div>
+                </div>
+                <span className={styles.resultWatch}>
+                  {resolvingIdx === idx ? 'Resolving…' : 'Play'}
+                </span>
               </button>
             ))}
           </div>
