@@ -115,7 +115,10 @@ export default function CreateRoomPage() {
       })
       return
     }
-    if (isDirectVideoUrl(presetVideoUrl) || /\/api\/proxy\?/i.test(presetVideoUrl)) {
+    // DownloadWella / fsmc PAGE links (picked TV-show episodes) are not
+    // direct video URLs — they're resolved to a FRESH token at create time.
+    const isDwPage = /downloadwella\.com|fsmc/i.test(presetVideoUrl) && !isDirectVideoUrl(presetVideoUrl)
+    if (isDirectVideoUrl(presetVideoUrl) || /\/api\/proxy\?/i.test(presetVideoUrl) || isDwPage) {
       const isM3u8 = /\.m3u8(\?|#|$)/i.test(presetVideoUrl)
       const streamType = ['iptv', 'sports', 'nsfw'].includes(presetType) ? presetType : (isM3u8 ? 'iptv' : 'direct')
       pickContent({
@@ -125,7 +128,10 @@ export default function CreateRoomPage() {
         thumbnail: presetThumb,
         videoType: streamType,
         isLive: presetIsLive,
-        sourceUrl: presetSourceUrl || undefined,
+        // DownloadWella pages expire fast — keep the page URL so createRoom
+        // walks the form for a fresh CDN token instead of a dead one.
+        sourceUrl: presetSourceUrl || (isDwPage ? presetVideoUrl : undefined),
+        pendingResolve: isDwPage,
         synopsis: presetSynopsis || undefined,
       })
       return
