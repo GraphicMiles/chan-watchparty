@@ -17,3 +17,8 @@ export function sanitizeSynopsis(value) {
   if (text.length < 20) return null
   return text.slice(0, 600)
 }
+
+/** Groq fallbacks hedge ("appears to be", "likely features"). Page extracts do not. */
+export function looksLikeAiSynopsis(text) {
+  return /\b(appears to be|it likely|may introduce|it may |this appears|inferred|probably features)\b/i.test(String(text || ''))
+}

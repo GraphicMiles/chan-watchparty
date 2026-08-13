@@ -25,7 +25,7 @@ import { Layout } from '../../../shared/layout/index.js'
 import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
 import { refreshDownloadDescriptor, fetchTitleSynopsis } from '../../../shared/lib/mediaApi.js'
-import { sanitizeSynopsis } from '../../../shared/lib/synopsis.js'
+import { sanitizeSynopsis, looksLikeAiSynopsis } from '../../../shared/lib/synopsis.js'
 import { resolvePlaybackForUser } from '../../../shared/lib/resolvePlayback.js'
 
 const SOUND_FX_URLS = {
@@ -156,7 +156,7 @@ export default function RoomPage() {
     ;(async () => {
       const text = sanitizeSynopsis(await fetchTitleSynopsis(user, title, room.videoType || ''))
       if (cancelled || !text) return
-      try { await updateRoom({ synopsis: text }) } catch { /* ignore */ }
+      try { await updateRoom({ synopsis: text, synopsisSource: 'ai' }) } catch { /* ignore */ }
     })()
     return () => { cancelled = true }
   }, [canControl, user, room, updateRoom])
@@ -279,6 +279,7 @@ export default function RoomPage() {
           activityType: item.videoType || 'direct',
           title: item.title || 'Untitled',
           synopsis: sanitizeSynopsis(item.synopsis),
+          synopsisSource: item.synopsisSource || (looksLikeAiSynopsis(item.synopsis) ? 'ai' : null),
           media: resolved.media,
           sourceUrl: resolved.sourceUrl,
           isLive: Boolean(resolved.isM3u8),
@@ -757,7 +758,12 @@ export default function RoomPage() {
             <div className={styles.synopsisBlock}>
               <div className={styles.synopsisTitle}>{cleanMediaTitle(room.title) || 'Video'}</div>
               {room.synopsis ? (
-                <RoomSynopsisBody text={room.synopsis} />
+                <>
+                  {(room.synopsisSource === 'ai' || looksLikeAiSynopsis(room.synopsis)) ? (
+                    <span className={styles.aiInferred}>AI inferred</span>
+                  ) : null}
+                  <RoomSynopsisBody text={room.synopsis} />
+                </>
               ) : null}
             </div>
           ) : null}
@@ -979,4 +985,6 @@ export default function RoomPage() {
       )}
     </Layout>
   )
+}
+)
 }

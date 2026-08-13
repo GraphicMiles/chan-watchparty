@@ -805,7 +805,7 @@ export default async function handler(req, res) {
       if (!title) return ok(res, { synopsis: null })
       const extra = String(body.extra || '').trim()
       const synopsis = await synopsisFallback(null, title, extra)
-      return ok(res, { synopsis: synopsis || null, title })
+      return ok(res, { synopsis: synopsis || null, title, source: synopsis ? 'ai' : null })
     }
 
     // ─── Native Android captcha OCR proxy ───
@@ -1007,7 +1007,7 @@ export default async function handler(req, res) {
 
       // Nkiri / thenkiri URL — Media Browser + queue call scrape, not
       // nkiriEpisodes. Delegate so we get episode shaping + Groq synopsis.
-      if (/thenkiri\\.com|nkiri\\.com/i.test(scrapeUrl)) {
+      if (/thenkiri\.com|nkiri\.com/i.test(scrapeUrl)) {
         try {
           return ok(res, await handleNkiriEpisodes({
             url: scrapeUrl,
@@ -1016,6 +1016,19 @@ export default async function handler(req, res) {
         } catch (err) {
           console.error('Scrape Nkiri failed:', err.message)
           return ok(res, { results: [], count: 0, directCount: 0, resolved: false, error: 'Could not load Nkiri episodes' })
+        }
+      }
+
+      // DownloadWella / fsmc episode PAGE — form-walk to a fresh CDN file.
+      if (isDownloadPageLike(scrapeUrl)) {
+        try {
+          return ok(res, await handleNkiriResolve({
+            url: scrapeUrl,
+            title: body.title || options.title,
+          }))
+        } catch (err) {
+          console.error('Scrape DownloadWella failed:', err.message)
+          return ok(res, { results: [], count: 0, directCount: 0, resolved: false, error: err.message || 'Could not resolve download page' })
         }
       }
 

@@ -1370,11 +1370,27 @@ export default function VideoPlayer({
       >
         {isNativeEmbedded ? (
           <NativeEmbeddedPlayer
-            url={media?.streamUrl || nativePlaybackUrl(currentUrl)}
+            url={nativePlaybackUrl(media?.streamUrl || currentUrl)}
             title="Chan Video"
             startSeconds={currentSec || played || 0}
-            referer={media?.referer || (/downloadwella/i.test(currentUrl) ? 'https://downloadwella.com/' : undefined)}
-            headers={media?.headers || undefined}
+            referer={(() => {
+              const stream = nativePlaybackUrl(media?.streamUrl || currentUrl) || ''
+              const hay = `${stream} ${media?.referer || ''} ${currentUrl || ''}`
+              if (/downloadwella|fsmc/i.test(hay)) return media?.referer || 'https://downloadwella.com/'
+              // Nkiri/nkiserv CDNs 403 when sent a thenkiri Referer.
+              return undefined
+            })()}
+            headers={(() => {
+              const stream = nativePlaybackUrl(media?.streamUrl || currentUrl) || ''
+              if (/downloadwella|fsmc/i.test(stream) || /downloadwella|fsmc/i.test(media?.referer || '')) {
+                return media?.headers || undefined
+              }
+              if (!media?.headers) return undefined
+              const next = { ...media.headers }
+              delete next.Referer
+              delete next.referer
+              return next
+            })()}
             container={media?.container || undefined}
             codec={media?.codec || undefined}
             sourceUrl={media?.sourceUrl || undefined}
