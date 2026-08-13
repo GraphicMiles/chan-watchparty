@@ -723,10 +723,6 @@ export default function NativeEmbeddedPlayer({
 
   return (
     <div className={styles.surface} ref={surfaceRef} data-native-embedded>
-      {/* TEMPORARY debug chip (live engine state) — remove once controls verified */}
-      <div className={styles.debugChip}>
-        t={stateRef.current.posSec.toFixed(1)}s d={stateRef.current.durSec.toFixed(1)}s playing={String(stateRef.current.playing)}
-      </div>
       {/* No JS status overlay here: in native mode the video surface covers the
           stage and the app's control bar (driven by onProgress) shows buffering. */}
       {errorMsg && (
