@@ -250,6 +250,31 @@ function readCountdownSeconds(html) {
 /**
  * Resolve a downloadwella episode page → direct CDN MKV URL (form-walk).
  */
+/**
+ * Extract a short synopsis from a scraped page's HTML: og:description →
+ * meta description → first substantial paragraph in the article body.
+ */
+export function extractPageSynopsis(html) {
+  if (!html) return null
+  const $ = cheerio.load(html)
+  let text = null
+  const og = $('meta[property="og:description"]').attr('content')
+  const name = $('meta[name="description"]').attr('content')
+  text = (og || name || '').trim()
+  if (!text || text.length < 40) {
+    // Fallback: first long-ish paragraph from the article body
+    const p = $('article .entry-content p, article .post-content p, .entry-content p, .post-content p, article p')
+      .map((_, el) => $(el).text().replace(/\s+/g, ' ').trim())
+      .get()
+      .find((t) => t.length >= 60)
+    text = p || ''
+  }
+  // Drop boilerplate tails like "Download ... for free"
+  text = text.replace(/\s*(Download|Watch|Stream).{0,80}$/i, '').trim()
+  if (text.length < 30) return null
+  return text.slice(0, 600)
+}
+
 export async function resolveDownloadwellaPage(pageUrl) {
   if (!isDownloadHost(pageUrl) && !isAllowedMediaUrl(pageUrl)) return { directUrls: [], error: 'not a downloadwella URL' }
   if (isAllowedMediaUrl(pageUrl)) {
@@ -283,14 +308,15 @@ export async function resolveDownloadwellaPage(pageUrl) {
     break
   }
   if (!html) return { directUrls: [], error: 'could not load downloadwella page' }
+  const pageSynopsis = extractPageSynopsis(html)
   const pageDirect = directUrlsFromHtml(html, currentUrl)
   if (pageDirect.length) {
     const live = await Promise.all(pageDirect.slice(0, 3).map(probeDirectUrl))
     const ok = live.filter(Boolean)
-    if (ok.length) return { directUrls: ok }
+    if (ok.length) return { directUrls: ok, synopsis: pageSynopsis }
   }
   const walked = await walkForms(currentUrl, html, cookies)
-  if (walked.directUrls.length) return { directUrls: walked.directUrls }
+  if (walked.directUrls.length) return { directUrls: walked.directUrls, synopsis: pageSynopsis }
   return { directUrls: [], error: 'could not auto-create download link (JS countdown/captcha)' }
 }
 
@@ -336,6 +362,9 @@ export async function getNkiriEpisodes(showUrl) {
     const score = (e) => (e.container === 'mp4' ? 10 : e.container === 'mkv' ? 0 : 1)
     return score(b) - score(a)
   })
+  // Attach the show page synopsis (arrays are objects — additive, invisible
+  // to .map/.filter/.length callers, safe for the worker deploy too).
+  episodes.synopsis = extractPageSynopsis(pageHtml)
   return episodes
 }
 
@@ -468,7 +497,7 @@ export async function probeStream(mediaUrl, referer = 'https://downloadwella.com
  * The descriptor is the single source of truth for the player: which URL to
  * open, with which headers, what codec/container, and how to refresh it.
  */
-export async function buildStreamDescriptor({ streamUrls, sourceUrl, title, referer }) {
+export async function buildStreamDescriptor({ streamUrls, sourceUrl, title, referer, synopsis = null }) {
   const list = (streamUrls || []).filter(Boolean)
   const primary = list[0] || null
   const probe = primary ? await probeStream(primary, referer) : null
@@ -491,6 +520,7 @@ export async function buildStreamDescriptor({ streamUrls, sourceUrl, title, refe
     sizeBytes: probe?.sizeBytes || null,
     sourceUrl,
     title: title || null,
+    synopsis: synopsis || null,
     probe: {
       ok: probe?.ok === true,
       httpStatus: probe?.httpStatus ?? null,

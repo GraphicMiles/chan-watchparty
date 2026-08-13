@@ -63,6 +63,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
   const [showThumb, setShowThumb] = useState(null)
   const [seasons, setSeasons] = useState([])
   const [episodes, setEpisodes] = useState([])
+  const [episodesSynopsis, setEpisodesSynopsis] = useState(null)
   const [seasonNum, setSeasonNum] = useState(null)
   const [resolvingIdx, setResolvingIdx] = useState(null)
   const abortRef = useRef(0)
@@ -228,6 +229,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
         source: item?.source || 'nkiri',
         sourceUrl: url, // keep the page URL so re-resolve can get a fresh token
         meta: direct.meta || null,
+        synopsis: direct.synopsis || item?.synopsis || null,
       })
       toast('Movie ready', { variant: 'success' })
       return direct
@@ -245,11 +247,13 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     setBrowseError(null)
     setStage('episodes')
     setEpisodes([])
+    setEpisodesSynopsis(null)
     if (showNameArg) setShowName(showNameArg)
     try {
       const data = await mediaPost(user, { action: 'scrape', url: showUrl })
       if (reqId !== abortRef.current) return
       const list = (data.results || []).filter((r) => r.url)
+      setEpisodesSynopsis(data.synopsis || null)
 
       // Standalone movie guard: a Nkiri MOVIE page returns exactly one
       // download link whose title is the raw filename. That is backend
@@ -270,6 +274,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
         label: r.title || `Episode ${i + 1}`,
         url: r.url,
         thumbnail: r.thumbnail || null,
+        synopsis: r.synopsis || null,
       })))
       if (!list.length) setBrowseError('No episodes found. Try another show.')
     } catch (err) {
@@ -343,6 +348,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
         videoType: 'direct',
         source: 'o2tv',
         meta: best.meta || null,
+        synopsis: best.synopsis || ep.synopsis || episodesSynopsis || null,
       })
       toast('Episode ready', { variant: 'success' })
     } catch (err) {
@@ -353,7 +359,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     } finally {
       if (reqId === abortRef.current) setResolvingIdx(null)
     }
-  }, [user, showSlug, showName, seasonNum, showThumb, emit, toast])
+  }, [user, showSlug, showName, seasonNum, showThumb, episodesSynopsis, emit, toast])
 
   const pickEpisode = useCallback((ep, idx) => {
     // DownloadWella / fsmc page URLs are re-resolved FRESH at create time
@@ -368,12 +374,13 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
         source: 'nkiri',
         pendingResolve: true,
         sourceUrl: ep.url, // keep the page URL so re-resolve can get a fresh token
+        synopsis: ep.synopsis || episodesSynopsis || null,
       })
       toast('Episode selected — link will be resolved when the room starts', { variant: 'success' })
       return
     }
     resolveO2Episode(ep, idx)
-  }, [emit, showName, showThumb, resolveO2Episode, toast])
+  }, [emit, showName, showThumb, episodesSynopsis, resolveO2Episode, toast])
 
   // ── Result click (ported from the old selectVideo) ───────────────────
 

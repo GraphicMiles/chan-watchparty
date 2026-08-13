@@ -291,8 +291,9 @@ async function handleNkiriEpisodes({ url, title }) {
     getNkiriEpisodes(showUrl),
     new Promise((_, reject) => setTimeout(() => reject(new Error('Nkiri episodes timed out')), 20_000)),
   ])
+  const episodeList = Array.isArray(episodes) ? episodes : []
   return {
-    results: (Array.isArray(episodes) ? episodes : []).map((ep, index) => ({
+    results: episodeList.map((ep, index) => ({
       id: `nkiri-episode-${index}-${Buffer.from(String(ep.url || index)).toString('base64url').slice(0, 12)}`,
       title: ep.title || `Episode ${index + 1}`,
       label: ep.title || `Episode ${index + 1}`,
@@ -309,8 +310,9 @@ async function handleNkiriEpisodes({ url, title }) {
       episodeNum: index + 1,
       container: ep.container || 'unknown',
     })).filter(ep => ep.url),
-    count: Array.isArray(episodes) ? episodes.length : 0,
+    count: episodeList.length,
     showName: title || 'Nkiri Show',
+    synopsis: episodes?.synopsis || null,
     stage: 'episodes',
   }
 }
@@ -335,6 +337,7 @@ function shapeResolveResponse(descriptor, title) {
       format: descriptor.container,
       codec: descriptor.codec,
       quality: 'HD',
+      synopsis: descriptor.synopsis || null,
       videoType: 'direct',
       // Phase A: descriptor metadata for the player
       referer: descriptor.referer,
@@ -393,6 +396,7 @@ async function handleNkiriResolve({ url, title, force = false }) {
       sourceUrl: episodeUrl,
       title: title || 'Nkiri Video',
       referer,
+      synopsis: resolved?.synopsis || null,
     })
 
     if (!descriptor.streamUrl) {

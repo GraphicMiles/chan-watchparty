@@ -116,6 +116,11 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
     lastHeartbeat: serverTimestamp(),
   }
 
+  const synopsis = typeof content?.synopsis === 'string' && content.synopsis.trim().length >= 30
+    ? content.synopsis.trim().slice(0, 600)
+    : null
+  if (synopsis) roomData.synopsis = synopsis
+
   if (videoType === 'youtube' && videoId) {
     roomData.videoId = videoId
     roomData.videoType = 'youtube'
