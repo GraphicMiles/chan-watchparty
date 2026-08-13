@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { collection, onSnapshot, query, orderBy, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
-import { Plus, Trash2, Play, Search, Film, Youtube, Link2, Loader2, RefreshCw, X } from 'lucide-react'
+import { Plus, Trash2, Play, Search, Youtube, Link2, Loader2, RefreshCw, X } from 'lucide-react'
 import { db } from '../../../shared/lib/firebase.js'
 import { useUnifiedSearch } from '../../../hooks/useUnifiedSearch.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, extractVideoId, getThumbnail } from '../../../shared/lib/youtube.js'
@@ -68,6 +69,16 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
   }, [user, toast])
 
   const closeEpisodes = useCallback(() => setEpisodesModal(null), [])
+
+  // Modeless popup: no backdrop click — close via Esc (or the X button).
+  useEffect(() => {
+    if (!episodesModal) return undefined
+    const onKey = (e) => {
+      if (e.key === 'Escape') closeEpisodes()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [episodesModal, closeEpisodes])
 
   /** Resolve a Nkiri movie page to its playable file. Returns
    *  { url, title, thumbnail } or null. Never surfaces raw filenames. */
@@ -368,7 +379,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
                       {thumb ? (
                         <img src={thumb} alt="" loading="lazy" />
                       ) : (
-                        <div className={styles.noThumb}><Film size={20} /></div>
+                        <div className={styles.noThumb} />
                       )}
                     </div>
                     <div className={styles.cardBody}>
@@ -443,7 +454,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
                   {item.thumbnail ? (
                     <img src={item.thumbnail} alt="" loading="lazy" />
                   ) : (
-                    <div className={styles.noThumb}><Film size={16} /></div>
+                    <div className={styles.noThumb} />
                   )}
                 </div>
                 <div className={styles.queueInfo}>
@@ -478,14 +489,16 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
         )}
       </div>
 
-      {/* Episodes popup — centered overlay over the queue panel */}
-      {episodesModal && (
-        <div className={styles.episodesOverlay} onClick={closeEpisodes}>
+      {/* Episodes popup — modeless, portaled to <body> so it truly centers on
+          the screen (the sheet's slide transform would otherwise hijack
+          position:fixed and pin it to the sheet's bottom). No blocking
+          scrim: the video/sheet behind stay interactive. Close via X or Esc. */}
+      {episodesModal && createPortal(
+        <div className={styles.episodesOverlay}>
           <div
             className={styles.episodesModal}
             role="dialog"
             aria-label={`${episodesModal.title} episodes`}
-            onClick={(e) => e.stopPropagation()}
           >
             <div className={styles.episodesHeader}>
               <div className={styles.episodesHeaderText}>
@@ -519,9 +532,8 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
                         {epThumb ? (
                           <img src={epThumb} alt="" loading="lazy" />
                         ) : (
-                          <div className={styles.epNoThumb}><Film size={20} /></div>
+                          <div className={styles.epNoThumb} />
                         )}
-                        <span className={styles.epPlayCircle}>▶</span>
                       </div>
                       <div className={styles.epBody}>
                         <h4 className={styles.epTitle}>{cleanMediaTitle(ep.title) || `Episode ${epIdx + 1}`}</h4>
@@ -555,7 +567,8 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

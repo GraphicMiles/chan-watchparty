@@ -451,17 +451,19 @@
   background: rgba(234, 51, 35, 0.3);
 }
 
-/* ── Episodes popup — centered overlay ─────────────────────────────── */
+/* ── Episodes popup — modeless, centered, portaled to <body> ───────── */
+/* The overlay itself never blocks the background: it lets clicks pass
+   through (pointer-events: none) so the video/sheet stay interactive.
+   Only the popup panel catches pointer events. */
 .episodesOverlay {
   position: fixed;
   inset: 0;
   z-index: 500;
-  background: rgba(0, 0, 0, 0.65);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
-  animation: epFade 0.15s ease;
+  pointer-events: none;
 }
 
 .episodesModal {
@@ -475,6 +477,7 @@
   overflow: hidden;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
   animation: epPop 0.18s ease;
+  pointer-events: auto;
 }
 
 .episodesHeader {
@@ -590,42 +593,11 @@
   display: block;
 }
 
+/* Empty thumbnail — plain dark box, no icon */
 .epNoThumb {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 100%;
   height: 100%;
-  color: var(--room-text-secondary);
-}
-
-.epPlayCircle {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.15);
-  pointer-events: none;
-}
-
-.epPlayCircle::before {
-  content: '';
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.epPlayCircle::after {
-  content: '▶';
-  position: absolute;
-  font-size: 11px;
-  color: #fff;
-  padding-left: 2px;
+  background: #000;
 }
 
 .epBody {
