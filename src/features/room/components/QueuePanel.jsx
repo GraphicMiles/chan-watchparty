@@ -11,7 +11,6 @@ import { Input } from '../../../shared/ui/index.js'
 import styles from './QueuePanel.module.scss'
 import { apiPath } from '../../../shared/lib/api.js'
 import { isDownloadPageUrl, proxyTargetUrl } from '../../../shared/lib/mediaApi.js'
-import { resolvePlaybackForUser } from '../../../shared/lib/resolvePlayback.js'
 
 /**
  * QueuePanel — two modes behind two pills:

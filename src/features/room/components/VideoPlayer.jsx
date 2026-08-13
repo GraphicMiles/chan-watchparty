@@ -152,8 +152,6 @@ export default function VideoPlayer({
   const hlsErrorCountRef = useRef(0)
   const retryTimeoutRef = useRef(null)
   const playingRef = useRef(Boolean(playing))
-  const localMutedRef = useRef(localMuted)
-  useEffect(() => { localMutedRef.current = localMuted }, [localMuted])
   const onReadyRef = useRef(onReady)
   const onPlayerEventRef = useRef(onPlayerEvent)
   const onEndedRef = useRef(onEnded)
@@ -168,6 +166,10 @@ export default function VideoPlayer({
   const [loadedPercent, setLoadedPercent] = useState(0)
   const [localVolume, setLocalVolume] = useState(controlledVolume)
   const [localMuted, setLocalMuted] = useState(controlledMuted)
+  // Mirror of localMuted for the adapter's playVideo() — avoids a stale
+  // closure on the mute flag when autoplay falls back to muted.
+  const localMutedRef = useRef(localMuted)
+  useEffect(() => { localMutedRef.current = localMuted }, [localMuted])
   const [showControls, setShowControls] = useState(true)
   const [showSecondaryControls, setShowSecondaryControls] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
