@@ -142,6 +142,12 @@ export interface VideoPlayerPlugin {
     eventName: 'volumeChanged',
     handler: (event: { volume: number; muted: boolean }) => void
   ): Promise<{ remove: () => void }>
+  /** Live progress pushed from the native engine (500ms): position/duration/
+   *  play-state for the room control bar. */
+  addListener(
+    eventName: 'playbackProgress',
+    handler: (event: { positionMs: number; durationMs: number; isPlaying: boolean }) => void
+  ): Promise<{ remove: () => void }>
   /** Native volume popover was closed (backdrop tap). */
   addListener(
     eventName: 'volumePopupClosed',
