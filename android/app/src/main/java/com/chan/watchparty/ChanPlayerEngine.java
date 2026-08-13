@@ -88,6 +88,16 @@ public class ChanPlayerEngine {
     private boolean ended = false;
     private boolean disposed = false;
 
+    /**
+     * Bumped on every prepare(). Listeners capture the value at setup time and
+     * drop any event that arrives after a newer prepare() replaced the media.
+     * This is what keeps "change video" (and rapid queue play-now) from
+     * delivering the OLD stream's error/end/buffering events into the new
+     * session — which previously drove the recovery machine against the wrong
+     * URL and could touch a released player.
+     */
+    private long generation = 0;
+
     public ChanPlayerEngine(Context context, Listener listener) {
         this.context = context;
         this.listener = listener;
@@ -114,6 +124,9 @@ public class ChanPlayerEngine {
     public void prepare(String playbackUrl, String title, String referer, long startMs,
                         Map<String, String> headers, String container, String codec) {
         if (disposed) return;
+        // New media session: any event still in flight from the previous
+        // prepare() belongs to the old stream and must be ignored.
+        generation += 1;
         ended = false;
         // Video change (queue play-now): cancel any in-flight VLC rebuild so
         // it cannot touch a player we are about to tear down.
@@ -624,6 +637,11 @@ public class ChanPlayerEngine {
                     .setTrackSelector(trackSelector)
                     .build();
 
+            // Capture the session generation so events from a superseded media
+            // (a rapid change-video / queue play-now) are dropped, never routed
+            // into the new session's recovery machine.
+            final long gen = generation;
+
             // BUGFIX: bind the player to the overlay surface — without this the
             // video never renders (black/blank) and some devices error out.
             if (exoView != null) {
@@ -643,6 +661,7 @@ public class ChanPlayerEngine {
             exoPlayer.addListener(new Player.Listener() {
                 @Override
                 public void onPlaybackStateChanged(int state) {
+                    if (disposed || gen != generation) return;
                     if (state == Player.STATE_READY) {
                         if (listener != null) listener.onReady();
                     } else if (state == Player.STATE_BUFFERING) {
@@ -655,6 +674,7 @@ public class ChanPlayerEngine {
 
                 @Override
                 public void onIsPlayingChanged(boolean playing) {
+                    if (disposed || gen != generation) return;
                     if (listener != null) {
                         if (playing) listener.onPlaying();
                         else listener.onPaused();
@@ -663,6 +683,7 @@ public class ChanPlayerEngine {
 
                 @Override
                 public void onPlayerError(PlaybackException error) {
+                    if (disposed || gen != generation) return;
                     String kind = classifyExoError(error);
                     Log.e(TAG, "ExoPlayer error (" + kind + "); falling back to LibVLC", error);
                     // Decode/unsupported-format failures: switch engine. Network/expired
@@ -717,10 +738,14 @@ public class ChanPlayerEngine {
             }
 
             final String fUrl = url;
+            // Capture the session generation: events from a superseded media
+            // (change-video / queue play-now) are dropped instead of being
+            // routed into the new session (and possibly into a released player).
+            final long gen = generation;
             // VLC events arrive on VLC's own thread — marshal to the main thread
             // before touching UI (overlay status) or emitting to JS.
             vlcPlayer.setEventListener(event -> mainHandler.post(() -> {
-                if (disposed) return;
+                if (disposed || gen != generation) return;
                 if (event.type == MediaPlayer.Event.Buffering) {
                     if (event.getBuffering() < 100f && listener != null) {
                         listener.onBuffering(Math.round(event.getBuffering()));
@@ -767,7 +792,7 @@ public class ChanPlayerEngine {
             if (listener != null) listener.onEngineSwitch("vlc");
         } catch (Exception e) {
             Log.e(TAG, "Could not start LibVLC", e);
-            if (listener != null) {
+            if (!disposed && listener != null) {
                 listener.onError(friendlyMessageFor("other"), "other");
             }
         }
@@ -801,8 +826,11 @@ public class ChanPlayerEngine {
 
     private void releaseVlc() {
         if (vlcPlayer != null) {
-            try { vlcPlayer.stop(); } catch (Exception ignored) { }
-            try { vlcPlayer.detachViews(); } catch (Exception ignored) { }
+            // Detach the listener FIRST so a late event can't fire into a
+            // half-released native peer (the SIGSEGV we saw on change-video).
+            try { vlcPlayer.setEventListener(null); } catch (Throwable ignored) { }
+            try { vlcPlayer.stop(); } catch (Throwable ignored) { }
+            try { vlcPlayer.detachViews(); } catch (Throwable ignored) { }
             try { vlcPlayer.release(); } catch (Throwable t) { Log.w(TAG, "vlc release failed", t); }
             vlcPlayer = null;
         }

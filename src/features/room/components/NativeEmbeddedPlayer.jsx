@@ -77,6 +77,11 @@ export default function NativeEmbeddedPlayer({
   const callbacksRef = useRef({ onReady, onPlayerEvent, onEnded, onError })
   const readySentRef = useRef(false)
   const sessionActiveRef = useRef(true)
+  // Bumped on every URL change and on terminalError. Async recovery
+  // continuations (refreshAndPlay / recover) capture this token and abort if
+  // it changed, so a stale refresh for the OLD video can never overwrite the
+  // newly-selected one after the user taps "change video".
+  const sessionTokenRef = useRef(0)
   const timersRef = useRef([])
   const mirrorIdxRef = useRef(0)
   const netRetryRef = useRef(0)
@@ -118,6 +123,7 @@ export default function NativeEmbeddedPlayer({
     // A new URL is a new session — revive even if the previous media
     // hit terminalError (that path sets sessionActive=false).
     sessionActiveRef.current = true
+    sessionTokenRef.current += 1 // cancel any in-flight recovery for the old URL
     setErrorMsg(null)
     // Reset session state and load the new media from the start (the room's
     // playerState sync will resume/pause as needed).
@@ -166,6 +172,7 @@ export default function NativeEmbeddedPlayer({
 
   const show = async (cfg, startSec) => {
     if (!sessionActiveRef.current) return
+    const tok = sessionTokenRef.current
     // NOTE: mirror/net-retry/refresh counters are NOT reset here — a failure
     // during a fallback chain (mirror → retry → refresh) must advance those
     // counters, not rewind them (rewinding caused infinite retry loops).
@@ -184,13 +191,14 @@ export default function NativeEmbeddedPlayer({
         isLive: Boolean(isLive),
       })
     } catch (err) {
-      if (sessionActiveRef.current) terminalError('other', err?.message)
+      if (tok === sessionTokenRef.current && sessionActiveRef.current) terminalError('other', err?.message)
     }
   }
 
   const terminalError = (kind, message) => {
     if (!sessionActiveRef.current) return
     sessionActiveRef.current = false
+    sessionTokenRef.current += 1 // cancel pending recovery continuations
     clearTimers()
     setErrorMsg(friendlyError(kind, message))
     callbacksRef.current.onError?.(new Error(friendlyError(kind, message)))
@@ -216,6 +224,7 @@ export default function NativeEmbeddedPlayer({
 
   const refreshAndPlay = async (posSec) => {
     if (!onRefresh || !sourceUrl) return false
+    const tok = sessionTokenRef.current
     if (refreshAttemptsRef.current >= REFRESH_ATTEMPTS) {
       terminalError('expired', 'Could not get a fresh link after several tries. Pick the episode again.')
       return true
@@ -225,15 +234,18 @@ export default function NativeEmbeddedPlayer({
     await VideoPlayerPlugin.showStatus({ text: `Refreshing link (${refreshAttemptsRef.current}/${REFRESH_ATTEMPTS})…` }).catch(() => {})
     try {
       const desc = await onRefresh(sourceUrl, title)
-      if (!sessionActiveRef.current) return true
+      // If the video changed while we were re-walking the page, drop the
+      // stale descriptor — never overwrite the newly-selected video.
+      if (!sessionActiveRef.current || tok !== sessionTokenRef.current) return true
       adoptDescriptor(desc) // resets mirror index + refresh budget on success
       await show(cfgRef.current, posSec)
       return true
     } catch (err) {
-      if (!sessionActiveRef.current) return true
+      if (!sessionActiveRef.current || tok !== sessionTokenRef.current) return true
       // A dead token is transient — re-walk the page again instead of failing.
       if (refreshAttemptsRef.current < REFRESH_ATTEMPTS) {
         await new Promise((r) => setTimeout(r, 900))
+        if (!sessionActiveRef.current || tok !== sessionTokenRef.current) return true
         return refreshAndPlay(posSec)
       }
       terminalError('expired', err?.message)
@@ -575,12 +587,15 @@ export default function NativeEmbeddedPlayer({
     setBusyAction('reresolve')
     setErrorMsg(null)
     sessionActiveRef.current = true
+    const tok = sessionTokenRef.current
     try {
       const desc = await onRefresh(sourceUrl, title)
+      // If the video changed while re-resolving, drop the stale descriptor.
+      if (!sessionActiveRef.current || tok !== sessionTokenRef.current) return
       adoptDescriptor(desc)
       await showRef.current(cfgRef.current, stateRef.current.posSec)
     } catch (err) {
-      terminalError('expired', err?.message)
+      if (tok === sessionTokenRef.current) terminalError('expired', err?.message)
     } finally {
       setBusyAction(null)
     }
