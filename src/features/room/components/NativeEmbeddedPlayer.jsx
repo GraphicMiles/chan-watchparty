@@ -1,7 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { VideoPlayerPlugin } from '../../../native/VideoPlayerPlugin'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { apiPath } from '../../../shared/lib/api.js'
 import styles from './NativeEmbeddedPlayer.module.scss'
+
+/**
+ * Build a same-origin proxy URL for a raw CDN URL. The proxy streams the file
+ * with the CORRECT Content-Type (video/x-matroska / video/mp4 / HLS rewrite),
+ * which is the one difference between the native path (raw CDN
+ * "application/octet-stream") and the web path (proxied) that plays reliably.
+ */
+function proxyUrlFor(raw) {
+  if (!raw || typeof raw !== 'string') return ''
+  if (/\/api\/proxy\?/i.test(raw)) return raw
+  return apiPath(`/api/proxy?url=${encodeURIComponent(raw)}`)
+}
 
 /** Friendly, jargon-free copy. Technical detail goes to logs only. */
 function friendlyError(kind, message) {
@@ -86,6 +99,9 @@ export default function NativeEmbeddedPlayer({
   const mirrorIdxRef = useRef(0)
   const netRetryRef = useRef(0)
   const refreshAttemptsRef = useRef(0)
+  // One-shot proxy fallback: when the raw CDN URL fails, retry once through
+  // the server proxy (correct Content-Type + HLS rewrite — the web path).
+  const proxyTriedRef = useRef(false)
   const cfgRef = useRef({ url, title, referer, headers, container, codec })
   const mirrorsRef = useRef(mirrors)
   useEffect(() => {
@@ -137,6 +153,7 @@ export default function NativeEmbeddedPlayer({
     mirrorIdxRef.current = 0
     netRetryRef.current = 0
     refreshAttemptsRef.current = 0
+    proxyTriedRef.current = false
     showRef.current(cfgRef.current, 0).catch(() => {})
   }, [url])
 
@@ -262,8 +279,23 @@ export default function NativeEmbeddedPlayer({
     if (!sessionActiveRef.current) return
     const posSec = stateRef.current.posSec
 
+    // One-shot retry through the server proxy. This is the same path the web
+    // player uses (and that plays reliably): the proxy serves the file with
+    // the correct Content-Type (video/x-matroska / video/mp4) or rewrites
+    // HLS playlists, instead of the CDN's generic application/octet-stream.
+    const tryProxy = async () => {
+      if (proxyTriedRef.current) return false
+      proxyTriedRef.current = true
+      const proxied = proxyUrlFor(cfgRef.current.url)
+      if (!proxied || proxied === cfgRef.current.url) return false
+      await VideoPlayerPlugin.showStatus({ text: 'Retrying through the Chan server…' }).catch(() => {})
+      await show({ ...cfgRef.current, url: proxied }, posSec)
+      return true
+    }
+
     // expired → try the next mirror (same form-walk, different token), then
-    // re-walk the page for a fresh token (with its own retry budget).
+    // the server proxy (correct content type), then re-walk the page for a
+    // fresh token (with its own retry budget).
     if (kind === 'expired') {
       const m = mirrorsRef.current[mirrorIdxRef.current]
       if (m) {
@@ -274,6 +306,7 @@ export default function NativeEmbeddedPlayer({
         await show({ ...cfgRef.current, url: m }, posSec)
         return
       }
+      if (await tryProxy()) return
       if (onRefresh && sourceUrl) {
         await refreshAndPlay(posSec)
         return
@@ -282,7 +315,7 @@ export default function NativeEmbeddedPlayer({
       return
     }
 
-    // network → retry (backoff) → mirrors → refresh
+    // network → retry (backoff) → mirrors → proxy → refresh
     if (kind === 'network') {
       if (netRetryRef.current < NETWORK_RETRIES) {
         const attempt = netRetryRef.current
@@ -301,6 +334,7 @@ export default function NativeEmbeddedPlayer({
         await show({ ...cfgRef.current, url: m }, posSec)
         return
       }
+      if (await tryProxy()) return
       if (onRefresh && sourceUrl) {
         await refreshAndPlay(posSec)
         return
@@ -309,7 +343,7 @@ export default function NativeEmbeddedPlayer({
       return
     }
 
-    // decode → try a mirror once, else honest failure
+    // decode → try a mirror once, then the server proxy, else honest failure
     if (kind === 'decode') {
       const m = mirrorsRef.current[mirrorIdxRef.current]
       if (m) {
@@ -319,6 +353,7 @@ export default function NativeEmbeddedPlayer({
         await show({ ...cfgRef.current, url: m }, posSec)
         return
       }
+      if (await tryProxy()) return
       terminalError('decode', message)
       return
     }
@@ -341,7 +376,7 @@ export default function NativeEmbeddedPlayer({
           await show({ ...cfgRef.current, url: m }, posSec)
           return
         }
-        terminalError('decode', message)
+        await recover('decode', message)
       } else if (probe.status === 403 || probe.status === 404 || probe.status === 410) {
         await recover('expired', message)
       } else {
