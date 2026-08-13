@@ -125,8 +125,12 @@ export default function UnifiedSearch() {
     if (content.thumbnail) params.set('thumbnail', content.thumbnail)
     if (content.videoType === 'iptv' || content.videoType === 'sports') params.set('isLive', 'true')
     if (content.sourceUrl) params.set('sourceUrl', content.sourceUrl)
-    if (content.synopsis) params.set('synopsis', content.synopsis)
-    navigate(`/create?${params.toString()}`, { state: { from: location.pathname } })
+    // Keep a short query copy for deep links, but put the full blurb on
+    // location.state so it cannot be truncated by URL length.
+    if (content.synopsis) params.set('synopsis', String(content.synopsis).slice(0, 180))
+    navigate(`/create?${params.toString()}`, {
+      state: { from: location.pathname, synopsis: content.synopsis || null, content },
+    })
   }, [navigate, location.pathname])
 
   const handleLayerClick = useCallback((layerId) => {
@@ -329,7 +333,9 @@ function ResultCard({ result, layer }) {
 
   const handleClick = useCallback(async () => {
     if ((result.type || layer) === 'youtube' && result.id) {
-      navigate(`/create?video=${result.id}&title=${encodeURIComponent(result.title || 'Untitled')}&type=youtube`, { state: { from: location.pathname } })
+      navigate(`/create?video=${result.id}&title=${encodeURIComponent(result.title || 'Untitled')}&type=youtube`, {
+        state: { from: location.pathname, synopsis: result.description || result.synopsis || null },
+      })
       return
     }
     if (result.type === 'iptv' || result.isLive) {

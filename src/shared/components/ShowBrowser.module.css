@@ -162,6 +162,17 @@
   flex: 1;
 }
 
+.showSynopsis {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted, #888);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .showName {
   margin: 0 0 4px;
   font-family: var(--font-display);

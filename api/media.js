@@ -166,6 +166,7 @@ async function searchYouTube(query, limit = 20) {
       id,
       title: sn.title || 'Untitled',
       description: sn.description || '',
+      synopsis: sn.description || '',
       thumbnail: thumb,
       image: thumb,
       channel: sn.channelTitle,
@@ -304,14 +305,17 @@ async function handleNkiriEpisodes({ url, title }) {
       source: 'nkiri',
       provider: 'downloadwella',
       type: 'direct',
-      isDirect: false,
-      playableInRoom: false,
-      requiresResolve: true,
+      isDirect: ep.isDirectMedia === true,
+      playableInRoom: ep.isDirectMedia === true,
+      requiresResolve: ep.isDirectMedia !== true,
       o2tvKind: 'nkiri-episode',
       showName: title || 'Nkiri Show',
       episodeNum: index + 1,
       container: ep.container || 'unknown',
       isDirectMedia: ep.isDirectMedia === true,
+      // Copy the show blurb onto each episode so any pick path that only
+      // looks at the item (queue add, play-now) still has a synopsis.
+      synopsis: ep.synopsis || synopsis || null,
     })).filter(ep => ep.url),
     count: episodeList.length,
     showName: title || 'Nkiri Show',
@@ -990,42 +994,14 @@ export default async function handler(req, res) {
         return ok(res, { results: [], count: 0, directCount: 0, resolved: false })
       }
 
-      // Nkiri / thenkiri URL — show page → episode list (robust resolver:
-      // direct-CDN episodes like ds2.nkiserv.com, downloadwella pages, plus
-      // the show synopsis). This is the path the Media Browser + queue
-      // search actually call (action:'scrape'), so synopsis flows here.
-      if (/thenkiri\.com|nkiri\.com/i.test(scrapeUrl)) {
+      // Nkiri / thenkiri URL — Media Browser + queue call scrape, not
+      // nkiriEpisodes. Delegate so we get episode shaping + Groq synopsis.
+      if (/thenkiri\\.com|nkiri\\.com/i.test(scrapeUrl)) {
         try {
-          const episodes = await Promise.race([
-            getNkiriEpisodes(scrapeUrl),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Nkiri episodes timed out')), 20_000)),
-          ])
-          const list = Array.isArray(episodes) ? episodes : []
-          const results = list.map((ep, index) => ({
-            id: `nkiri-episode-${index}-${Buffer.from(String(ep.url || index)).toString('base64url').slice(0, 12)}`,
-            title: ep.title || `Episode ${index + 1}`,
-            label: ep.title || `Episode ${index + 1}`,
-            url: ep.url,
-            link: ep.url,
-            source: 'nkiri',
-            provider: 'downloadwella',
-            type: 'direct',
-            isDirect: ep.isDirectMedia === true,
-            playableInRoom: ep.isDirectMedia === true,
-            requiresResolve: ep.isDirectMedia !== true,
-            o2tvKind: 'nkiri-episode',
-            showName: scrapeUrl,
-            episodeNum: index + 1,
-            container: ep.container || 'unknown',
-            isDirectMedia: ep.isDirectMedia === true,
-          })).filter(ep => ep.url)
-          return ok(res, {
-            results,
-            count: results.length,
-            showName: scrapeUrl,
-            synopsis: episodes?.synopsis || null,
-            stage: 'episodes',
-          })
+          return ok(res, await handleNkiriEpisodes({
+            url: scrapeUrl,
+            title: body.title || body.showName || options.title || options.showName,
+          }))
         } catch (err) {
           console.error('Scrape Nkiri failed:', err.message)
           return ok(res, { results: [], count: 0, directCount: 0, resolved: false, error: 'Could not load Nkiri episodes' })

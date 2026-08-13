@@ -10,6 +10,7 @@ import { createRoom } from '../../../shared/lib/createRoom.js'
 import { isSuitableThumbnail } from '../../../shared/lib/mediaHelper.js'
 import { cleanMediaTitle } from '../../../shared/lib/titleFormat.js'
 import { friendlyApiError } from '../../../shared/lib/mediaApi.js'
+import { sanitizeSynopsis } from '../../../shared/lib/synopsis.js'
 import { Button, Card, useToast } from '../../../shared/ui/index.js'
 import { Link2, Compass } from 'lucide-react'
 import styles from './CreateRoomPage.module.css'
@@ -67,7 +68,12 @@ export default function CreateRoomPage() {
   // Original episode page URL (DownloadWella etc.) — kept so re-resolve can
   // regenerate a fresh CDN token instead of echoing a dead one.
   const presetSourceUrl = searchParams.get('sourceUrl') || ''
-  const presetSynopsis = searchParams.get('synopsis') || ''
+  // Query-string synopsis is a fallback for deep links. The Media Browser
+  // also passes the full blurb via location.state so long text isn't lost
+  // when videoUrl + thumbnail already saturate the URL.
+  const presetSynopsis = sanitizeSynopsis(
+    location.state?.synopsis || location.state?.content?.synopsis || searchParams.get('synopsis') || ''
+  )
 
   // ── State ───────────────────────────────────────────────────────────────
   const [content, setContent] = useState(null) // picked content (from presets)
@@ -112,6 +118,7 @@ export default function CreateRoomPage() {
         title: presetTitle || 'YouTube video',
         thumbnail: presetThumb,
         videoType: 'youtube',
+        synopsis: presetSynopsis || undefined,
       })
       return
     }
@@ -234,6 +241,9 @@ export default function CreateRoomPage() {
                   {content.kind === 'youtube' ? '▶ YouTube' : contentLabel}
                 </span>
                 <h3 className={styles.mediaTitle}>{cleanMediaTitle(content.title) || 'Selected video'}</h3>
+                {sanitizeSynopsis(content.synopsis) && (
+                  <p className={styles.mediaSynopsis}>{sanitizeSynopsis(content.synopsis)}</p>
+                )}
               </div>
               <button type="button" className={styles.changeBtn} onClick={browseMedia}>
                 Change

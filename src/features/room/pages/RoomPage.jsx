@@ -25,6 +25,7 @@ import { Layout } from '../../../shared/layout/index.js'
 import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
 import { refreshDownloadDescriptor } from '../../../shared/lib/mediaApi.js'
+import { sanitizeSynopsis } from '../../../shared/lib/synopsis.js'
 
 const SOUND_FX_URLS = {
   airhorn: 'https://cdn.freesound.org/previews/435/435255_8863641-lq.mp3',
@@ -218,7 +219,7 @@ export default function RoomPage() {
         videoType: item.videoType || 'youtube',
         activityType: item.videoType || 'youtube',
         title: item.title || 'Untitled',
-        synopsis: item.synopsis || null,
+        synopsis: sanitizeSynopsis(item.synopsis),
       })
       await writePlayerState({
         videoId: item.videoId || '',

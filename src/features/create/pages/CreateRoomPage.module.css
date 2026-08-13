@@ -152,6 +152,17 @@
   text-overflow: ellipsis;
 }
 
+.mediaSynopsis {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-body-grey);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .changeBtn {
   flex-shrink: 0;
   background: var(--surface-light);
