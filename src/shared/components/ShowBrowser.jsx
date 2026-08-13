@@ -108,6 +108,8 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
           source: 'youtube',
           url: `https://www.youtube.com/watch?v=${it.id}`,
           embeddable: it.embeddable !== false,
+          synopsis: it.description || it.synopsis || null,
+          description: it.description || null,
         }))
         setYtResults(items)
         if (!items.length) toast('No YouTube results', { variant: 'warning' })
@@ -323,6 +325,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
           videoType: 'direct',
           source: ep.source || 'nkiri',
           sourceUrl: ep.url,
+          synopsis: ep.synopsis || episodesSynopsis || null,
         })
         toast('Episode ready', { variant: 'success' })
         return
@@ -415,6 +418,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
         title: item.title,
         thumbnail: safeThumb(item.thumbnail) || getThumbnail(item.id),
         videoType: 'youtube',
+        synopsis: item.description || item.synopsis || null,
       })
       return
     }
@@ -485,6 +489,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
           videoType: 'direct',
           source: 'nkiri',
           sourceUrl: candidateStr, // keep the page URL for later re-resolve
+          synopsis: item.synopsis || item.description || null,
         })
       } catch (err) {
         toast(err.message || 'Failed to resolve episode', { variant: 'error' })
@@ -618,6 +623,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
             {showThumb && <img src={showThumb} alt="" className={styles.showPoster} onError={(e) => { e.currentTarget.style.display = 'none' }} />}
             <div className={styles.showHeaderText}>
               <h3 className={styles.showName}>{cleanMediaTitle(showName) || 'Episodes'}</h3>
+              {episodesSynopsis && <p className={styles.showSynopsis}>{episodesSynopsis}</p>}
               <button
                 type="button"
                 className={styles.backLink}

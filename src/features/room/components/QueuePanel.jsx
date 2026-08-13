@@ -254,7 +254,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
     // Standalone Nkiri movie → resolve the page to a playable file first.
     if (/thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '') && isStandaloneResult(item)) {
       const resolved = await resolveNkiriMovie(item)
-      if (resolved?.url) onChangeVideo(resolved.url)
+      if (resolved?.url) onChangeVideo(resolved.url, { synopsis: resolved.synopsis, title: resolved.title })
       return
     }
     const url = item.url || item.link || (item.id ? `https://youtube.com/watch?v=${item.id}` : '')
@@ -262,8 +262,11 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
       toast('This item has no playable link', { variant: 'error' })
       return
     }
-    onChangeVideo(url)
-  }, [onChangeVideo, resolveNkiriMovie, toast])
+    onChangeVideo(url, {
+      synopsis: item.synopsis || item.description || episodesModal?.synopsis || null,
+      title: item.title || item.label,
+    })
+  }, [onChangeVideo, resolveNkiriMovie, toast, episodesModal])
 
   const removeFromQueue = useCallback(async (item) => {
     if (!canControl && item.addedByUid !== user?.uid) {
@@ -563,7 +566,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
                         <button
                           type="button"
                           className={`${styles.addBtn} ${isFull ? styles.disabledBtn : ''}`}
-                          onClick={() => addToQueue(episodesModal.sourceItem, ep)}
+                          onClick={() => addToQueue(episodesModal.sourceItem, { ...ep, synopsis: ep.synopsis || episodesModal.synopsis || null })}
                           disabled={isFull}
                           title={isFull ? 'Queue limit reached (max 5)' : 'Add to queue'}
                         >

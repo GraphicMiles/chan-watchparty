@@ -3,6 +3,7 @@ import { db } from './firebase.js'
 import { apiPath, parseJsonResponse } from './api.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, checkEmbeddable } from './youtube.js'
 import { proxyTargetUrl, isDownloadPageUrl, resolveDownloadLink, resolveDownloadDescriptor } from './mediaApi.js'
+import { sanitizeSynopsis } from './synopsis.js'
 
 export function isO2TvUrl(value) {
   return /tvshows4mobile\.org|o2tvseries|o2tv\.org/i.test(String(value || ''))
@@ -116,9 +117,9 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
     lastHeartbeat: serverTimestamp(),
   }
 
-  const synopsis = typeof content?.synopsis === 'string' && content.synopsis.trim().length >= 30
-    ? content.synopsis.trim().slice(0, 600)
-    : null
+  // Persist only a real blurb. Short/junk strings stay off the room so
+  // RoomPage doesn't render "Episode 1" as the synopsis.
+  const synopsis = sanitizeSynopsis(content?.synopsis)
   if (synopsis) roomData.synopsis = synopsis
 
   if (videoType === 'youtube' && videoId) {
