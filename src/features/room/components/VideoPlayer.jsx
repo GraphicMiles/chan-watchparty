@@ -152,6 +152,8 @@ export default function VideoPlayer({
   const hlsErrorCountRef = useRef(0)
   const retryTimeoutRef = useRef(null)
   const playingRef = useRef(Boolean(playing))
+  const localMutedRef = useRef(localMuted)
+  useEffect(() => { localMutedRef.current = localMuted }, [localMuted])
   const onReadyRef = useRef(onReady)
   const onPlayerEventRef = useRef(onPlayerEvent)
   const onEndedRef = useRef(onEnded)
@@ -475,8 +477,32 @@ export default function VideoPlayer({
       // Show progress immediately while media catches up
       setIsBuffering(true)
       if (isHls) {
-        const p = videoRef.current?.play?.()
-        if (p && typeof p.catch === 'function') p.catch(() => {})
+        const video = videoRef.current
+        if (video) {
+          // Autoplay policy: an unmuted play() without a user gesture is
+          // rejected (NotAllowedError). This happens for everyone whose play is
+          // driven by room sync (viewers) or on mobile Chrome — the old code
+          // swallowed the rejection, still marked the stream "playing", and the
+          // video sat on a black frame. Mute-and-retry is the standard fix.
+          let muteFallbackDone = false
+          const tryPlay = (muted) => {
+            try { video.muted = muted } catch { /* */ }
+            let promise = null
+            try { promise = video.play() } catch { promise = null }
+            if (promise && typeof promise.catch === 'function') {
+              promise.catch(() => {
+                if (!muted && !muteFallbackDone) {
+                  muteFallbackDone = true
+                  setLocalMuted(true)
+                  tryPlay(true)
+                }
+              })
+            }
+          }
+          tryPlay(localMutedRef.current)
+          setIsPlayingState(true)
+          return
+        }
       } else {
         try {
           playerRef.current?.getInternalPlayer?.()?.playVideo?.() || playerRef.current?.getInternalPlayer?.()?.play?.()
