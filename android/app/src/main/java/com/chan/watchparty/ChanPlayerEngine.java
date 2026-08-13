@@ -48,7 +48,7 @@ public class ChanPlayerEngine {
         void onPaused();
         void onEnded();
         /** kind: expired | network | decode | other */
-        void onError(String friendlyMessage, String kind);
+        void onError(String friendlyMessage, String kind, String detail);
         void onEngineSwitch(String engineName);
     }
 
@@ -61,6 +61,8 @@ public class ChanPlayerEngine {
     private String lastTitle = null;
     private String lastReferer = null;
     private long lastStartMs = 0;
+    private String lastContainer = "";
+    private String lastCodec = "";
     private DefaultTrackSelector trackSelector;
     // Parsed CC cues (from the app's VTT). Rendered by the overlay view at the
     // TOP of the video — both engines render their own subtitles at the bottom
@@ -135,6 +137,8 @@ public class ChanPlayerEngine {
         lastTitle = title;
         lastReferer = referer;
         lastStartMs = startMs;
+        lastContainer = container != null ? container : "";
+        lastCodec = codec != null ? codec : "";
         extraHeaders = headers != null ? new HashMap<>(headers) : new HashMap<>();
         if (shouldPreferVlc(playbackUrl, container, codec)) {
             startVlcPlayer("Using VLC engine…", playbackUrl, title, referer, startMs);
@@ -662,14 +666,17 @@ public class ChanPlayerEngine {
                 public void onPlayerError(PlaybackException error) {
                     if (disposed || gen != generation) return;
                     String kind = classifyExoError(error);
-                    Log.e(TAG, "ExoPlayer error (" + kind + "); falling back to LibVLC", error);
+                    int status = httpStatusFromCause(error.getCause());
+                    String cause = error.getCause() != null ? String.valueOf(error.getCause().getMessage()) : "";
+                    String detail = buildErrorDetail("exo", error.getErrorCodeName(), status, cause);
+                    Log.e(TAG, "ExoPlayer error (" + kind + ") " + detail, error);
                     // Decode/unsupported-format failures: switch engine. Network/expired
                     // failures are surfaced to JS so the recovery state machine can act
                     // (retry/refresh) — Exo rarely plays them better via VLC, but try once.
                     if (kind.equals("decode") && !disposed) {
                         startVlcPlayer("Switching engines…", url, title, referer, startMs);
                     } else if (!disposed && listener != null) {
-                        listener.onError(friendlyMessageFor(kind), kind);
+                        listener.onError(friendlyMessageFor(kind), kind, detail);
                     }
                 }
             });
@@ -746,7 +753,10 @@ public class ChanPlayerEngine {
                     if (listener != null) listener.onEnded();
                 } else if (event.type == MediaPlayer.Event.EncounteredError) {
                     if (listener != null) {
-                        listener.onError(friendlyMessageFor("other"), "other");
+                        listener.onError(
+                                friendlyMessageFor("other"),
+                                "other",
+                                buildErrorDetail("vlc", "", 0, "VLC EncounteredError — no HTTP/codec detail available from libVLC"));
                     }
                 }
             }));
@@ -770,7 +780,8 @@ public class ChanPlayerEngine {
         } catch (Exception e) {
             Log.e(TAG, "Could not start LibVLC", e);
             if (!disposed && listener != null) {
-                listener.onError(friendlyMessageFor("other"), "other");
+                listener.onError(friendlyMessageFor("other"), "other",
+                        buildErrorDetail("vlc", "", 0, "LibVLC start failed: " + e.getMessage()));
             }
         }
     }
@@ -787,6 +798,44 @@ public class ChanPlayerEngine {
             default:
                 return "Couldn't play this video. It may be unavailable or expired.";
         }
+    }
+
+    private static String hostOf(String url) {
+        try {
+            java.net.URI u = new java.net.URI(url);
+            if (u.getHost() != null) return u.getHost();
+        } catch (Throwable ignored) { }
+        try {
+            return new java.net.URL(url).getHost();
+        } catch (Throwable ignored) { }
+        return "";
+    }
+
+    /** Structured JSON detail for the JS layer so the real failure is visible
+     *  in the room (engine, error code, HTTP status, host, codec, URL). */
+    private String buildErrorDetail(String engine, String code, int httpStatus, String cause) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("engine", engine);
+            if (code != null && !code.isEmpty()) o.put("code", code);
+            if (httpStatus > 0) o.put("http", httpStatus);
+            if (cause != null && !cause.isEmpty()) o.put("cause", cause);
+            o.put("host", hostOf(lastUrl));
+            o.put("port", portOf(lastUrl));
+            if (!lastContainer.isEmpty()) o.put("container", lastContainer);
+            if (!lastCodec.isEmpty()) o.put("codec", lastCodec);
+            o.put("url", lastUrl != null ? lastUrl : "");
+            return o.toString();
+        } catch (Throwable t) {
+            return "{\"engine\":\"" + engine + "\"}";
+        }
+    }
+
+    private static String portOf(String url) {
+        try {
+            int p = new java.net.URL(url).getPort();
+            return p >= 0 ? String.valueOf(p) : "443";
+        } catch (Throwable ignored) { return "443"; }
     }
 
     private void releaseExo() {

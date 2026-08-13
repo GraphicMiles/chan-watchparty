@@ -53,7 +53,7 @@ export type PlaybackStateEvent =
   | { state: 'playing' }
   | { state: 'paused' }
   | { state: 'ended' }
-  | { state: 'error'; message: string; kind: ErrorKind }
+  | { state: 'error'; message: string; kind: ErrorKind; detail?: string }
   | { state: 'engine'; engine: string }
 
 export type ControlsEvent = { type: 'tap'; x?: number; y?: number }

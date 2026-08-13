@@ -103,6 +103,9 @@ export default function NativeEmbeddedPlayer({
   }, [visible])
 
   const [errorMsg, setErrorMsg] = useState(null)
+  const [errorDetail, setErrorDetail] = useState('') // structured JSON from the native engine
+  const [diag, setDiag] = useState(null) // on-device network probe result
+  const [copied, setCopied] = useState(false)
   const [busyAction, setBusyAction] = useState(null) // 'retry' | 'reresolve'
 
   useEffect(() => {
@@ -125,6 +128,8 @@ export default function NativeEmbeddedPlayer({
     sessionActiveRef.current = true
     sessionTokenRef.current += 1 // cancel any in-flight recovery for the old URL
     setErrorMsg(null)
+    setErrorDetail('')
+    setDiag(null)
     // Reset session state and load the new media from the start (the room's
     // playerState sync will resume/pause as needed).
     stateRef.current = { posSec: 0, durSec: 0, playing: false, ended: false, endedHandled: false }
@@ -399,6 +404,11 @@ export default function NativeEmbeddedPlayer({
         }
         break
       case 'error':
+        // Keep the RAW detail from the engine so the exact cause is visible
+        // in the room (HTTP status, host, codec, exception) instead of the
+        // generic "unavailable or expired" copy.
+        if (typeof e?.detail === 'string' && e.detail) setErrorDetail(e.detail)
+        setDiag(null)
         await recover(e.kind || 'other', e.message)
         break
       default:
@@ -565,6 +575,8 @@ export default function NativeEmbeddedPlayer({
   const retryNow = async () => {
     setBusyAction('retry')
     setErrorMsg(null)
+    setErrorDetail('')
+    setDiag(null)
     sessionActiveRef.current = true
     refreshAttemptsRef.current = 0
     try {
@@ -586,6 +598,8 @@ export default function NativeEmbeddedPlayer({
     if (!onRefresh || !sourceUrl) return
     setBusyAction('reresolve')
     setErrorMsg(null)
+    setErrorDetail('')
+    setDiag(null)
     sessionActiveRef.current = true
     const tok = sessionTokenRef.current
     try {
@@ -598,6 +612,34 @@ export default function NativeEmbeddedPlayer({
       if (tok === sessionTokenRef.current) terminalError('expired', err?.message)
     } finally {
       setBusyAction(null)
+    }
+  }
+
+  // Copy the structured error so the user can paste the exact cause.
+  const copyDetail = async () => {
+    const text = errorDetail || '(no detail)'
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      /* clipboard unavailable in some WebViews */
+    }
+  }
+
+  // On-device network probe of the failing URL — the single most useful
+  // diagnostic: it tells us whether the PHONE can reach the host at all
+  // (carrier/port blocks) vs. a codec/decode failure.
+  const runDiagnostic = async () => {
+    setDiag('Probing…')
+    try {
+      const p = await VideoPlayerPlugin.probeStatus({
+        url: cfgRef.current.url,
+        referer: cfgRef.current.referer,
+      })
+      setDiag(typeof p === 'string' ? p : JSON.stringify(p, null, 2))
+    } catch (e) {
+      setDiag('Probe threw: ' + (e?.message || e))
     }
   }
 
@@ -628,7 +670,35 @@ export default function NativeEmbeddedPlayer({
                 {busyAction === 'reresolve' ? 'Resolving…' : 'Re-resolve link'}
               </button>
             )}
+            <button
+              type="button"
+              className={styles.reResolveBtn}
+              onClick={runDiagnostic}
+            >
+              Run network diagnostic
+            </button>
           </div>
+          {(errorDetail || diag) && (
+            <div className={styles.errorDetailBox}>
+              {errorDetail && (
+                <>
+                  <div className={styles.errorDetailLabel}>
+                    Error details
+                    <button type="button" className={styles.copyBtn} onClick={copyDetail}>
+                      {copied ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                  <pre className={styles.errorDetailPre}>{errorDetail}</pre>
+                </>
+              )}
+              {diag && (
+                <>
+                  <div className={styles.errorDetailLabel}>Network diagnostic</div>
+                  <pre className={styles.errorDetailPre}>{diag}</pre>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
