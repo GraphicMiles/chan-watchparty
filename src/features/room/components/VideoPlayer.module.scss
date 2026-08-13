@@ -874,3 +874,15 @@
   bottom: auto;
   top: calc(100% + 6px);
 }
+
+/* Live native state readout in the main controls bar — visible diagnostic */
+.nativeDebug {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: #7dffb0;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
