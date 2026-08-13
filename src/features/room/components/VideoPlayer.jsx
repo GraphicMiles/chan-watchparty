@@ -306,19 +306,25 @@ export default function VideoPlayer({
   }, [])
 
   const [brightnessPop, setBrightnessPop] = useState(false)
+  const brightnessOpenRef = useRef(false)
 
   // Brightness popup: on Android the popup is rendered in the NATIVE layer
   // (RoomPlayerOverlayView) so it sits above the video surface — the video
   // keeps playing underneath. On web it's the CSS overlay.
   const toggleBrightnessPopup = useCallback(() => {
     if (isNativeEmbedded) {
-      const next = !brightnessPop
+      // Ref-based: never depends on possibly-stale state or missed events.
+      const next = !brightnessOpenRef.current
+      brightnessOpenRef.current = next
       setBrightnessPop(next)
       VideoPlayerPlugin.showBrightnessPopup({ visible: next, brightness: brightnessMultiplier }).catch(() => {})
     } else {
-      setBrightnessPop((v) => !v)
+      setBrightnessPop((v) => {
+        brightnessOpenRef.current = !v
+        return !v
+      })
     }
-  }, [isNativeEmbedded, brightnessPop, brightnessMultiplier])
+  }, [isNativeEmbedded, brightnessMultiplier])
 
   // Sync brightness from the native popup slider + close events back to JS.
   useEffect(() => {
@@ -332,7 +338,9 @@ export default function VideoPlayer({
       }
     }).then((l) => { if (cancelled) { try { l?.remove?.() } catch {} } else removeChanged = l?.remove })
     VideoPlayerPlugin.addListener('brightnessPopupClosed', () => {
-      if (!cancelled) setBrightnessPop(false)
+      if (cancelled) return
+      brightnessOpenRef.current = false
+      setBrightnessPop(false)
     }).then((l) => { if (cancelled) { try { l?.remove?.() } catch {} } else removeClosed = l?.remove })
     return () => {
       cancelled = true

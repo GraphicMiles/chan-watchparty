@@ -658,7 +658,7 @@ export default function RoomPage() {
                   }
                   // Modals (Share, Change Video, confirms) must render ABOVE
                   // the video — hide the native surface while any is open.
-                  surfaceHidden={shareOpen || endConfirmOpen || leaveConfirmOpen || Boolean(autoNextPrompt)}
+                  surfaceHidden={shareOpen || endConfirmOpen || leaveConfirmOpen || Boolean(autoNextPrompt) || childOverlayOpen}
                 />
               </ErrorBoundary>
             ) : (

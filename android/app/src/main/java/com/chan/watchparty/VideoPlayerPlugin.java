@@ -697,18 +697,23 @@ public class VideoPlayerPlugin extends Plugin {
     @PluginMethod
     public void closeEmbedded(PluginCall call) {
         JSObject result = new JSObject();
-        if (engine != null) {
-            result.put("positionMs", engine.getPositionMs());
-            result.put("durationMs", engine.getDurationMs());
-            result.put("ended", engine.isEnded());
-            result.put("wasPlaying", engine.isPlaying());
+        try {
+            if (engine != null) {
+                result.put("positionMs", engine.getPositionMs());
+                result.put("durationMs", engine.getDurationMs());
+                result.put("ended", engine.isEnded());
+                result.put("wasPlaying", engine.isPlaying());
+            }
+            teardown();
+        } catch (Throwable t) {
+            Log.e(TAG, "closeEmbedded failed", t);
+            // Never let a teardown exception take the app down.
         }
-        teardown();
         call.resolve(result);
     }
 
     private void teardown() {
-        fsPushHandler.removeCallbacks(fsPushRunnable);
+        try { fsPushHandler.removeCallbacks(fsPushRunnable); } catch (Exception ignored) { }
         if (fsControlsView != null) {
             try {
                 ((ViewGroup) getActivity().getWindow().getDecorView()).removeView(fsControlsView);
@@ -718,13 +723,14 @@ public class VideoPlayerPlugin extends Plugin {
         }
         fsControlsLoaded = false;
         if (overlay != null) {
-            overlay.teardown();
-            detachOverlay();
+            try { overlay.teardown(); } catch (Throwable t) { Log.e(TAG, "overlay teardown failed", t); }
+            try { detachOverlay(); } catch (Throwable t) { Log.e(TAG, "detachOverlay failed", t); }
             overlay = null;
         }
         engine = null;
+        brightnessPopupWired = false; // next showBrightnessPopup re-wires listeners
         fullscreen = false;
-        showSystemUi();
+        try { showSystemUi(); } catch (Exception ignored) { }
     }
 
     // ── PiP (Android 8+) ─────────────────────────────────────────────────

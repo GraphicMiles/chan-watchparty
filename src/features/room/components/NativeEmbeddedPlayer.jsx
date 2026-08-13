@@ -102,6 +102,22 @@ export default function NativeEmbeddedPlayer({
     cfgRef.current = { url, title, referer, headers, container, codec }
   }, [url, title, referer, headers, container, codec])
 
+  // Video change (queue play-now / change video): the component stays
+  // mounted (no key) — re-show the native player with the new media.
+  const prevUrlRef = useRef(url)
+  useEffect(() => {
+    if (prevUrlRef.current === url) return
+    prevUrlRef.current = url
+    if (!sessionActiveRef.current) return
+    // Reset session state and load the new media from the start (the room's
+    // playerState sync will resume/pause as needed).
+    stateRef.current = { posSec: 0, durSec: 0, playing: false, ended: false, endedHandled: false }
+    readySentRef.current = false
+    mirrorIdxRef.current = 0
+    netRetryRef.current = 0
+    showRef.current(cfgRef.current, 0).catch(() => {})
+  }, [url])
+
   // ── Recovery & control (plain fns + refs; avoids memoization cycles) ──
 
   const later = (fn, ms) => {

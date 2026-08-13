@@ -443,9 +443,10 @@ public class RoomPlayerOverlayView extends FrameLayout {
     private void buildBrightnessPopup(Context context) {
         int dp = (int) (context.getResources().getDisplayMetrics().density + 0.5f);
 
-        // Scrim behind the panel — tap to close.
+        // Scrim behind the panel — tap to close. LIGHT (10%) so the
+        // brightness change is visible on the video while the popup is open.
         brightnessScrim = new View(context);
-        brightnessScrim.setBackgroundColor(0x66000000);
+        brightnessScrim.setBackgroundColor(0x1A000000);
         brightnessScrim.setVisibility(GONE);
         brightnessScrim.setOnClickListener(v -> hideBrightnessPopup());
         addView(brightnessScrim, new FrameLayout.LayoutParams(
@@ -463,14 +464,31 @@ public class RoomPlayerOverlayView extends FrameLayout {
         brightnessPopup.setBackground(bg);
         brightnessPopup.setVisibility(GONE);
 
-        // Title row
+        // Title row (title + close X on the right)
+        LinearLayout titleRow = new LinearLayout(context);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.setPadding(0, 0, 0, 10 * dp);
+
         TextView title = new TextView(context);
         title.setText("Brightness");
         title.setTextColor(Color.WHITE);
         title.setTextSize(13f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setPadding(0, 0, 0, 10 * dp);
-        brightnessPopup.addView(title, new LinearLayout.LayoutParams(
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView closeBtn = new TextView(context);
+        closeBtn.setText("✕");
+        closeBtn.setTextColor(0xFFA6A6B0);
+        closeBtn.setTextSize(14f);
+        closeBtn.setGravity(Gravity.CENTER);
+        closeBtn.setPadding(8 * dp, 0, 0, 0);
+        closeBtn.setOnClickListener(v -> hideBrightnessPopup());
+        titleRow.addView(closeBtn, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        brightnessPopup.addView(titleRow, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
