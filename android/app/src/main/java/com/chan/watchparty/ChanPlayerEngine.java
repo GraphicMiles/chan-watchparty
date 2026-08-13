@@ -11,9 +11,7 @@ import androidx.media3.common.Player;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.Tracks;
 import androidx.media3.datasource.DefaultHttpDataSource;
-import androidx.media3.effect.Brightness;
-import androidx.media3.effect.Contrast;
-import androidx.media3.effect.HslAdjustment;
+import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
@@ -39,6 +37,7 @@ import java.util.Map;
  * same engine can be embedded inline in the room (RoomPlayerOverlayView).
  * All callbacks are delivered on the main thread.
  */
+@UnstableApi
 public class ChanPlayerEngine {
     private static final String TAG = "ChanPlayerEngine";
 
@@ -76,6 +75,8 @@ public class ChanPlayerEngine {
     private long pendingSeekMs = -1;
     private final Runnable effectsDebounce = new Runnable() { public void run() { applyEffectsNow(); } };
     private boolean effectsQueued = false;
+    // Live Exo brightness — installed once, sampled every frame.
+    private final LiveBrightnessRgbMatrix liveBrightness = new LiveBrightnessRgbMatrix();
 
     private ExoPlayer exoPlayer;
     private androidx.media3.ui.PlayerView exoView; // attached by the overlay
@@ -664,6 +665,15 @@ public class ChanPlayerEngine {
             if (exoView != null) {
                 exoView.setPlayer(exoPlayer);
             }
+            // Install the live RGB matrix ONCE. Later slider ticks only
+            // mutate liveBrightness — calling setVideoEffects again would
+            // rebuild the video renderer and skip.
+            try {
+                liveBrightness.setBrightness(lastBrightness);
+                exoPlayer.setVideoEffects(java.util.Collections.singletonList(liveBrightness));
+            } catch (Exception e) {
+                Log.e(TAG, "Could not install live brightness matrix", e);
+            }
 
             exoPlayer.addListener(new Player.Listener() {
                 @Override
@@ -755,6 +765,9 @@ public class ChanPlayerEngine {
                         try { vlcPlayer.setTime(pendingSeekMs); } catch (Exception ignored) { }
                         pendingSeekMs = -1;
                     }
+                    // Vout is up — apply the current brightness (JNI is a
+                    // no-op before the video output exists).
+                    applyVlcBrightnessLive();
                     if (listener != null) {
                         listener.onReady();
                         listener.onPlaying();
