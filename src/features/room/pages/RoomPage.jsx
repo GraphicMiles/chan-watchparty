@@ -144,21 +144,21 @@ export default function RoomPage() {
 
   const { isHost, writePlayerState, canControl } = usePlayerSync(roomId, room, playerRef)
 
-  // Existing rooms created before synopsis was wired: fill from the title
-  // once, then the snapshot updates RoomPage.
+  // Groq synopsis ONLY after playback has started. Never on join/create —
+  // that raced DownloadWella tokens. Uses the show/movie title, not a guess.
   const synopsisFillRef = useRef(false)
-  useEffect(() => {
+  const fillSynopsisAfterPlay = useCallback(async () => {
     if (!canControl || !user || !room || room.synopsis || synopsisFillRef.current) return
-    const title = room.title || room.media?.title
+    const title = cleanMediaTitle(room.title || room.media?.title || '')
     if (!title) return
     synopsisFillRef.current = true
-    let cancelled = false
-    ;(async () => {
-      const text = sanitizeSynopsis(await fetchTitleSynopsis(user, title, room.videoType || ''))
-      if (cancelled || !text) return
-      try { await updateRoom({ synopsis: text, synopsisSource: 'ai' }) } catch { /* ignore */ }
-    })()
-    return () => { cancelled = true }
+    const extra = room.videoType === 'youtube' ? 'YouTube video' : 'TV show or movie'
+    try {
+      const text = sanitizeSynopsis(await fetchTitleSynopsis(user, title, extra))
+      if (text) await updateRoom({ synopsis: text, synopsisSource: 'ai' })
+    } catch {
+      synopsisFillRef.current = false
+    }
   }, [canControl, user, room, updateRoom])
 
   // Continuously report player position so leave/beforeunload can freeze the exact timestamp
@@ -489,6 +489,7 @@ export default function RoomPage() {
         /* ignore */
       }
     }
+    fillSynopsisAfterPlay()
   }
 
   const onPlayerEvent = (patch) => {

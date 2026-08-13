@@ -295,7 +295,8 @@ async function handleNkiriEpisodes({ url, title }) {
     new Promise((_, reject) => setTimeout(() => reject(new Error('Nkiri episodes timed out')), 20_000)),
   ])
   const episodeList = Array.isArray(episodes) ? episodes : []
-  const synopsis = await synopsisFallback(episodes?.synopsis || null, title || showUrl, 'TV show')
+  // Page extract only — never await Groq here (that delay kills CDN tokens).
+  const synopsis = episodes?.synopsis || null
   return {
     results: episodeList.map((ep, index) => ({
       id: `nkiri-episode-${index}-${Buffer.from(String(ep.url || index)).toString('base64url').slice(0, 12)}`,
@@ -414,7 +415,7 @@ async function handleNkiriResolve({ url, title, force = false }) {
       sourceUrl: episodeUrl,
       title: title || 'Nkiri Video',
       referer,
-      synopsis: await synopsisFallback(resolved?.synopsis || null, title || 'Nkiri Video', 'TV episode'),
+      synopsis: resolved?.synopsis || null,
     })
 
     if (!descriptor.streamUrl) {

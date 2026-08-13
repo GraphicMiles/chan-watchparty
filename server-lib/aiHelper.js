@@ -16,7 +16,7 @@ export async function generateTitleSynopsis(title, extra = '') {
   const cleanTitle = String(title || '').trim().slice(0, 120)
   const cleanExtra = String(extra || '').trim().slice(0, 120)
   if (!cleanTitle) return null
-  const prompt = `Write a concise 1-2 sentence synopsis (no preamble, no quotes, no "Here is") for the following movie or TV show${cleanExtra ? ` episode: "${cleanTitle}" (${cleanExtra})` : `: "${cleanTitle}"`}. If you are not certain what it is, give a short generic description based on the title alone.`
+  const prompt = `Write a concise factual 1-2 sentence synopsis (no preamble, no quotes, no hedging like "appears to be") for the movie or TV show titled "${cleanTitle}"${cleanExtra ? ` (${cleanExtra})` : ''}. Use only what is commonly known from that title. Do not invent a season, episode number, or plot you are not sure about.`
   try {
     const groqRes = await fetch(GROQ_API_URL, {
       method: 'POST',
