@@ -105,9 +105,10 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
     lastHeartbeat: serverTimestamp(),
   }
 
-  // Persist only a real blurb. Short/junk strings stay off the room so
-  // RoomPage doesn't render "Episode 1" as the synopsis.
-  const synopsis = sanitizeSynopsis(content?.synopsis)
+  let synopsis = sanitizeSynopsis(content?.synopsis)
+  if (!synopsis) {
+    synopsis = sanitizeSynopsis(await fetchTitleSynopsis(user, content?.title || roomTitle, content?.videoType || ''))
+  }
   if (synopsis) roomData.synopsis = synopsis
 
   if (videoType === 'youtube' && videoId) {

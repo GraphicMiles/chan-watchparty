@@ -230,28 +230,51 @@ export default function RoomPage() {
       setBusy(true)
       if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current)
       setAutoNextPrompt(null)
-      
-      await updateRoom({
-        videoId: item.videoId || null,
-        videoUrl: item.videoUrl || null,
-        videoType: item.videoType || 'youtube',
-        activityType: item.videoType || 'youtube',
-        title: item.title || 'Untitled',
-        synopsis: sanitizeSynopsis(item.synopsis),
-      })
-      await writePlayerState({
-        videoId: item.videoId || '',
-        videoUrl: item.videoUrl || null,
-        isPlaying: true,
-        currentTime: 0,
-      }, true)
+
+      if (item.videoId || item.videoType === 'youtube') {
+        await updateRoom({
+          videoId: item.videoId || null,
+          videoUrl: null,
+          videoType: 'youtube',
+          activityType: 'youtube',
+          title: item.title || 'Untitled',
+          synopsis: sanitizeSynopsis(item.synopsis),
+          media: null,
+          sourceUrl: null,
+        })
+        await writePlayerState({
+          videoId: item.videoId || '',
+          videoUrl: null,
+          isPlaying: true,
+          currentTime: 0,
+        }, true)
+      } else {
+        const resolved = await resolvePlaybackForUser(user, item)
+        await updateRoom({
+          videoId: null,
+          videoUrl: resolved.videoUrl,
+          videoType: item.videoType || 'direct',
+          activityType: item.videoType || 'direct',
+          title: item.title || 'Untitled',
+          synopsis: sanitizeSynopsis(item.synopsis),
+          media: resolved.media,
+          sourceUrl: resolved.sourceUrl,
+          isLive: Boolean(resolved.isM3u8),
+        })
+        await writePlayerState({
+          videoId: '',
+          videoUrl: resolved.videoUrl,
+          isPlaying: true,
+          currentTime: 0,
+        }, true)
+      }
       toast('Playing queued stream!', { variant: 'success' })
     } catch (err) {
       toast(err.message || 'Could not play next stream', { variant: 'error' })
     } finally {
       setBusy(false)
     }
-  }, [canControl, updateRoom, writePlayerState, toast])
+  }, [canControl, user, updateRoom, writePlayerState, toast])
 
   const handleVideoEnded = useCallback(() => {
     if (!canControl || queueItems.length === 0) return
@@ -912,25 +935,6 @@ export default function RoomPage() {
             </div>
             <div className={styles.confirmActions}>
               <Button variant="secondary" onClick={() => { clearTimeout(autoNextTimerRef.current); setAutoNextPrompt(null) }}>
-                Cancel
-              </Button>
-              <Button variant="cta" loading={busy} onClick={async () => {
-                if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current)
-                const item = autoNextPrompt
-                setAutoNextPrompt(null)
-                await onPlayNextQueueItem(item)
-                await deleteDoc(doc(db, 'rooms', roomId, 'queue', item.id)).catch(() => {})
-              }}>
-                Play Next Now
-              </Button>
-            </div>
-          </div>
-        </Modal>
-      )}
-    </Layout>
-  )
-}
-nt); setAutoNextPrompt(null) }}>
                 Cancel
               </Button>
               <Button variant="cta" loading={busy} onClick={async () => {
