@@ -364,10 +364,10 @@ public class RoomPlayerOverlayView extends FrameLayout {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
-        bar.addView(btnFullscreen, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        ));
+        // btnFullscreen is intentionally null (no native fullscreen icon —
+        // the app bar / FS controls WebView own that). DO NOT addView it:
+        // adding a null child throws "Cannot add a null child view to a
+        // ViewGroup" and crashed every native playback before it started.
         bar.addView(btnPip, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
