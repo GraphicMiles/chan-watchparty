@@ -77,6 +77,10 @@ public class ChanPlayerEngine {
     private boolean effectsQueued = false;
     // Live Exo brightness — installed once, sampled every frame.
     private final LiveBrightnessRgbMatrix liveBrightness = new LiveBrightnessRgbMatrix();
+    // Whether the GL effect graph is currently installed on ExoPlayer. It must
+    // be OFF at neutral brightness — forcing it on every stream broke playback
+    // (generic "unavailable or expired") on devices whose GPU can't run the graph.
+    private boolean exoEffectInstalled = false;
 
     private ExoPlayer exoPlayer;
     private androidx.media3.ui.PlayerView exoView; // attached by the overlay
@@ -230,12 +234,33 @@ public class ChanPlayerEngine {
                 && Math.abs(saturation - 1f) < 0.01f
                 && Math.abs(hueDeg) < 0.5f;
         try { liveBrightness.setBrightness(b); } catch (Throwable ignored) { }
+        // ExoPlayer: the GL effect graph must NOT be forced at neutral
+        // brightness (the always-on RgbMatrix broke IPTV/direct playback on
+        // devices that can't run the graph). Install it on the first
+        // non-neutral change and remove it when the user returns to neutral.
+        if (exoPlayer != null) {
+            try {
+                if (!effectsNeutral && !exoEffectInstalled) {
+                    exoPlayer.setVideoEffects(java.util.Collections.singletonList(liveBrightness));
+                    exoEffectInstalled = true;
+                } else if (effectsNeutral && exoEffectInstalled) {
+                    exoPlayer.setVideoEffects(java.util.Collections.emptyList());
+                    exoEffectInstalled = false;
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "Exo setVideoEffects failed", t);
+            }
+        }
         mainHandler.post(this::applyVlcBrightnessLive);
     }
 
     /** JNI tweak only — never stop/setMedia (that skips / can SIGSEGV). */
     private void applyVlcBrightnessLive() {
         if (vlcPlayer == null || disposed) return;
+        // Neutral brightness must NOT enable the VLC adjust filter. The filter
+        // conflicts with hardware HEVC decode and produced the generic
+        // "unavailable or expired" error on every MKV stream.
+        if (effectsNeutral) return;
         try {
             if (vlcPlayer.isReleased()) return;
             long ptr = vlcPlayer.getInstance();
@@ -286,12 +311,14 @@ public class ChanPlayerEngine {
         }
     }
 
-    /** Apply the adjust filter via libVLC media options. ALWAYS adds the
-     *  filter (even at neutral) so the pipeline has it from media start —
-     *  runtime JNI calls then only tweak values, never insert the filter
-     *  mid-stream (which would restart the vout and could crash). */
+    /** Apply the adjust filter via libVLC media options ONLY when effects are
+     *  non-neutral. A neutral pipeline must stay filter-free: the always-on
+     *  adjust filter conflicts with hardware HEVC decode and produced the
+     *  generic "unavailable or expired" error on every MKV stream. When the
+     *  user later changes brightness, the JNI bridge enables the filter at
+     *  runtime (applyVlcBrightnessLive) without re-preparing media. */
     private void addAdjustOptions(Media media) {
-        if (media == null) return;
+        if (effectsNeutral || media == null) return;
         try {
             media.addOption(":video-filter=adjust");
             media.addOption(":adjust-brightness=" + Math.max(0f, Math.min(2f, lastBrightness)));
@@ -647,15 +674,21 @@ public class ChanPlayerEngine {
             if (exoView != null) {
                 exoView.setPlayer(exoPlayer);
             }
-            // Install the live RGB matrix ONCE. Later slider ticks only
-            // mutate liveBrightness — calling setVideoEffects again would
-            // rebuild the video renderer and skip.
-            try {
-                liveBrightness.setBrightness(lastBrightness);
-                exoPlayer.setVideoEffects(java.util.Collections.singletonList(liveBrightness));
-            } catch (Throwable t) {
-                // Some GPUs reject the effect graph — never let that kill the app.
-                Log.e(TAG, "Could not install live brightness matrix", t);
+            // New player → no GL effect installed yet.
+            exoEffectInstalled = false;
+            // Install the live RGB matrix ONLY when brightness is non-neutral.
+            // A neutral pipeline must stay effect-free (the always-on effect
+            // graph broke playback on some GPUs). Slider ticks later mutate
+            // liveBrightness; the graph is installed/removed in setVideoEffects.
+            if (!effectsNeutral) {
+                try {
+                    liveBrightness.setBrightness(lastBrightness);
+                    exoPlayer.setVideoEffects(java.util.Collections.singletonList(liveBrightness));
+                    exoEffectInstalled = true;
+                } catch (Throwable t) {
+                    // Some GPUs reject the effect graph — never let that kill the app.
+                    Log.e(TAG, "Could not install live brightness matrix", t);
+                }
             }
 
             exoPlayer.addListener(new Player.Listener() {
@@ -822,6 +855,7 @@ public class ChanPlayerEngine {
             try { exoPlayer.release(); } catch (Throwable t) { Log.w(TAG, "exo release failed", t); }
             exoPlayer = null;
         }
+        exoEffectInstalled = false;
     }
 
     private void releaseVlc() {
