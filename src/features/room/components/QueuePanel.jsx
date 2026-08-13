@@ -4,6 +4,8 @@ import { Plus, Trash2, Play, Search, Film, Youtube, Link2, Loader2, RefreshCw } 
 import { db } from '../../../shared/lib/firebase.js'
 import { useUnifiedSearch } from '../../../hooks/useUnifiedSearch.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, extractVideoId, getThumbnail } from '../../../shared/lib/youtube.js'
+import { isSeasonalResult, isStandaloneResult } from '../../../shared/lib/mediaType.js'
+import { cleanMediaTitle } from '../../../shared/lib/titleFormat.js'
 import { Input } from '../../../shared/ui/index.js'
 import styles from './QueuePanel.module.scss'
 import { apiPath } from '../../../shared/lib/api.js'
@@ -69,6 +71,41 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
     }
   }, [expandedSeasons, user, toast])
 
+  /** Resolve a Nkiri movie page to its playable file. Returns
+   *  { url, title, thumbnail } or null. Never surfaces raw filenames. */
+  const resolveNkiriMovie = useCallback(async (item) => {
+    const pageUrl = item.url || item.link
+    if (!pageUrl) {
+      toast('This result has no link', { variant: 'error' })
+      return null
+    }
+    try {
+      const token = await user.getIdToken()
+      const res = await fetch(apiPath('/api/media'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'scrape', url: pageUrl, options: { resolve: true } }),
+      })
+      const data = await res.json()
+      const direct = (data.results || []).find((r) => r.isDirect || r.playableInRoom || /\/api\/proxy\?/i.test(r.url || ''))
+        || (data.results || [])[0]
+      if (!direct?.url) {
+        toast('Could not resolve a playable link for this movie', { variant: 'error' })
+        return null
+      }
+      return {
+        title: cleanMediaTitle(direct.title || item.title) || 'Movie',
+        url: normalizePlaybackUrl(direct.url),
+        thumbnail: direct.thumbnail || item.thumbnail || null,
+        videoType: 'direct',
+        source: 'nkiri',
+      }
+    } catch (err) {
+      toast(err.message || 'Could not resolve movie', { variant: 'error' })
+      return null
+    }
+  }, [user, toast])
+
   /** Add an item to the queue. Returns { id, payload } so callers can play it
    *  immediately, or null if nothing was queued. */
   const addToQueue = useCallback(async (item, episode = null) => {
@@ -90,9 +127,17 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
       videoType = 'direct'
       item = episode // Use episode data for title/thumbnail
     } else if (/thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '')) {
-      // Nkiri season page - fetch and show episodes
-      await fetchEpisodes(item.url || item.link)
-      return null
+      // Nkiri page — seasonal shows expand into an episode list; standalone
+      // movies resolve straight to the playable file (never a nested card).
+      if (isSeasonalResult(item)) {
+        await fetchEpisodes(item.url || item.link)
+        return null
+      }
+      const resolved = await resolveNkiriMovie(item)
+      if (!resolved) return null
+      videoUrl = resolved.url
+      videoType = 'direct'
+      item = resolved // title/thumbnail from the resolved file
     } else if (item.isDirect || isDirectVideoUrl(item.url || item.link)) {
       videoUrl = normalizePlaybackUrl(item.url || item.link)
       videoType = 'direct'
@@ -121,7 +166,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
       toast(err.message || 'Could not add to queue', { variant: 'error' })
       return null
     }
-  }, [queue.length, activeTab, user, roomId, toast, fetchEpisodes])
+  }, [queue.length, activeTab, user, roomId, toast, fetchEpisodes, resolveNkiriMovie])
 
   /** Add to queue AND start playing it right away (host/co-host). */
   const addAndPlay = useCallback(async (item, episode = null) => {
@@ -189,14 +234,20 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
   }, [searchQuery, activeTab, view, search, toast, addToQueue, onChangeVideo])
 
   /** Resolve a search result to a playable URL and change the current video. */
-  const changeToResult = useCallback((item) => {
+  const changeToResult = useCallback(async (item) => {
+    // Standalone Nkiri movie → resolve the page to a playable file first.
+    if (/thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '') && isStandaloneResult(item)) {
+      const resolved = await resolveNkiriMovie(item)
+      if (resolved?.url) onChangeVideo(resolved.url)
+      return
+    }
     const url = item.url || item.link || (item.id ? `https://youtube.com/watch?v=${item.id}` : '')
     if (!url) {
       toast('This item has no playable link', { variant: 'error' })
       return
     }
     onChangeVideo(url)
-  }, [onChangeVideo, toast])
+  }, [onChangeVideo, resolveNkiriMovie, toast])
 
   const removeFromQueue = useCallback(async (item) => {
     if (!canControl && item.addedByUid !== user?.uid) {
@@ -303,12 +354,17 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
             {results.map((item, idx) => {
               const thumb = item.thumbnail || item.image || null
               const isFull = queue.length >= 5
-              const isNkiri = /thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '')
+              const isNkiriPage = /thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '')
+              const seasonal = isSeasonalResult(item)
+              const standalone = isStandaloneResult(item)
+              const showExpand = isNkiriPage && seasonal
               const isExpanded = expandedSeasons[item.url || item.link]
               const isLoading = loadingEpisodes[item.url || item.link]
               const episodes = isExpanded || []
+              // Standalone Nkiri movies are playable too (resolved on click).
               const playable = (item.type || activeTab) === 'youtube' && (item.id || extractVideoId(item.url))
                 || item.isDirect || isDirectVideoUrl(item.url || item.link)
+                || (isNkiriPage && standalone)
 
               return (
                 <div key={idx}>
@@ -325,7 +381,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
                       <span className={styles.cardMeta}>{item.source || activeTab} · {item.duration || 'Video'}</span>
                     </div>
 
-                    {isNkiri ? (
+                    {showExpand ? (
                       <button
                         type="button"
                         className={styles.addBtn}
@@ -376,7 +432,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
                       {episodes.map((ep, epIdx) => (
                         <div key={epIdx} className={styles.episodeCard}>
                           <div className={styles.episodeInfo}>
-                            <span className={styles.episodeTitle}>{ep.title}</span>
+                            <span className={styles.episodeTitle}>{cleanMediaTitle(ep.title) || 'Episode'}</span>
                           </div>
                           {view === 'change' ? (
                             <button

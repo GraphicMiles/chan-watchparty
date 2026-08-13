@@ -57,6 +57,9 @@ export function useScraper() {
         isDirect: true,
         quality: extractQualityFromFilename(fileName),
         playableInRoom: true,
+        o2tvKind: 'direct',
+        type: 'direct',
+        requiresEpisodes: false,
       }])
       setError(null)
       return
@@ -126,6 +129,14 @@ export function useScraper() {
           requiresUserAction: item.requiresUserAction === true,
           quality: item.quality || extractQualityFromText(`${item.title || ''} ${item.meta || ''}`),
           playableInRoom: playable,
+          // Preserve classification fields — shared mediaType.js uses them to
+          // tell seasonal/series results from standalone movies/files.
+          o2tvKind: item.o2tvKind || null,
+          type: item.type || null,
+          requiresEpisodes: item.requiresEpisodes === true,
+          provider: item.provider || item.source || site || null,
+          episodeCount: Number(item.episodeCount) || 0,
+          count: Number(item.count) || 0,
         }
       })
 
