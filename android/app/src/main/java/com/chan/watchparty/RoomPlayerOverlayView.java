@@ -38,7 +38,8 @@ public class RoomPlayerOverlayView extends FrameLayout {
     private VLCVideoLayout vlcLayout;
     private TextView statusView;
     private TextView subtitleText;
-    private View dimView; // brightness dim layer — pure UI, never touches the engine
+    private View dimView; // 0–100% black multiply — pure UI, never touches the engine
+    private View boostView; // 100–200% white screen blend — pure UI, no decoder touch
 
     // Brightness popup — a native-drawn panel rendered OVER the video surface
     // (the only layer that can actually sit above it). Real brightness is
@@ -145,10 +146,31 @@ public class RoomPlayerOverlayView extends FrameLayout {
         dimView = new View(context);
         dimView.setBackgroundColor(Color.BLACK);
         dimView.setAlpha(0f);
+        dimView.setClickable(false);
         addView(dimView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
+
+        // Brighten without touching Exo/VLC (setVideoEffects / VLC rebuild
+        // restart the decoder → skip + rebuffer). SCREEN blend on a white
+        // layer lifts midtones the same way CSS brightness() > 1 does.
+        boostView = new View(context);
+        boostView.setBackgroundColor(Color.WHITE);
+        boostView.setAlpha(0f);
+        boostView.setClickable(false);
+        android.graphics.Paint boostPaint = new android.graphics.Paint();
+        boostPaint.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SCREEN));
+        boostView.setLayerType(LAYER_TYPE_HARDWARE, boostPaint);
+        addView(boostView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
+        // Popup must be able to overflow the video box (it's often shorter
+        // than the panel). We reparent to the window decor when showing.
+        setClipChildren(false);
+        setClipToPadding(false);
 
         buildBrightnessPopup(context);
 
@@ -291,16 +313,10 @@ public class RoomPlayerOverlayView extends FrameLayout {
         timeTotal.setTextSize(12f);
         timeTotal.setPadding(dp(4), 0, dp(8), 0);
 
-        btnFullscreen = new TextView(context);
-        btnFullscreen.setText("⛶");
-        btnFullscreen.setTextColor(Color.WHITE);
-        btnFullscreen.setTextSize(16f);
-        btnFullscreen.setPadding(dp(8), dp(2), dp(6), dp(2));
-        btnFullscreen.setContentDescription("Fullscreen");
-        btnFullscreen.setOnClickListener(v -> {
-            if (fullscreenListener != null) fullscreenListener.onToggleFullscreen();
-            resetControlsTimer();
-        });
+        // No fullscreen icon on the native chrome — the app bar / FS
+        // controls WebView already have one. A second ⛶ here is the
+        // "duplicate top fullscreen icon" the user sees on the surface.
+        btnFullscreen = null;
 
         btnPip = new TextView(context);
         btnPip.setText("PiP");
@@ -434,9 +450,18 @@ public class RoomPlayerOverlayView extends FrameLayout {
      * the engine. Brightening (>100%) is handled by the engine itself
      * (Exo live Brightness effect / VLC adjust via JNI).
      */
+    /**
+     * Visual-only brightness 0..2 (0%..200%). Never touches Exo/VLC.
+     *   0–1: black multiply (alpha = 1-b)
+     *   1–2: white SCREEN layer (alpha scales with extra)
+     */
     public void setBrightnessDim(float brightness) {
-        float b = Math.max(0f, Math.min(1f, brightness));
-        if (dimView != null) dimView.setAlpha(1f - b);
+        float b = Math.max(0f, Math.min(2f, brightness));
+        if (dimView != null) dimView.setAlpha(b < 1f ? (1f - b) : 0f);
+        if (boostView != null) {
+            float extra = b > 1f ? (b - 1f) : 0f; // 0..1
+            boostView.setAlpha(extra * 0.55f);
+        }
     }
 
     /** Build the centered brightness popup (scrim + panel + slider). */
@@ -499,8 +524,8 @@ public class RoomPlayerOverlayView extends FrameLayout {
         sliderRow.setGravity(Gravity.CENTER_VERTICAL);
 
         brightnessSeek = new SeekBar(context);
-        brightnessSeek.setMax(150); // 50..200
-        brightnessSeek.setProgress(50);
+        brightnessSeek.setMax(200); // 0..200
+        brightnessSeek.setProgress(100);
         brightnessValue = new TextView(context);
         brightnessValue.setText("100%");
         brightnessValue.setTextColor(0xFFF5F5F7);
@@ -519,7 +544,7 @@ public class RoomPlayerOverlayView extends FrameLayout {
 
         // Hint
         TextView hint = new TextView(context);
-        hint.setText("50% – 200%");
+        hint.setText("0% – 200%");
         hint.setTextColor(0xFFA6A6B0);
         hint.setTextSize(10.5f);
         hint.setGravity(Gravity.CENTER);
@@ -552,13 +577,64 @@ public class RoomPlayerOverlayView extends FrameLayout {
     /** Show/hide the brightness popup (video keeps playing — it's just an overlay). */
     public void showBrightnessPopup(boolean visible, float brightness) {
         if (visible) {
-            lastBrightness = Math.max(0.5f, Math.min(2f, brightness));
-            if (brightnessSeek != null) brightnessSeek.setProgress(Math.round((lastBrightness - 0.5f) * 100f));
+            lastBrightness = Math.max(0f, Math.min(2f, brightness));
+            if (brightnessSeek != null) brightnessSeek.setProgress(Math.round(lastBrightness * 100f));
             if (brightnessValue != null) brightnessValue.setText(Math.round(lastBrightness * 100f) + "%");
+            // Reparent onto the window so the panel is not clipped to the
+            // (often short) video rect — that was "tap does nothing".
+            attachPopupToWindow();
+        } else {
+            detachPopupFromWindow();
         }
         if (brightnessScrim != null) brightnessScrim.setVisibility(visible ? VISIBLE : GONE);
         if (brightnessPopup != null) brightnessPopup.setVisibility(visible ? VISIBLE : GONE);
+        if (visible) {
+            if (brightnessScrim != null) brightnessScrim.bringToFront();
+            if (brightnessPopup != null) brightnessPopup.bringToFront();
+        }
         if (!visible && brightnessPopupListener != null) brightnessPopupListener.onBrightnessPopupClosed();
+    }
+
+    private void attachPopupToWindow() {
+        View root = getRootView();
+        if (!(root instanceof ViewGroup) || brightnessScrim == null || brightnessPopup == null) return;
+        ViewGroup decor = (ViewGroup) root;
+        reparent(brightnessScrim, decor, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        FrameLayout.LayoutParams popupLp = new FrameLayout.LayoutParams(
+                dp(290),
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+        );
+        reparent(brightnessPopup, decor, popupLp);
+        brightnessScrim.setElevation(40f);
+        brightnessPopup.setElevation(41f);
+    }
+
+    private void detachPopupFromWindow() {
+        if (brightnessScrim == null || brightnessPopup == null) return;
+        reparent(brightnessScrim, this, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        reparent(brightnessPopup, this, new FrameLayout.LayoutParams(
+                dp(290),
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+        ));
+    }
+
+    private void reparent(View child, ViewGroup newParent, ViewGroup.LayoutParams lp) {
+        if (child == null || newParent == null) return;
+        ViewGroup old = child.getParent() instanceof ViewGroup ? (ViewGroup) child.getParent() : null;
+        if (old == newParent) {
+            child.setLayoutParams(lp);
+            return;
+        }
+        if (old != null) old.removeView(child);
+        newParent.addView(child, lp);
     }
 
     /** Hide the popup programmatically (used by the scrim tap). */
@@ -574,6 +650,7 @@ public class RoomPlayerOverlayView extends FrameLayout {
 
     public void teardown() {
         handler.removeCallbacksAndMessages(null);
+        try { detachPopupFromWindow(); } catch (Exception ignored) { }
         if (engine != null) {
             engine.release();
             engine = null;

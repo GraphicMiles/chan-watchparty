@@ -203,19 +203,11 @@ public class VideoPlayerPlugin extends Plugin {
     private float lastEngineBrightness = 1f;
 
     private void applyBrightness(float brightness) {
-        float b = Math.max(0.5f, Math.min(2f, brightness));
+        // 0..2 visual only. Engine Brightness / VLC adjust-rebuild skip
+        // and rebuffer the stream — never call them from the slider.
+        float b = Math.max(0f, Math.min(2f, brightness));
         if (overlay != null) overlay.setBrightnessDim(b);
-        // Engine effect only when the ENGINE value actually changes:
-        // <=100% is the dim overlay (real multiply, no engine call);
-        // >100% needs the engine effect. Crossing back below 100% resets
-        // the engine to neutral. This keeps the JNI hot path minimal.
-        boolean needEngine = b > 1.001f || lastEngineBrightness > 1.001f;
-        if (needEngine && engine != null && Math.abs(b - lastEngineBrightness) > 0.001f) {
-            engine.setVideoEffects(b, 1f, 1f, 0f);
-            lastEngineBrightness = b;
-        } else if (!needEngine) {
-            lastEngineBrightness = 1f;
-        }
+        lastEngineBrightness = b;
     }
 
     @PluginMethod
@@ -584,6 +576,7 @@ public class VideoPlayerPlugin extends Plugin {
                 // (the layered fullscreen-controls WebView) drive everything.
                 overlay.setInteractive(false);
                 overlay.setVisible(true);
+                try { overlay.showBrightnessPopup(false, lastEngineBrightness); } catch (Exception ignored) { }
                 hideSystemUi();
                 // Show the in-app styled controls above the surface.
                 ensureFsControls();

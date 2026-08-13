@@ -50,9 +50,8 @@
     <div class="topbar">
       <span class="title" id="title">Chan Video</span>
       <span class="live hidden" id="liveChip"><span class="dot"></span>LIVE</span>
-      <button class="btn" id="btnRotate" title="Rotate orientation">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
-      </button>
+      <!-- Rotate lives on the bottom row with minimize — a second expand-style
+           icon here was the duplicate "fullscreen" control. -->
     </div>
     <div class="bottom">
       <div class="row">
@@ -64,6 +63,9 @@
         <span class="time" id="dur">0:00</span>
         <button class="btn" id="btnFs" title="Minimize">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
+        <button class="btn" id="btnRotate" title="Rotate orientation">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
         </button>
         <button class="btn" id="btnEye" title="Secondary controls">
           <svg id="eyeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -81,8 +83,8 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>+10s
         </button>
         <span class="bright-box">
-          <button class="mini" id="btnBright" title="Brightness (50%..200%)">☀</button>
-          <input type="range" class="vol" id="brightSlider" min="50" max="200" value="100" title="Brightness">
+          <button class="mini" id="btnBright" title="Brightness (0%..200%)">☀</button>
+          <input type="range" class="vol" id="brightSlider" min="0" max="200" value="100" title="Brightness">
           <span class="bright-val" id="brightVal">100%</span>
         </span>
         <button class="mini" id="btnCC" title="Closed captions">CC</button>
