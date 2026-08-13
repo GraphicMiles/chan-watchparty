@@ -307,7 +307,9 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
       return
     }
     try {
-      onPlayNext(item)
+      // Wait for resolve + room write. Deleting first dropped the item
+      // when resolve failed (and raced the player onto a page URL).
+      await onPlayNext(item)
       await deleteDoc(doc(db, 'rooms', roomId, 'queue', item.id))
     } catch (err) {
       toast(err.message || 'Could not play queue item', { variant: 'error' })

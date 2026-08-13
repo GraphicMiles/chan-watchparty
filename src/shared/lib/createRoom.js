@@ -61,18 +61,16 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
 
     // Always resolve DownloadWella pages at create time (same helper as
     // queue play-now). Already-resolved CDN urls with no page are left as-is.
-    const rawVideoUrl = proxyTargetUrl(videoUrl)
     pageUrl = content?.sourceUrl ? proxyTargetUrl(content.sourceUrl) : ''
-    if ((pageUrl && /downloadwella\.com|fsmc/i.test(pageUrl)) || isDownloadPageUrl(rawVideoUrl)) {
-      const resolved = await resolvePlaybackForUser(user, {
-        url: videoUrl,
-        sourceUrl: pageUrl || (isDownloadPageUrl(rawVideoUrl) ? rawVideoUrl : null),
-        title: content?.title || 'Chan video',
-      })
-      videoUrl = resolved.videoUrl
-      mediaDescriptor = resolved.media
-      pageUrl = resolved.sourceUrl || pageUrl
-    }
+    const resolved = await resolvePlaybackForUser(user, {
+      url: videoUrl,
+      videoUrl,
+      sourceUrl: pageUrl || null,
+      title: content?.title || 'Chan video',
+    })
+    videoUrl = resolved.videoUrl
+    mediaDescriptor = resolved.media
+    pageUrl = resolved.sourceUrl || pageUrl
 
     if (isDownloadPageUrl(videoUrl)) {
       throw new Error('The download link is a page, not a video file — it may be expired. Go back and pick the episode again.')

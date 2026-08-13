@@ -3,7 +3,15 @@ import {
   proxyTargetUrl,
   isDownloadPageUrl,
   resolveDownloadDescriptor,
+  mediaPost,
 } from './mediaApi.js'
+
+function isNkiriHtmlPage(url) {
+  const raw = proxyTargetUrl(url)
+  if (!raw || typeof raw !== 'string') return false
+  if (!/thenkiri\.com|nkiri\.com/i.test(raw)) return false
+  return !isDirectVideoUrl(raw)
+}
 
 /**
  * Shared playback resolve — same contract as createRoom.
@@ -55,7 +63,10 @@ export function mediaDocFromDescriptor(descriptor, fallbackSourceUrl = null) {
  *   isM3u8: boolean,
  * }}
  */
-export async function resolvePlaybackForUser(user, item = {}) {
+export async function resolvePlaybackForUser(user, item = {}, depth = 0) {
+  if (depth > 2) {
+    throw new Error('Could not resolve a playable link — pick the episode again.')
+  }
   const title = item.title || item.label || 'Chan video'
   const page = pickSourceUrl(item)
   const rawUrl = proxyTargetUrl(item.videoUrl || item.url || item.link || '')
@@ -75,6 +86,27 @@ export async function resolvePlaybackForUser(user, item = {}) {
     }
   }
 
+  // Nkiri/thenkiri HTML is a listing page, not a file. Scrape it, then
+  // resolve the first downloadwella/direct hit — never proxy the HTML.
+  const nkiriPage = [item.sourceUrl, item.url, item.link, item.videoUrl].find(isNkiriHtmlPage)
+  if (nkiriPage && user) {
+    const data = await mediaPost(user, { action: 'scrape', url: nkiriPage, options: { resolve: true }, title })
+    const list = data.results || []
+    const best = list.find((r) => r && (r.isDirect || r.playableInRoom || r.isDirectMedia || isDirectVideoUrl(r.url || r.link)))
+      || list.find((r) => r && (isDownloadPageUrl(r.url || r.link) || /downloadwella\.com|fsmc/i.test(r.url || r.link || '')))
+      || list[0]
+    if (!best?.url && !best?.link) {
+      throw new Error('Could not resolve a playable link for this title. Pick the episode again.')
+    }
+    const hit = best.url || best.link
+    return resolvePlaybackForUser(user, {
+      title,
+      url: hit,
+      sourceUrl: isDownloadPageUrl(hit) ? proxyTargetUrl(hit) : null,
+      videoUrl: isDirectVideoUrl(hit) ? hit : null,
+    }, depth + 1)
+  }
+
   if (!rawUrl) {
     throw new Error('This item has no playable link')
   }
@@ -85,6 +117,11 @@ export async function resolvePlaybackForUser(user, item = {}) {
 
   if (!isDirectVideoUrl(rawUrl) && !/^https?:\/\//i.test(rawUrl) && !/\/api\/proxy\?/i.test(rawUrl)) {
     throw new Error('Paste a valid YouTube URL or a direct video link (.mp4, .mkv, etc.)')
+  }
+
+  // Last-resort guard: never hand an HTML listing to the proxy.
+  if (isNkiriHtmlPage(rawUrl)) {
+    throw new Error('Could not resolve a playable link — pick the episode again.')
   }
 
   return {
