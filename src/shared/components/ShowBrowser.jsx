@@ -7,6 +7,7 @@ import { isO2TvUrl, isDirectVideoUrl, normalizePlaybackUrl, getThumbnail } from 
 import { isSuitableThumbnail } from '../lib/mediaHelper.js'
 import { cleanMediaTitle } from '../lib/titleFormat.js'
 import { mediaPost, resolveDownloadLink, friendlyApiError, proxyTargetUrl } from '../lib/mediaApi.js'
+import { isSeasonalResult, isStandaloneResult, isMovieTitle } from '../lib/mediaType.js'
 import { useToast } from '../ui/index.js'
 
 function parseShowSlugFromUrl(value) {
@@ -201,6 +202,43 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     }
   }, [user, showSlug, showName, showThumb])
 
+  /**
+   * Resolve a standalone Nkiri MOVIE page to a playable file and emit it —
+   * never expose the page's raw filename as a UI row.
+   */
+  const resolveNkiriMovie = useCallback(async (item, pageUrl, title, thumb) => {
+    const url = pageUrl || item?.url || item?.link
+    if (!url) {
+      toast('This result has no link.', { variant: 'warning' })
+      return null
+    }
+    setResolvingIdx(-1)
+    setBrowseError(null)
+    try {
+      const scraped = await mediaPost(user, { action: 'scrape', url, options: { resolve: true } })
+      const direct = (scraped.results || []).find((r) => r.isDirect || r.playableInRoom || /\/api\/proxy\?/i.test(r.url || ''))
+        || (scraped.results || [])[0]
+      if (!direct?.url) throw new Error('Could not resolve a playable link for this movie')
+      emit({
+        kind: 'direct',
+        url: normalizePlaybackUrl(direct.url),
+        title: cleanMediaTitle(title) || cleanMediaTitle(item?.title) || 'Direct video',
+        thumbnail: safeThumb(thumb || direct.thumbnail || item?.thumbnail),
+        videoType: 'direct',
+        source: item?.source || 'nkiri',
+        sourceUrl: url, // keep the page URL so re-resolve can get a fresh token
+        meta: direct.meta || null,
+      })
+      toast('Movie ready', { variant: 'success' })
+      return direct
+    } catch (err) {
+      setBrowseError(friendlyApiError(err.message || 'Failed to resolve movie'))
+      return null
+    } finally {
+      setResolvingIdx(null)
+    }
+  }, [user, emit, toast])
+
   const loadNkiriEpisodes = useCallback(async (showUrl, showNameArg) => {
     const reqId = ++abortRef.current
     setBrowseLoading(true)
@@ -212,6 +250,20 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       const data = await mediaPost(user, { action: 'scrape', url: showUrl })
       if (reqId !== abortRef.current) return
       const list = (data.results || []).filter((r) => r.url)
+
+      // Standalone movie guard: a Nkiri MOVIE page returns exactly one
+      // download link whose title is the raw filename. That is backend
+      // metadata, not a UI row — resolve it directly and emit, instead of
+      // rendering a single nested raw-filename card.
+      if (list.length === 1 && isMovieTitle(list[0].title || '')) {
+        await resolveNkiriMovie({ title: list[0].title || showNameArg }, list[0].url, showNameArg || 'Movie', null)
+        if (reqId === abortRef.current) {
+          setStage(null)
+          setEpisodes([])
+        }
+        return
+      }
+
       setEpisodes(list.map((r, i) => ({
         episodeNum: i + 1,
         title: r.title || `Episode ${i + 1}`,
@@ -226,7 +278,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     } finally {
       if (reqId === abortRef.current) setBrowseLoading(false)
     }
-  }, [user])
+  }, [user, resolveNkiriMovie])
 
   const resolveO2Episode = useCallback(async (ep, idx) => {
     if (!ep) return
@@ -376,9 +428,14 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       }
     }
 
-    // Nkiri show page → flat episodes
+    // Nkiri page → seasonal shows drill into the episode list; standalone
+    // movies resolve directly (no nested raw-filename card ever shown).
     if ((item.source === 'nkiri' || /thenkiri\.com|nkiri\.com/i.test(candidateStr)) && !isDirectVideoUrl(candidateStr)) {
-      await loadNkiriEpisodes(candidateStr, itemTitle || 'TV Show')
+      if (isSeasonalResult(item)) {
+        await loadNkiriEpisodes(candidateStr, itemTitle || 'TV Show')
+      } else {
+        await resolveNkiriMovie(item, candidateStr, itemTitle, thumb)
+      }
       return
     }
 
@@ -431,7 +488,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     }
 
     toast('That result has no usable URL.', { variant: 'warning' })
-  }, [emit, user, toast, loadSeasons, loadNkiriEpisodes, scrape])
+  }, [emit, user, toast, loadSeasons, loadNkiriEpisodes, resolveNkiriMovie, scrape])
 
   // ── Imperative API (used by CreateRoomPage presets / pasted O2TV URLs) ──
 
@@ -586,28 +643,35 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       <div className={styles.group}>
         <div className={styles.resultList}>
           {results.map((item, idx) => {
-            const playable = (item.source === 'youtube' && item.id) || item.isDirect || isDirectVideoUrl(item.link || item.url)
             const thumb = safeThumb(item.thumbnail || item.image) || (item.source === 'youtube' && item.id ? getThumbnail(item.id) : null)
-            const isShow = item.o2tvKind === 'show' || item.source === 'o2tv'
+            const seasonal = isSeasonalResult(item)
+            const standalone = isStandaloneResult(item)
+            const isNkiriPage = item.source === 'nkiri' || /thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '')
+            // Standalone movies are directly playable (resolved on click) —
+            // only genuine series pages stay muted until the drill opens.
+            const playable = (item.source === 'youtube' && item.id)
+              || item.isDirect
+              || isDirectVideoUrl(item.link || item.url)
+              || (isNkiriPage && standalone)
             const sourceKey = item.source === 'youtube'
               ? 'youtube'
-              : isShow
+              : seasonal
                 ? 'o2tv'
                 : item.source === 'nkiri'
                   ? 'nkiri'
                   : 'direct'
             const chipLabel = item.source === 'youtube'
               ? '▶ YouTube'
-              : isShow
+              : seasonal
                 ? 'TV Show'
-                : item.source === 'nkiri'
-                  ? 'Nkiri'
+                : isNkiriPage
+                  ? 'Movie'
                   : playable
                     ? 'Direct'
                     : 'Media page'
             const watchLabel = item.source === 'youtube'
               ? 'Watch'
-              : isShow
+              : seasonal
                 ? 'Seasons'
                 : playable
                   ? 'Watch'
