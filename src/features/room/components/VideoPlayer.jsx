@@ -302,7 +302,7 @@ export default function VideoPlayer({
   const handleBrightnessChange = useCallback((e) => {
     e?.stopPropagation()
     const val = Number(e.target.value) / 100
-    setBrightnessMultiplier(Math.max(0.5, Math.min(2, val)))
+    setBrightnessMultiplier(Math.max(0, Math.min(2, val)))
   }, [])
 
   const [brightnessPop, setBrightnessPop] = useState(false)
@@ -334,7 +334,7 @@ export default function VideoPlayer({
     let cancelled = false
     VideoPlayerPlugin.addListener('brightnessChanged', (e) => {
       if (typeof e?.brightness === 'number' && !cancelled) {
-        setBrightnessMultiplier(Math.max(0.5, Math.min(2, e.brightness)))
+        setBrightnessMultiplier(Math.max(0, Math.min(2, e.brightness)))
       }
     }).then((l) => { if (cancelled) { try { l?.remove?.() } catch {} } else removeChanged = l?.remove })
     VideoPlayerPlugin.addListener('brightnessPopupClosed', () => {
@@ -1546,18 +1546,10 @@ export default function VideoPlayer({
           onPointerDown={handlePointerTouch}
           onContextMenu={(e) => e.preventDefault()}
         >
-          {/* Fullscreen top bar: title + rotate (the exit/fullscreen toggle
-              lives on the bottom bar — one fullscreen icon only) */}
+          {/* Title only — exit/fullscreen lives on the bottom bar so there
+              is never a second fullscreen-looking icon in the top corner. */}
           <div className={styles.overlayTopBar} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
             <span className={styles.overlayTitle}>Chan Video</span>
-            <button
-              type="button"
-              className={styles.overlayFullscreenBtn}
-              onClick={rotateOrientation}
-              title="Rotate orientation (landscape ⇄ portrait)"
-            >
-              <RotateCw size={16} />
-            </button>
           </div>
           <div className={styles.overlayControlsStack}>
             {showSecondaryControls && (
@@ -1619,7 +1611,7 @@ export default function VideoPlayer({
                   type="button"
                   className={`${styles.controlIconBtn} ${brightnessMultiplier !== 1 ? styles.activeBrightnessBtn : ''}`}
                   onClick={(e) => { e.stopPropagation(); toggleBrightnessPopup() }}
-                  title="Brightness (50%..200%)"
+                  title="Brightness (0%..200%)"
                 >
                   <Sun size={16} style={{ color: brightnessMultiplier !== 1 ? '#FAB005' : 'inherit' }} />
                   <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
@@ -1640,7 +1632,7 @@ export default function VideoPlayer({
                         <Sun size={13} style={{ color: 'var(--room-text-secondary)' }} />
                         <input
                           type="range"
-                          min="50"
+                          min="0"
                           max="200"
                           value={Math.round(brightnessMultiplier * 100)}
                           onChange={handleBrightnessChange}
@@ -1649,7 +1641,7 @@ export default function VideoPlayer({
                         />
                         <span className={styles.popupSliderVal}>{Math.round(brightnessMultiplier * 100)}%</span>
                       </div>
-                      <span className={styles.brightnessHint}>50% – 200%</span>
+                      <span className={styles.brightnessHint}>0% – 200%</span>
                     </div>
                   </div>
                 )}
@@ -1940,7 +1932,7 @@ export default function VideoPlayer({
               type="button"
               className={`${styles.controlIconBtn} ${brightnessMultiplier !== 1 ? styles.activeBrightnessBtn : ''}`}
               onClick={(e) => { e.stopPropagation(); toggleBrightnessPopup() }}
-              title="Brightness (50%..200%)"
+              title="Brightness (0%..200%)"
             >
               <Sun size={16} style={{ color: brightnessMultiplier !== 1 ? '#FAB005' : 'inherit' }} />
               <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
@@ -1961,7 +1953,7 @@ export default function VideoPlayer({
                     <Sun size={13} style={{ color: 'var(--room-text-secondary)' }} />
                     <input
                       type="range"
-                      min="50"
+                      min="0"
                       max="200"
                       value={Math.round(brightnessMultiplier * 100)}
                       onChange={handleBrightnessChange}
@@ -1970,7 +1962,7 @@ export default function VideoPlayer({
                     />
                     <span className={styles.popupSliderVal}>{Math.round(brightnessMultiplier * 100)}%</span>
                   </div>
-                  <span className={styles.brightnessHint}>50% – 200%</span>
+                  <span className={styles.brightnessHint}>0% – 200%</span>
                 </div>
               </div>
             )}
