@@ -39,6 +39,7 @@ public class RoomPlayerOverlayView extends FrameLayout {
     private TextView statusView;
     private TextView subtitleText;
     private View dimView; // brightness dim layer — pure UI, never touches the engine
+    private View brightenView; // brightness brighten layer (white wash) — pure UI too
 
     private LinearLayout controlsBar;
     private ImageButton btnPlayPause;
@@ -129,6 +130,19 @@ public class RoomPlayerOverlayView extends FrameLayout {
         dimView.setBackgroundColor(Color.BLACK);
         dimView.setAlpha(0f);
         addView(dimView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
+        // Brightness brighten layer — a translucent WHITE view. A white wash
+        // with alpha a outputs video*(1-a) + white*a = video + a*(1-video),
+        // which brightens the image exactly like a screen blend. PURE UI —
+        // no engine Brightness effect, no media re-prepare, so playback can
+        // never skip/freeze/rebuffer on the >100% path.
+        brightenView = new View(context);
+        brightenView.setBackgroundColor(Color.WHITE);
+        brightenView.setAlpha(0f);
+        addView(brightenView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
@@ -410,13 +424,17 @@ public class RoomPlayerOverlayView extends FrameLayout {
     }
 
     /**
-     * Brightness via dim overlay. brightness 0..1 (1 = full, no dim);
-     * the dim layer alpha = 1 - brightness. Pure UI — never re-prepares
-     * the engine, so it can't interrupt playback on either Exo or VLC.
+     * Brightness via pure overlay layers — 0.5..2 (50%..200%).
+     *   <= 1.0  → black dim layer (alpha = 1 - b) darkens the output.
+     *   >  1.0  → white brighten layer (alpha = (b - 1) * 0.8) washes the
+     *             output brighter.
+     * NEVER touches the engine, NEVER re-prepares media — playback can't
+     * skip, freeze or rebuffer at any brightness level.
      */
     public void setBrightnessDim(float brightness) {
-        float b = Math.max(0f, Math.min(1f, brightness));
-        if (dimView != null) dimView.setAlpha(1f - b);
+        float b = Math.max(0.5f, Math.min(2f, brightness));
+        if (dimView != null) dimView.setAlpha(b <= 1f ? (1f - b) : 0f);
+        if (brightenView != null) brightenView.setAlpha(b > 1f ? Math.min(0.8f, (b - 1f) * 0.8f) : 0f);
     }
 
     // ── Teardown ─────────────────────────────────────────────────────────

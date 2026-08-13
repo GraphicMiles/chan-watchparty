@@ -192,16 +192,11 @@ public class VideoPlayerPlugin extends Plugin {
      *    path touches the engine, and it's debounced so it can't hiccup.
      */
     private void applyBrightness(float brightness) {
-        float b = Math.max(0f, Math.min(2f, brightness));
-        if (overlay != null) {
-            if (b <= 1f) {
-                overlay.setBrightnessDim(b);
-                if (engine != null) engine.setVideoEffects(1f, 1f, 1f, 0f); // neutral
-            } else {
-                overlay.setBrightnessDim(1f); // no dim
-                if (engine != null) engine.setVideoEffects(b, 1f, 1f, 0f);
-            }
-        }
+        // Brightness is a PURE OVERLAY effect (dim black layer <=100%,
+        // brighten white layer >100%) — it never touches the engine, so
+        // playback can never skip/freeze/rebuffer (the old >100% path used
+        // the engine's Brightness effect, which re-prepared VLC media).
+        if (overlay != null) overlay.setBrightnessDim(brightness);
     }
 
     @PluginMethod

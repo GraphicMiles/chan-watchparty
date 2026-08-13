@@ -210,7 +210,13 @@
   gap: 10px;
   max-height: 440px;
   overflow-y: auto;
+  scrollbar-width: none;  /* hide scrollbar, still scrollable */
   padding: 2px;
+}
+
+.resultList::-webkit-scrollbar,
+.resultsList::-webkit-scrollbar {
+  display: none;
 }
 
 .resultCard {

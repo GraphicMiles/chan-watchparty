@@ -44,6 +44,8 @@
   display: flex;
   gap: 8px;
   overflow-x: auto;
+  scrollbar-width: none;  /* hide scrollbar, still scrollable */
+  &::-webkit-scrollbar { display: none; }
   scrollbar-width: none;   /* hide scrollbar, still scrollable */
   -webkit-overflow-scrolling: touch;
   margin-bottom: 16px;

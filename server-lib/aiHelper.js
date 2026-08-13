@@ -5,6 +5,41 @@ const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
 const COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
 const QUIZ_COOLDOWN_MS = 60 * 1000 // 60 seconds
 
+/**
+ * Generate a 1-2 sentence synopsis for a title (movie/show/episode) via Groq.
+ * Used as the fallback when page extraction yields no real description.
+ * Returns null when Groq is not configured or the call fails (callers treat
+ * missing synopsis gracefully).
+ */
+export async function generateTitleSynopsis(title, extra = '') {
+  if (!GROQ_API_KEY) return null
+  const cleanTitle = String(title || '').trim().slice(0, 120)
+  const cleanExtra = String(extra || '').trim().slice(0, 120)
+  if (!cleanTitle) return null
+  const prompt = `Write a concise 1-2 sentence synopsis (no preamble, no quotes, no "Here is") for the following movie or TV show${cleanExtra ? ` episode: "${cleanTitle}" (${cleanExtra})` : `: "${cleanTitle}"`}. If you are not certain what it is, give a short generic description based on the title alone.`
+  try {
+    const groqRes = await fetch(GROQ_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.4,
+        max_tokens: 140,
+      }),
+    })
+    if (!groqRes.ok) return null
+    const groqData = await groqRes.json()
+    const text = (groqData.choices?.[0]?.message?.content || '').trim()
+    return text.slice(0, 600) || null
+  } catch {
+    return null
+  }
+}
+
 export async function generateAiSummary(db, user, body) {
   const { roomId } = body || {}
   if (!roomId) throw Object.assign(new Error('Missing roomId'), { status: 400 })

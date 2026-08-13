@@ -1349,7 +1349,7 @@ export default function VideoPlayer({
             onApi={handleNativeApi}
             onControlsTap={handleNativeTap}
             onFullscreenChange={(v) => { setIsFullscreen(Boolean(v)) }}
-            visible={!surfaceHidden}
+            visible={!surfaceHidden && !brightnessPop}
             clipBottomPx={surfaceClipBottom}
           />
         ) : isHls ? (
@@ -1505,7 +1505,8 @@ export default function VideoPlayer({
           onPointerDown={handlePointerTouch}
           onContextMenu={(e) => e.preventDefault()}
         >
-          {/* Fullscreen top bar: title + rotate + minimize */}
+          {/* Fullscreen top bar: title + rotate (the exit/fullscreen toggle
+              lives on the bottom bar — one fullscreen icon only) */}
           <div className={styles.overlayTopBar} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
             <span className={styles.overlayTitle}>Chan Video</span>
             <button
@@ -1515,14 +1516,6 @@ export default function VideoPlayer({
               title="Rotate orientation (landscape ⇄ portrait)"
             >
               <RotateCw size={16} />
-            </button>
-            <button
-              type="button"
-              className={styles.overlayFullscreenBtn}
-              onClick={toggleFullscreen}
-              title="Minimize"
-            >
-              <Maximize size={16} />
             </button>
           </div>
           <div className={styles.overlayControlsStack}>

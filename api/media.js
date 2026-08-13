@@ -18,6 +18,7 @@ import { searchNsfwProvider } from '../server-lib/nsfw.js'
 import { resolveNsfwVideoUrl, isNsfwProviderUrl } from '../server-lib/nsfwResolver.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { searchNkiri, getNkiriEpisodes, resolveDownloadwellaPage, buildStreamDescriptor } from '../o2tv-worker/nkiriResolver.js'
+import { generateTitleSynopsis } from '../server-lib/aiHelper.js'
 import { cacheKeyFor, cacheGet, cacheSet, cacheDelete, negativeGet, negativeSet, cacheStats } from '../server-lib/resolveCache.js'
 
 const ALLOWED_ACTIONS = [
@@ -292,6 +293,7 @@ async function handleNkiriEpisodes({ url, title }) {
     new Promise((_, reject) => setTimeout(() => reject(new Error('Nkiri episodes timed out')), 20_000)),
   ])
   const episodeList = Array.isArray(episodes) ? episodes : []
+  const synopsis = await synopsisFallback(episodes?.synopsis || null, title || showUrl, 'TV show')
   return {
     results: episodeList.map((ep, index) => ({
       id: `nkiri-episode-${index}-${Buffer.from(String(ep.url || index)).toString('base64url').slice(0, 12)}`,
@@ -309,11 +311,22 @@ async function handleNkiriEpisodes({ url, title }) {
       showName: title || 'Nkiri Show',
       episodeNum: index + 1,
       container: ep.container || 'unknown',
+      isDirectMedia: ep.isDirectMedia === true,
     })).filter(ep => ep.url),
     count: episodeList.length,
     showName: title || 'Nkiri Show',
-    synopsis: episodes?.synopsis || null,
+    synopsis,
     stage: 'episodes',
+  }
+}
+
+/** Groq fallback for the synopsis when page extraction found nothing usable. */
+async function synopsisFallback(primary, title, extra = '') {
+  if (primary) return primary
+  try {
+    return await generateTitleSynopsis(title, extra)
+  } catch {
+    return null
   }
 }
 
@@ -396,7 +409,7 @@ async function handleNkiriResolve({ url, title, force = false }) {
       sourceUrl: episodeUrl,
       title: title || 'Nkiri Video',
       referer,
-      synopsis: resolved?.synopsis || null,
+      synopsis: await synopsisFallback(resolved?.synopsis || null, title || 'Nkiri Video', 'TV episode'),
     })
 
     if (!descriptor.streamUrl) {
