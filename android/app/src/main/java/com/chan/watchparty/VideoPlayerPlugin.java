@@ -657,19 +657,39 @@ public class VideoPlayerPlugin extends Plugin {
                         } catch (Exception ignored) { }
                     });
                 }
+                // The overlay just grew to MATCH_PARENT; the engine surface
+                // (ExoPlayer texture view / libVLC vout) needs one re-fit at
+                // the NEW dimensions or the video stays black/letterboxed at
+                // the old small-box size. Entering fullscreen is a discrete
+                // user action (not racing a rotation animation), so a short
+                // settle delay is safe.
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    if (fullscreen && engine != null) engine.refreshSurface();
+                }, 250);
             } else {
                 // Restore the embedded stage rect (re-anchors the surface back
                 // into the room bounds, NOT just a boolean flip), restore the
-                // chrome preference, and restore system UI.
+                // chrome preference, restore system UI, and return the app to
+                // PORTRAIT (the rotate button may have left the activity
+                // landscape — leaving fullscreen must not leave the whole app
+                // rotated).
                 if (lastRect != null) {
                     overlay.setLayoutParams(lastRect);
                     overlay.setVisible(true);
                 }
                 overlay.setInteractive(chromeEnabled);
                 showSystemUi();
+                try {
+                    getActivity().setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+                } catch (Exception ignored) { }
                 // Hide the fullscreen controls layer.
                 fsPushHandler.removeCallbacks(fsPushRunnable);
                 if (fsControlsView != null) fsControlsView.setVisibility(View.GONE);
+                // Re-fit the engine surface back to the small video box once
+                // the overlay has laid out at lastRect.
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    if (!fullscreen && engine != null) engine.refreshSurface();
+                }, 250);
             }
             overlay.setFullscreenUi(fullscreen);
             // Keep JS in sync both directions
