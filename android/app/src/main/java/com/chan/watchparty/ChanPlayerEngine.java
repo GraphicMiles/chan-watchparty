@@ -12,9 +12,6 @@ import androidx.media3.common.TrackGroup;
 import androidx.media3.common.Tracks;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.effect.Brightness;
-import androidx.media3.effect.Contrast;
-import androidx.media3.effect.HslAdjustment;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
@@ -83,6 +80,14 @@ public class ChanPlayerEngine {
     private long pendingSeekMs = -1;
     private final Runnable effectsDebounce = new Runnable() { public void run() { applyEffectsNow(); } };
     private boolean effectsQueued = false;
+    // REAL brightness: a per-frame 4x4 RGB multiply matrix (0..2 scale, 1 = no
+    // change). Media3's Brightness effect is ADDITIVE (adds a constant to RGB),
+    // which washed the picture to white at >100% — the wrong semantics. This
+    // matrix multiplies the actual pixels, matching libVLC's :adjust-brightness
+    // (0..2). Installed only while brightness != 100% so neutral playback never
+    // carries an effect graph.
+    private final LiveBrightnessRgbMatrix liveBrightness = new LiveBrightnessRgbMatrix();
+    private boolean exoEffectInstalled = false;
 
     private ExoPlayer exoPlayer;
     private androidx.media3.ui.PlayerView exoView; // attached by the overlay
@@ -221,12 +226,12 @@ public class ChanPlayerEngine {
     public boolean isEnded() { return ended; }
 
     /**
-     * REAL video brightness/contrast/saturation/hue via the engines'
-     * native effect pipelines (no fake overlay wash):
-     *  - ExoPlayer: Media3 Brightness/Contrast/HslAdjustment effects.
-     *  - LibVLC:   :video-filter=adjust media options (re-prepared, resumed).
-     * Neutral (all ≈ identity) installs NO effects, so normal playback is
-     * never touched.
+     * REAL video brightness via the engines' native pipelines (0..2 = 0%..200%,
+     * 1 = neutral) — a true pixel multiply, never an additive white blend:
+     *  - ExoPlayer: the LiveBrightnessRgbMatrix (4x4 RGB scale) installed only
+     *    while non-neutral.
+     *  - LibVLC:   :video-filter=adjust with :adjust-brightness (0..2 multiply),
+     *    applied by a debounced re-prepare that resumes at the same position.
      */
     public void setVideoEffects(float brightness, float contrast, float saturation, float hueDeg) {
         mainHandler.post(() -> {
@@ -238,27 +243,26 @@ public class ChanPlayerEngine {
                     && Math.abs(contrast - 1f) < 0.01f
                     && Math.abs(saturation - 1f) < 0.01f
                     && Math.abs(hueDeg) < 0.5f;
-            boolean neutral = effectsNeutral;
+
+            // ExoPlayer: multiply matrix. Install on first non-neutral change,
+            // remove when back to neutral.
             if (exoPlayer != null) {
                 try {
-                    if (neutral) {
+                    liveBrightness.setBrightness(lastBrightness);
+                    if (!effectsNeutral && !exoEffectInstalled) {
+                        exoPlayer.setVideoEffects(java.util.Collections.singletonList((androidx.media3.common.Effect) liveBrightness));
+                        exoEffectInstalled = true;
+                    } else if (effectsNeutral && exoEffectInstalled) {
                         exoPlayer.setVideoEffects(java.util.Collections.emptyList());
-                    } else {
-                        java.util.List<androidx.media3.common.Effect> effects = new java.util.ArrayList<>();
-                        effects.add(new Brightness(lastBrightness - 1f)); // -1..1, 0 neutral
-                        effects.add(new Contrast(lastContrast - 1f));     // -1..1, 0 neutral
-                        HslAdjustment.Builder hsl = new HslAdjustment.Builder()
-                                .adjustHue(lastHue)
-                                .adjustSaturation((lastSaturation - 1f) * 100f); // -100..100
-                        effects.add(hsl.build());
-                        exoPlayer.setVideoEffects(effects);
+                        exoEffectInstalled = false;
                     }
-                } catch (Exception e) {
+                } catch (Throwable e) {
                     Log.e(TAG, "Exo setVideoEffects failed", e);
                 }
             }
-            // VLC: apply via a debounced media re-prepare (stop → rebuild with
-            // the adjust filter → resume at the same position).
+
+            // VLC: debounced re-prepare with the adjust filter, resuming at the
+            // same position.
             if (vlcPlayer != null) {
                 if (!effectsQueued) {
                     effectsQueued = true;
@@ -677,9 +681,18 @@ public class ChanPlayerEngine {
             if (exoView != null) {
                 exoView.setPlayer(exoPlayer);
             }
-            // No GL effect graph is ever installed — brightness is overlay-only.
-            // Forcing an effect here broke playback on devices whose GPU can't
-            // run the graph (the generic "unavailable or expired" error).
+            // Re-apply a non-neutral brightness on the fresh player (e.g. after
+            // a video change). Neutral stays effect-free.
+            exoEffectInstalled = false;
+            if (!effectsNeutral) {
+                try {
+                    liveBrightness.setBrightness(lastBrightness);
+                    exoPlayer.setVideoEffects(java.util.Collections.singletonList((androidx.media3.common.Effect) liveBrightness));
+                    exoEffectInstalled = true;
+                } catch (Throwable t) {
+                    Log.e(TAG, "Could not install live brightness matrix", t);
+                }
+            }
 
             exoPlayer.addListener(new Player.Listener() {
                 @Override
@@ -890,6 +903,7 @@ public class ChanPlayerEngine {
             try { exoPlayer.release(); } catch (Throwable t) { Log.w(TAG, "exo release failed", t); }
             exoPlayer = null;
         }
+        exoEffectInstalled = false;
     }
 
     private void releaseVlc() {
@@ -933,6 +947,18 @@ public class ChanPlayerEngine {
     public void refreshSurface() {
         mainHandler.post(() -> {
             if (disposed) return;
+            // ExoPlayer: re-bind the surface so its texture view re-fits the
+            // new orientation size.
+            if (exoPlayer != null && exoView != null) {
+                try {
+                    exoView.setPlayer(null);
+                    exoView.setPlayer(exoPlayer);
+                } catch (Throwable t) {
+                    Log.w(TAG, "refreshSurface (Exo rebind) failed", t);
+                }
+            }
+            // libVLC does not re-size its video output after a rotate without
+            // a detach/attach.
             if (vlcPlayer != null && vlcLayout != null) {
                 try {
                     vlcPlayer.detachViews();
