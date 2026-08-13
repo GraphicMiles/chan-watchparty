@@ -404,6 +404,29 @@ export async function resolveDownloadwellaPage(pageUrl) {
 }
 
 /**
+ * Derive a clean episode title from a media filename.
+ *   "game.of.thrones.s01e01.(NKIRI.COM).garbage.mkv" → "Game Of Thrones S01E01"
+ *   "Silo.S03E01.(THENKIRI.COM).mkv"                 → "Silo S03E01"
+ * The site markers "(NKIRI…" / "(THENKIRI…" and the anti-hotlink junk after
+ * them are never part of the title.
+ */
+function deriveTitleFromFilename(href) {
+  try {
+    let name = decodeURIComponent(String(href).split('/').pop() || '')
+    name = name.replace(/\.(mp4|mkv|m3u8|webm|avi|mov|flv|ts)$/i, '')
+    // Cut from the first site marker onward: "(NKIRI.COM).<random>", "(THENKIRI…)"
+    name = name.split(/\((?:nkiri|thenkiri)/i)[0]
+    name = name.replace(/[-._+]+/g, ' ').trim()
+    if (!name) return 'Episode'
+    // Normalize SxxExx to uppercase, then title-case each word.
+    name = name.replace(/\b(s\d{1,2})(e\d{1,2})\b/gi, (m, s, e) => s.toUpperCase() + e.toUpperCase())
+    return name.replace(/\b\w/g, (l) => l.toUpperCase())
+  } catch {
+    return 'Episode'
+  }
+}
+
+/**
  * Fetch a Nkiri show page and extract ranked downloadwella episode links.
  * Returns [{ url, title, container }].
  */
@@ -427,8 +450,7 @@ export async function getNkiriEpisodes(showUrl) {
     // Useless anchor text ("Download Episode", "Click here", "Continue
     // Reading") → derive a real title from the URL filename instead.
     if (!text || /^(download|click here|continue reading|download episode|watch now|view|link|episode download)/i.test(text) || text.length < 3) {
-      const urlMatch = href.match(/\/([^/]+)\.html?$/i) || href.match(/\/([^/?#]+)$/)
-      text = urlMatch ? urlMatch[1].replace(/[-._+]/g, ' ').replace(/\.(mp4|mkv|m3u8|webm|avi|mov|flv|ts)$/i, '').replace(/\b\w/g, (l) => l.toUpperCase()) : 'Episode'
+      text = deriveTitleFromFilename(href)
     }
     const isDirectMedia = MEDIA_RE.test(href)
     episodes.push({
