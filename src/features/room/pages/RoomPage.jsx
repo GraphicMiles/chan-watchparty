@@ -837,6 +837,10 @@ export default function RoomPage() {
                 <span className={styles.metaInfo}>
                   {room?.videoType === 'iptv' ? 'Live TV' : isDirectVideo ? 'Direct Video' : isYoutube ? 'YouTube' : 'Screen Share'}
                 </span>
+                <span className={styles.metaSep}>·</span>
+                <span className={styles.metaInfo}>
+                  You: {canControl ? (isHost ? 'Host' : 'Co-host') : 'Viewer'}
+                </span>
                 {queueItems.length > 0 && (
                   <>
                     <span className={styles.metaSep}>·</span>

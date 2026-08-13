@@ -118,3 +118,14 @@
     font-size: 16px;
   }
 }
+
+.version {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--room-text-secondary, #888);
+  letter-spacing: 0.03em;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  padding: 1px 6px;
+}

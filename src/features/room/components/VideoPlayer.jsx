@@ -1171,6 +1171,23 @@ export default function VideoPlayer({
   const togglePlayPause = useCallback((e) => {
     e?.stopPropagation()
     if (!canControl) return
+    // Native mode: drive the engine DIRECTLY — independent of the adapter/
+    // nativeApiRef wiring, so play/pause always works even if that wiring
+    // never connected.
+    if (isNativeEmbedded) {
+      if (playingRef.current) {
+        VideoPlayerPlugin.pause().catch(() => {})
+        playingRef.current = false
+        setIsPlayingState(false)
+        setIsBuffering(false)
+      } else {
+        VideoPlayerPlugin.play().catch(() => {})
+        playingRef.current = true
+        setIsPlayingState(true)
+        setIsBuffering(true)
+      }
+      return
+    }
     if (playingRef.current) {
       adapter.pauseVideo()
       setIsBuffering(false)
@@ -1178,16 +1195,20 @@ export default function VideoPlayer({
       setIsBuffering(true)
       adapter.playVideo()
     }
-  }, [canControl, adapter])
+  }, [canControl, adapter, isNativeEmbedded])
 
   const jumpSeconds = useCallback((delta, e) => {
     e?.stopPropagation()
     if (!canControl) return
     const cur = currentTime()
     const target = Math.max(0, Math.min(durationSec || 999999, cur + delta))
-    adapter.seekTo(target, 'seconds')
+    if (isNativeEmbedded) {
+      VideoPlayerPlugin.seekTo({ positionMs: Math.max(0, Math.round(target * 1000)) }).catch(() => {})
+    } else {
+      adapter.seekTo(target, 'seconds')
+    }
     emitSeek(target)
-  }, [canControl, currentTime, durationSec, adapter, emitSeek])
+  }, [canControl, currentTime, durationSec, adapter, emitSeek, isNativeEmbedded])
 
   const handleSeekSlider = useCallback((e) => {
     e.stopPropagation()
@@ -1196,10 +1217,14 @@ export default function VideoPlayer({
     const dur = adapter.getDuration() || durationSec || 0
     const targetSec = fraction * dur
     // Always seek by absolute seconds so MKV remux uses ?t= correctly
-    adapter.seekTo(targetSec, 'seconds')
+    if (isNativeEmbedded) {
+      VideoPlayerPlugin.seekTo({ positionMs: Math.max(0, Math.round(targetSec * 1000)) }).catch(() => {})
+    } else {
+      adapter.seekTo(targetSec, 'seconds')
+    }
     setCurrentSec(targetSec)
     emitSeek(targetSec)
-  }, [canControl, adapter, durationSec, emitSeek])
+  }, [canControl, adapter, durationSec, emitSeek, isNativeEmbedded])
 
   const toggleFullscreen = useCallback(async (e) => {
     e?.stopPropagation()
