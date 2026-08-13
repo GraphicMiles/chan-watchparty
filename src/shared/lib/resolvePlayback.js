@@ -6,6 +6,31 @@ import {
   mediaPost,
 } from './mediaApi.js'
 
+const PLAYBACK_UA = 'Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36'
+
+/** Headers the native engine needs for Nkiri/DownloadWella CDNs. */
+export function mediaStubForCdn(rawUrl, sourceUrl = null) {
+  const streamUrl = proxyTargetUrl(rawUrl) || rawUrl
+  if (!streamUrl || isDownloadPageUrl(streamUrl) || isNkiriHtmlPage(streamUrl)) return null
+  const hay = `${streamUrl} ${sourceUrl || ''}`
+  let referer = null
+  if (/downloadwella|fsmc/i.test(hay)) referer = 'https://downloadwella.com/'
+  else if (/nkiri|nkiserv|thenkiri/i.test(hay)) referer = 'https://thenkiri.com/'
+  if (!referer) return null
+  return {
+    streamUrl,
+    referer,
+    headers: { Referer: referer, 'User-Agent': PLAYBACK_UA },
+    sourceUrl: sourceUrl || null,
+    container: /\.mkv(\?|#|$)/i.test(streamUrl) ? 'mkv' : (/\.mp4(\?|#|$)/i.test(streamUrl) ? 'mp4' : null),
+    codec: null,
+    mirrors: [],
+    sizeBytes: null,
+    probe: null,
+    resolvedAt: Date.now(),
+  }
+}
+
 function isNkiriHtmlPage(url) {
   const raw = proxyTargetUrl(url)
   if (!raw || typeof raw !== 'string') return false
@@ -70,6 +95,7 @@ export async function resolvePlaybackForUser(user, item = {}, depth = 0) {
   const title = item.title || item.label || 'Chan video'
   const page = pickSourceUrl(item)
   const rawUrl = proxyTargetUrl(item.videoUrl || item.url || item.link || '')
+  const alreadyFile = Boolean(rawUrl && isDirectVideoUrl(rawUrl))
 
   if (page && user) {
     const descriptor = await resolveDownloadDescriptor(user, page, title)
@@ -88,7 +114,11 @@ export async function resolvePlaybackForUser(user, item = {}, depth = 0) {
 
   // Nkiri/thenkiri HTML is a listing page, not a file. Scrape it, then
   // resolve the first downloadwella/direct hit — never proxy the HTML.
-  const nkiriPage = [item.sourceUrl, item.url, item.link, item.videoUrl].find(isNkiriHtmlPage)
+  // Skip if we already have the episode file (sourceUrl may be the SHOW page
+  // used only as Referer — scraping it again would pick the wrong episode).
+  const nkiriPage = !alreadyFile
+    ? [item.sourceUrl, item.url, item.link, item.videoUrl].find(isNkiriHtmlPage)
+    : null
   if (nkiriPage && user) {
     const data = await mediaPost(user, { action: 'scrape', url: nkiriPage, options: { resolve: true }, title })
     const list = data.results || []
@@ -126,8 +156,8 @@ export async function resolvePlaybackForUser(user, item = {}, depth = 0) {
 
   return {
     videoUrl: normalizePlaybackUrl(rawUrl),
-    sourceUrl: null,
-    media: null,
+    sourceUrl: item.sourceUrl || null,
+    media: mediaStubForCdn(rawUrl, item.sourceUrl),
     isM3u8: /\.m3u8(\?|#|$)/i.test(rawUrl),
   }
 }

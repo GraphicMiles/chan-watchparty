@@ -113,21 +113,12 @@ export default function UnifiedSearch() {
     if (content.kind === 'youtube' && content.videoId) {
       params.set('video', content.videoId)
       params.set('type', 'youtube')
-    } else if (content.url) {
-      params.set('videoUrl', content.url)
+    } else {
       params.set('type', content.videoType || 'direct')
-      if (content.pendingResolve) {
-        if (content.showSlug) params.set('showSlug', content.showSlug)
-        if (content.showName) params.set('showName', content.showName)
-      }
     }
-    if (content.title) params.set('title', content.title)
-    if (content.thumbnail) params.set('thumbnail', content.thumbnail)
-    if (content.videoType === 'iptv' || content.videoType === 'sports') params.set('isLive', 'true')
-    if (content.sourceUrl) params.set('sourceUrl', content.sourceUrl)
-    // Keep a short query copy for deep links, but put the full blurb on
-    // location.state so it cannot be truncated by URL length.
-    if (content.synopsis) params.set('synopsis', String(content.synopsis).slice(0, 180))
+    if (content.title) params.set('title', String(content.title).slice(0, 80))
+    // Full url / sourceUrl / synopsis live on location.state — query strings
+    // silently truncate long CDN tokens and the room then plays garbage.
     navigate(`/create?${params.toString()}`, {
       state: { from: location.pathname, synopsis: content.synopsis || null, content },
     })

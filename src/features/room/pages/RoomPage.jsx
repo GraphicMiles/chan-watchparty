@@ -36,6 +36,28 @@ const SOUND_FX_URLS = {
   applause: 'https://cdn.freesound.org/previews/483/483652_1015240-lq.mp3',
 }
 
+function truncateWords(text, max = 20) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean)
+  if (words.length <= max) return { short: words.join(' '), more: false }
+  return { short: words.slice(0, max).join(' '), more: true }
+}
+
+function RoomSynopsisBody({ text }) {
+  const [open, setOpen] = useState(false)
+  const { short, more } = truncateWords(text, 20)
+  if (!text) return null
+  return (
+    <p className={styles.synopsisBody}>
+      {open || !more ? text : `${short}… `}
+      {more ? (
+        <button type="button" className={styles.seeMore} onClick={() => setOpen((v) => !v)}>
+          {open ? 'See less' : 'See more'}
+        </button>
+      ) : null}
+    </p>
+  )
+}
+
 const SOUND_FX_NAMES = {
   airhorn: 'Airhorn',
   cheer: 'Stadium Cheer',
@@ -731,8 +753,13 @@ export default function RoomPage() {
             )}
           </div>
 
-          {room?.synopsis ? (
-            <p className={styles.synopsis}>{room.synopsis}</p>
+          {(room?.title || room?.synopsis) ? (
+            <div className={styles.synopsisBlock}>
+              <div className={styles.synopsisTitle}>{cleanMediaTitle(room.title) || 'Video'}</div>
+              {room.synopsis ? (
+                <RoomSynopsisBody text={room.synopsis} />
+              ) : null}
+            </div>
           ) : null}
 
           {canControl && (

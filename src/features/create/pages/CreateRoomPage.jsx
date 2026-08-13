@@ -96,6 +96,17 @@ export default function CreateRoomPage() {
   // ── Bootstrap from /media hand-off / deep link ───────────────────────
   useEffect(() => {
     if (!user) return
+    // Prefer the Media Browser's full content object. Putting a long CDN /
+    // DownloadWella URL in ?videoUrl= truncates in the WebView and the room
+    // then tries to play a broken link ("unavailable or expired").
+    const handed = location.state?.content
+    if (handed && (handed.url || handed.videoId || handed.sourceUrl)) {
+      pickContent({
+        ...handed,
+        synopsis: handed.synopsis || presetSynopsis || undefined,
+      })
+      return
+    }
     // ?video=ID&type=youtube deep link (YouTube pick)
     if (presetVideo && !presetVideoUrl) {
       pickContent({
