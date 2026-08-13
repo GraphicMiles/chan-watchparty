@@ -727,7 +727,10 @@ public class VideoPlayerPlugin extends Plugin {
             try { detachOverlay(); } catch (Throwable t) { Log.e(TAG, "detachOverlay failed", t); }
             overlay = null;
         }
-        engine = null;
+        if (engine != null) {
+            try { engine.release(); } catch (Throwable t) { Log.e(TAG, "engine release failed", t); }
+            engine = null;
+        }
         brightnessPopupWired = false; // next showBrightnessPopup re-wires listeners
         fullscreen = false;
         try { showSystemUi(); } catch (Exception ignored) { }

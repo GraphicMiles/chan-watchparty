@@ -114,6 +114,11 @@ public class ChanPlayerEngine {
                         Map<String, String> headers, String container, String codec) {
         if (disposed) return;
         ended = false;
+        // Video change (queue play-now): cancel any in-flight VLC rebuild so
+        // it cannot touch a player we are about to tear down.
+        try { mainHandler.removeCallbacks(effectsDebounce); } catch (Exception ignored) { }
+        effectsQueued = false;
+        pendingSeekMs = -1;
         lastUrl = playbackUrl;
         lastTitle = title;
         lastReferer = referer;
@@ -635,6 +640,10 @@ public class ChanPlayerEngine {
 
     private void startExoPlayer(String url, String title, String referer, long startMs) {
         try {
+            // MUST release the previous Exo instance first. A second ExoPlayer
+            // while the first still owns MediaCodecs is a common process-kill
+            // on Android (queue play-now / change-video path).
+            releaseExo();
             releaseVlc();
             if (vlcLayout != null) vlcLayout.setVisibility(android.view.View.GONE);
 
@@ -707,10 +716,15 @@ public class ChanPlayerEngine {
     }
 
     private void startVlcPlayer(String message, String url, String title, String referer, long startMs) {
-        if (vlcStarted || disposed) return;
-        vlcStarted = true;
+        if (disposed) return;
+        // Always rebuild for a new URL. The old vlcStarted early-return left
+        // the previous media playing on queue play-now, and swapping Media on
+        // a live player without stop/release can SIGSEGV in libvlc.
         try {
             releaseExo();
+            releaseVlc();
+            if (disposed) return;
+            vlcStarted = true;
 
             ArrayList<String> args = new ArrayList<>();
             args.add("--network-caching=2500");
@@ -800,6 +814,8 @@ public class ChanPlayerEngine {
             if (exoView != null) exoView.setPlayer(null);
         } catch (Exception ignored) { }
         if (exoPlayer != null) {
+            try { exoPlayer.pause(); } catch (Throwable ignored) { }
+            try { exoPlayer.stop(); } catch (Throwable ignored) { }
             try { exoPlayer.release(); } catch (Throwable t) { Log.w(TAG, "exo release failed", t); }
             exoPlayer = null;
         }
