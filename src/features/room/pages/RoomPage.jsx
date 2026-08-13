@@ -336,18 +336,7 @@ export default function RoomPage() {
           : staleUrl
       const descriptor = await refreshDownloadDescriptor(user, resolveFrom, room?.title || 'Chan video')
       const freshUrl = normalizePlaybackUrl(descriptor.streamUrl)
-      const mediaDoc = {
-        streamUrl: descriptor.streamUrl,
-        referer: descriptor.referer || 'https://downloadwella.com/',
-        headers: descriptor.headers || null,
-        container: descriptor.container || null,
-        codec: descriptor.codec || null,
-        sourceUrl: descriptor.sourceUrl || resolveFrom || null,
-        mirrors: Array.isArray(descriptor.mirrors) ? descriptor.mirrors : [],
-        sizeBytes: descriptor.sizeBytes || null,
-        probe: descriptor.probe || null,
-        resolvedAt: descriptor.resolvedAt || null,
-      }
+      const mediaDoc = mediaDocFromDescriptor(descriptor, resolveFrom)
       await updateRoom({
         videoUrl: freshUrl,
         videoType: 'direct',
@@ -971,6 +960,24 @@ export default function RoomPage() {
                 Cancel
               </Button>
               <Button variant="cta" loading={busy} onClick={async () => {
+                if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current)
+                const item = autoNextPrompt
+                setAutoNextPrompt(null)
+                await onPlayNextQueueItem(item)
+                await deleteDoc(doc(db, 'rooms', roomId, 'queue', item.id)).catch(() => {})
+              }}>
+                Play Next Now
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </Layout>
+  )
+}
+)
+}
+nt="cta" loading={busy} onClick={async () => {
                 if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current)
                 const item = autoNextPrompt
                 setAutoNextPrompt(null)

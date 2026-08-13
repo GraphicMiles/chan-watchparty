@@ -4,7 +4,7 @@ import { apiPath, parseJsonResponse } from './api.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, checkEmbeddable } from './youtube.js'
 import { proxyTargetUrl, isDownloadPageUrl, fetchTitleSynopsis } from './mediaApi.js'
 import { sanitizeSynopsis } from './synopsis.js'
-import { resolvePlaybackForUser } from './resolvePlayback.js'
+import { resolvePlaybackForUser, mediaDocFromDescriptor } from './resolvePlayback.js'
 
 export function isO2TvUrl(value) {
   return /tvshows4mobile\.org|o2tvseries|o2tv\.org/i.test(String(value || ''))
@@ -135,19 +135,11 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
     }
     if (content?.thumbnail) roomData.thumbnail = content.thumbnail
     if (mediaDescriptor && mediaDescriptor.streamUrl) {
-      roomData.media = {
-        streamUrl: mediaDescriptor.streamUrl,
-        referer: mediaDescriptor.referer || 'https://downloadwella.com/',
-        headers: mediaDescriptor.headers || null,
-        container: mediaDescriptor.container || null,
-        codec: mediaDescriptor.codec || null,
-        sourceUrl: mediaDescriptor.sourceUrl || pageUrl || null,
-        mirrors: Array.isArray(mediaDescriptor.mirrors) ? mediaDescriptor.mirrors : [],
-        sizeBytes: mediaDescriptor.sizeBytes || null,
-        probe: mediaDescriptor.probe || null,
-        resolvedAt: mediaDescriptor.resolvedAt || null,
-      }
+      // Never invent a DownloadWella Referer for Nkiri/nkiserv CDNs —
+      // those hosts 403 that header and the room opens on a dead player.
+      roomData.media = mediaDocFromDescriptor(mediaDescriptor, pageUrl) || mediaDescriptor
       roomData.videoUrl = normalizePlaybackUrl(mediaDescriptor.streamUrl)
+      if (roomData.media?.sourceUrl) roomData.sourceUrl = roomData.media.sourceUrl
     } else if (content?.sourceUrl && /downloadwella\.com|fsmc/i.test(proxyTargetUrl(content.sourceUrl))) {
       roomData.sourceUrl = proxyTargetUrl(content.sourceUrl)
     }
