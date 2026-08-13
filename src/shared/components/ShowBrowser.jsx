@@ -275,6 +275,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
         url: r.url,
         thumbnail: r.thumbnail || null,
         synopsis: r.synopsis || null,
+        isDirectMedia: r.isDirectMedia === true,
       })))
       if (!list.length) setBrowseError('No episodes found. Try another show.')
     } catch (err) {
@@ -362,6 +363,23 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
   }, [user, showSlug, showName, seasonNum, showThumb, episodesSynopsis, emit, toast])
 
   const pickEpisode = useCallback((ep, idx) => {
+    // Direct media file (ds2.nkiserv.com .mkv etc.) — playable immediately,
+    // no downloadwella form-walk needed. This is the Game of Thrones /
+    // legacy-page path that previously errored trying to resolve a
+    // non-existent downloadwella page.
+    if (ep.isDirectMedia || /\.(mp4|mkv|m3u8|webm|avi|mov|flv|ts)(\?|#|$)/i.test(ep.url || '')) {
+      emit({
+        kind: 'direct',
+        url: normalizePlaybackUrl(ep.url),
+        title: ep.title || ep.label || `${showName} Episode ${idx + 1}`,
+        thumbnail: safeThumb(ep.thumbnail || showThumb),
+        videoType: 'direct',
+        source: 'nkiri',
+        synopsis: ep.synopsis || episodesSynopsis || null,
+      })
+      toast('Episode ready', { variant: 'success' })
+      return
+    }
     // DownloadWella / fsmc page URLs are re-resolved FRESH at create time
     // (they expire fast). The room's change-video path resolves them upfront.
     if (/downloadwella\.com|fsmc/i.test(ep.url || '')) {

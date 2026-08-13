@@ -250,39 +250,85 @@ function readCountdownSeconds(html) {
 /**
  * Resolve a downloadwella episode page → direct CDN MKV URL (form-walk).
  */
+/** Boilerplate/social-junk patterns that are never a real synopsis. */
+const SYNOPSIS_JUNK = /(download|watch|stream|subscribe|share our website|support us|in order to|for free|click here|register|login|follow us|join our|comment|leave a|rate this|bookmark|spread the word|telegram|whatsapp|facebook|instagram)/i
+
+/** Reject grammar-drill / repeated-sentence junk (e.g. "I have bought a book. I had bought a book."). */
+function isRepetitiveJunk(text) {
+  const norm = String(text).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+  const words = norm.split(' ')
+  if (words.length < 12) return false
+  const grams = new Set()
+  let dup = 0
+  for (let i = 0; i < words.length - 3; i += 1) {
+    const g = words.slice(i, i + 3).join(' ')
+    if (grams.has(g)) dup += 1
+    grams.add(g)
+  }
+  return dup / words.length > 0.08
+}
+
 /**
- * Extract a short synopsis from a scraped page's HTML: og:description →
- * meta description → first substantial paragraph in the article body.
+ * Extract a short synopsis from a scraped page's HTML.
+ * Prefers the article's first real content paragraph (Nkiri pages carry the
+ * actual story there); falls back to og:description / meta description.
+ * Boilerplate descriptions like "Download X for free at nkiri.com…" are
+ * rejected so we never surface ad copy as the synopsis.
  */
 export function extractPageSynopsis(html) {
   if (!html) return null
   const $ = cheerio.load(html)
-  let text = null
+
+  const candidates = []
+  $('article .entry-content p, article .post-content p, .entry-content p, .post-content p, article p, .post-content p, .entry-content p, p')
+    .each((_, el) => {
+      const t = $(el).text().replace(/\s+/g, ' ').trim()
+      if (t.length >= 40) candidates.push(t)
+    })
+  const good = candidates.find((t) => !SYNOPSIS_JUNK.test(t) && !isRepetitiveJunk(t))
+  if (good) return good.slice(0, 600)
+
   const og = $('meta[property="og:description"]').attr('content')
   const name = $('meta[name="description"]').attr('content')
-  text = (og || name || '').trim()
-  if (!text || text.length < 40) {
-    // Fallback: first long-ish paragraph from the article body
-    const p = $('article .entry-content p, article .post-content p, .entry-content p, .post-content p, article p')
-      .map((_, el) => $(el).text().replace(/\s+/g, ' ').trim())
-      .get()
-      .find((t) => t.length >= 60)
-    text = p || ''
-  }
-  // Drop boilerplate tails like "Download ... for free"
-  text = text.replace(/\s*(Download|Watch|Stream).{0,80}$/i, '').trim()
-  if (text.length < 30) return null
-  return text.slice(0, 600)
+  const meta = (og || name || '').trim()
+  if (meta.length >= 40 && !SYNOPSIS_JUNK.test(meta)) return meta.slice(0, 600)
+  return null
 }
 
 export async function resolveDownloadwellaPage(pageUrl) {
-  if (!isDownloadHost(pageUrl) && !isAllowedMediaUrl(pageUrl)) return { directUrls: [], error: 'not a downloadwella URL' }
-  if (isAllowedMediaUrl(pageUrl)) {
-    const live = await probeDirectUrl(pageUrl)
+  const target = String(pageUrl || '').trim()
+  if (!target) return { directUrls: [], error: 'no URL' }
+  if (!/^https?:\/\//i.test(target)) return { directUrls: [], error: 'not an HTTP URL' }
+
+  // Direct media file → probe it (any host).
+  if (isAllowedMediaUrl(target)) {
+    const live = await probeDirectUrl(target)
     if (live) return { directUrls: [live] }
     return { directUrls: [], expired: true, error: 'token expired' }
   }
-  let currentUrl = pageUrl
+
+  // Legacy / non-downloadwella page (e.g. ds2.nkiserv.com episode pages, old
+  // site layouts): fetch and extract direct media links embedded in the HTML.
+  if (!isDownloadHost(target)) {
+    let html = ''
+    try {
+      const response = await fetchWithTimeout(target)
+      if (response.ok) html = await response.text()
+    } catch { /* fall through */ }
+    if (html) {
+      const urls = directUrlsFromHtml(html, target)
+      if (urls.length) {
+        const live = await Promise.all(urls.slice(0, 3).map(probeDirectUrl))
+        const ok = live.filter(Boolean)
+        if (ok.length) return { directUrls: ok, synopsis: extractPageSynopsis(html) }
+      }
+      const synopsis = extractPageSynopsis(html)
+      if (synopsis) return { directUrls: [], synopsis, error: 'no direct media links on this page' }
+    }
+    return { directUrls: [], error: 'legacy page: no direct media links found' }
+  }
+
+  let currentUrl = target
   let cookies = ''
   let html = ''
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
@@ -331,35 +377,47 @@ export async function getNkiriEpisodes(showUrl) {
   const $ = cheerio.load(pageHtml)
   const episodes = []
   const seen = new Set()
-  const addEp = (hrefRaw, textRaw) => {
+  const addEp = (hrefRaw, textRaw, force = false) => {
     if (!hrefRaw) return
     let href = String(hrefRaw).replace(/&amp;/g, '&').trim()
     try { href = new URL(href, showUrl).href } catch { return }
-    if (!/downloadwella\.com|fsmc/i.test(href)) return
+    // Legacy/Nkiri-direct pages embed real media files (ds2.nkiserv.com .mkv)
+    // — collect ANY direct media URL, not just downloadwella/fsmc links.
+    if (!force && !/downloadwella\.com|fsmc/i.test(href) && !MEDIA_RE.test(href)) return
     if (seen.has(href)) return
     seen.add(href)
     let text = String(textRaw || '').replace(/\s+/g, ' ').trim()
     if (!text) {
-      const urlMatch = href.match(/\/([^/]+)\.html?$/i)
-      text = urlMatch ? urlMatch[1].replace(/[-._+]/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()) : 'Episode'
+      const urlMatch = href.match(/\/([^/]+)\.html?$/i) || href.match(/\/([^/?#]+)$/)
+      text = urlMatch ? urlMatch[1].replace(/[-._+]/g, ' ').replace(/\.(mp4|mkv|m3u8|webm|avi|mov|flv|ts)$/i, '').replace(/\b\w/g, (l) => l.toUpperCase()) : 'Episode'
     }
-    episodes.push({ url: href, title: text, container: /\.mkv/i.test(href) ? 'mkv' : (/\.mp4/i.test(href) ? 'mp4' : 'unknown') })
+    const isDirectMedia = MEDIA_RE.test(href)
+    episodes.push({
+      url: href,
+      title: text,
+      container: /\.mkv(\?|#|$)/i.test(href) ? 'mkv' : (/\.mp4(\?|#|$)/i.test(href) ? 'mp4' : (/\.m3u8(\?|#|$)/i.test(href) ? 'hls' : (/\.(webm|avi|mov|flv|ts)(\?|#|$)/i.test(href) ? 'other' : 'unknown'))),
+      // Direct media files play WITHOUT the downloadwella form-walk.
+      isDirectMedia,
+    })
   }
-  $('a[href*="downloadwella.com"], a[href*="fsmc"]').each((_, el) => addEp($(el).attr('href'), $(el).text() || $(el).attr('title')))
-  // Regex fallback for any downloadwella links missed by the DOM
-  if (!episodes.length) {
+  // 1) Anchor links (downloadwella pages OR direct media files)
+  $('a[href*="downloadwella.com"], a[href*="fsmc"], a[href*=".mkv"], a[href*=".mp4"], a[href*=".m3u8"], a[href*=".webm"], a[href*=".avi"], a[href*=".mov"], a[href*=".flv"], a[href*=".ts"]').each((_, el) => addEp($(el).attr('href'), $(el).text() || $(el).attr('title')))
+  // 2) media elements (video/source/iframe)
+  $('video[src], source[src], iframe[src]').each((_, el) => addEp($(el).attr('src'), null, true))
+  // 3) Regex fallback for any downloadwella links OR raw media URLs missed by the DOM
+  if (episodes.length === 0) {
     const patterns = [
-      /href=["'](https?:\/\/(?:www\.)?downloadwella\.com\/[^"']+)["']/gi,
-      /["'](https?:\/\/(?:www\.)?downloadwella\.com\/[^"'\s]+)["']/gi,
+      /href=["'](https?:\/\/[^"']+(?:downloadwella\.com|fsmc)[^"']+)["']/gi,
+      /https?:[^\s"'<>]+\.(?:mp4|mkv|m3u8|webm|avi|mov|flv|ts)(?:\?[^\s"'<>]*)?/gi,
     ]
     for (const re of patterns) {
       let m
-      while ((m = re.exec(pageHtml)) !== null) addEp(m[1].replace(/&amp;/g, '&'), null)
+      while ((m = re.exec(pageHtml)) !== null) addEp(m[1] || m[0], null, true)
     }
   }
-  // Prefer MP4 first (Chrome-native), MKV after (needs remux)
+  // Prefer MP4 first (Chrome-native), MKV after (needs remux), then others
   episodes.sort((a, b) => {
-    const score = (e) => (e.container === 'mp4' ? 10 : e.container === 'mkv' ? 0 : 1)
+    const score = (e) => (e.container === 'mp4' ? 10 : e.container === 'mkv' ? 0 : e.container === 'hls' ? 5 : 1)
     return score(b) - score(a)
   })
   // Attach the show page synopsis (arrays are objects — additive, invisible
