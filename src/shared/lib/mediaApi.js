@@ -65,6 +65,26 @@ export function proxyTargetUrl(url) {
   return url
 }
 
+/**
+ * POST a media resolve action with retries. A single resolve is NOT reliable:
+ * expired tokens and transient form-walk failures are normal, so we re-walk
+ * the page for a fresh token before giving up.
+ */
+async function mediaResolveWithRetry(user, body, attempts = 3) {
+  let lastErr = null
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await mediaPost(user, body)
+    } catch (err) {
+      lastErr = err
+      if (i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, 700 * (i + 1)))
+      }
+    }
+  }
+  throw lastErr || new Error('Could not resolve the link after several tries')
+}
+
 /** True if the URL is a DownloadWella/fsmc *page* (HTML), not a media file. */
 export function isDownloadPageUrl(url) {
   const raw = proxyTargetUrl(url)
@@ -128,7 +148,7 @@ export async function resolveDownloadDescriptor(user, pageUrl, title) {
   if (!/downloadwella\.com|fsmc/i.test(raw)) {
     throw new Error("This link isn't a supported download page — try another source.")
   }
-  const data = await mediaPost(user, {
+  const data = await mediaResolveWithRetry(user, {
     action: 'nkiriResolve',
     url: raw,
     title: title || 'Chan video',
@@ -161,7 +181,7 @@ export async function refreshDownloadDescriptor(user, sourceUrl, title) {
   if (!/downloadwella\.com|fsmc/i.test(raw)) {
     throw new Error("This link isn't a supported download page — try another source.")
   }
-  const data = await mediaPost(user, {
+  const data = await mediaResolveWithRetry(user, {
     action: 'nkiriRefresh',
     url: raw,
     title: title || 'Chan video',

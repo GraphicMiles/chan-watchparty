@@ -28,6 +28,10 @@ const FIRST_CHUNK_BYTES = 2 * 1024 * 1024 // 2 MiB cold-start window (TTFB / fir
 // function ends early. Do NOT require the whole file to remux.
 const REMUX_MAX_INPUT_BYTES = 80 * 1024 * 1024 // soft cap per invocation
 const REMUX_DEADLINE_MS = Number(process.env.REMUX_DEADLINE_MS) || (IS_VERCEL ? 8_500 : 120_000)
+// Single-use token hosts are streamed in ONE continuous response (no chunks).
+// On self-hosted (Render/Railway) there is no serverless kill, so allow a
+// movie-length stream. Override with PROXY_ONESHOT_DURATION_MS.
+const ONE_SHOT_STREAM_MS = Number(process.env.PROXY_ONESHOT_DURATION_MS) || 6 * 60 * 60 * 1000
 
 /** Read optional domain allow-list from env (JSON array of hostnames). */
 function getProxyDomainAllowlist() {
@@ -365,6 +369,16 @@ export default async function handler(req, res) {
     const refererOverride = typeof req.query?.referer === 'string' ? req.query.referer : ''
     const { upstreamHeaders, hostname } = buildUpstreamHeaders(targetUrl, req, refererOverride)
 
+    // DownloadWella / fsmc / nkiserv links carry single-use (or minutes-lived)
+    // tokens. The normal chunked path (size probe + 2 MiB first chunk + follow-up
+    // range requests) makes MULTIPLE upstream requests — the second request dies
+    // with "token expired", which surfaces as "unavailable or expired". For these
+    // hosts do exactly ONE upstream fetch and stream it continuously.
+    const isOneShotTokenHost = hostname.includes('downloadwella')
+      || hostname.includes('fsmc')
+      || hostname.includes('nkiserv')
+      || hostname.includes('thenkiri')
+
     const clientRange = parseRangeHeader(req.headers.range || '')
     const isTinyRangeProbe = clientRange
       && clientRange.start === 0
@@ -431,7 +445,7 @@ export default async function handler(req, res) {
     // and learn total size from Content-Range on the real response.
     let knownTotalSize = null
     let headSupportsRanges = true
-    if (!clientRange && req.method === 'GET') {
+    if (!clientRange && req.method === 'GET' && !isOneShotTokenHost) {
       try {
         const probeRes = await fetchUpstream(
           targetUrl.href,
@@ -470,6 +484,22 @@ export default async function handler(req, res) {
         end: clientRange.end,
         totalSize: knownTotalSize,
         status: 206,
+        chunked: false,
+        isSmall: true,
+      }
+    }
+
+    // One-shot token hosts: never chunk. One upstream fetch, stream the whole
+    // thing back in a single response. The client Range is forwarded as-is so
+    // a `bytes=0-` request still yields a 206 + full Content-Range when the CDN
+    // supports it (needed for the seek bar / duration). Seeking into a token
+    // link is inherently a second fetch and cannot be supported.
+    if (isOneShotTokenHost) {
+      window = {
+        start: clientRange ? clientRange.start : 0,
+        end: clientRange?.end != null ? clientRange.end : null,
+        totalSize: knownTotalSize,
+        status: clientRange ? 206 : 200,
         chunked: false,
         isSmall: true,
       }
@@ -560,8 +590,21 @@ export default async function handler(req, res) {
       }
     }
 
+    // One-shot token hosts: if the CDN ignored Range and returned 200, stream
+    // the full body as a clean 200 (never a malformed 206 with unknown length).
+    if (isOneShotTokenHost && upstream.status === 200) {
+      window = {
+        start: 0,
+        end: knownTotalSize != null && knownTotalSize > 0 ? knownTotalSize - 1 : null,
+        totalSize: knownTotalSize,
+        status: 200,
+        chunked: false,
+        isSmall: true,
+      }
+    }
+
     // If upstream ignored Range and returned 200 with a huge body, force chunked cap.
-    if (upstream.status === 200 && !window.isSmall) {
+    if (upstream.status === 200 && !window.isSmall && !isOneShotTokenHost) {
       window = {
         start: window.start ?? 0,
         end: (window.start ?? 0) + CHUNK_BYTES - 1,
@@ -597,6 +640,12 @@ export default async function handler(req, res) {
           isSmall: window.isSmall,
         }
       }
+    }
+
+    // Safety net for one-shot hosts: a 206 without a parseable Content-Range
+    // (or unknown total) is invalid — downgrade to a plain 200 stream.
+    if (isOneShotTokenHost && window.status === 206 && (window.end == null || window.totalSize == null)) {
+      window = { start: 0, end: null, totalSize: null, status: 200, chunked: false, isSmall: true }
     }
 
     const contentType = upstream.headers.get('content-type') || ''
@@ -938,9 +987,11 @@ export default async function handler(req, res) {
     // ─── Stream (full for small, chunked for large) ───
     // Browser <video> sees Accept-Ranges + Content-Range and requests the next
     // 1 MiB window automatically. Each window is a new Hobby-safe invocation.
+    // One-shot token hosts get a movie-length deadline: a second upstream fetch
+    // would be rejected (token consumed), so we must finish in one pass.
     return streamDirectResponse(upstream, req, res, {
       window,
-      deadlineMs: HOBBY_MAX_DURATION_MS,
+      deadlineMs: isOneShotTokenHost ? ONE_SHOT_STREAM_MS : HOBBY_MAX_DURATION_MS,
     })
   } catch (err) {
     console.error('Proxy error:', err)
