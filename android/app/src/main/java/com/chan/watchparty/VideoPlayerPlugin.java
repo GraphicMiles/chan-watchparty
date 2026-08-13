@@ -206,8 +206,11 @@ public class VideoPlayerPlugin extends Plugin {
         try {
             float b = Math.max(0f, Math.min(2f, brightness));
             lastEngineBrightness = b;
-            if (overlay != null) overlay.setBrightnessDim(1f);
-            if (engine != null) engine.setVideoEffects(b, 1f, 1f, 0f);
+            // Brightness is PURE overlay (dim layer <=100%, white screen-blend
+            // >100%) — it NEVER touches the engine/decoder pipeline. Engine
+            // effects broke playback with the generic "unavailable or expired"
+            // error on real devices, so they were removed.
+            if (overlay != null) overlay.setBrightnessDim(b);
         } catch (Throwable t) {
             Log.e(TAG, "applyBrightness failed", t);
         }

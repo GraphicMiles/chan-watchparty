@@ -75,12 +75,6 @@ public class ChanPlayerEngine {
     private long pendingSeekMs = -1;
     private final Runnable effectsDebounce = new Runnable() { public void run() { applyEffectsNow(); } };
     private boolean effectsQueued = false;
-    // Live Exo brightness — installed once, sampled every frame.
-    private final LiveBrightnessRgbMatrix liveBrightness = new LiveBrightnessRgbMatrix();
-    // Whether the GL effect graph is currently installed on ExoPlayer. It must
-    // be OFF at neutral brightness — forcing it on every stream broke playback
-    // (generic "unavailable or expired") on devices whose GPU can't run the graph.
-    private boolean exoEffectInstalled = false;
 
     private ExoPlayer exoPlayer;
     private androidx.media3.ui.PlayerView exoView; // attached by the overlay
@@ -219,56 +213,30 @@ public class ChanPlayerEngine {
     public boolean isEnded() { return ended; }
 
     /**
-     * Real engine brightness (0..2). Does NOT rebuild media.
-     * Exo: writes a per-frame RGB matrix already in the pipeline.
-     * VLC: JNI tweak only (filter already on the media).
+     * Brightness/contrast/saturation/hue are intentionally a NO-OP on the
+     * native engines. Forcing any effect into the decode pipeline (the Exo
+     * GL RgbMatrix graph or libVLC's software adjust filter) broke playback
+     * with the generic "unavailable or expired" error on real devices — the
+     * VLC filter conflicts with hardware HEVC decode, and the GL graph fails
+     * on GPUs that can't run it. The visual dim/brighten effect is provided
+     * purely by the overlay views in RoomPlayerOverlayView (never touches the
+     * decoders). Values are stored so any future caller can still read them.
      */
     public void setVideoEffects(float brightness, float contrast, float saturation, float hueDeg) {
-        final float b = Math.max(0f, Math.min(2f, brightness));
-        lastBrightness = b;
+        lastBrightness = Math.max(0f, Math.min(2f, brightness));
         lastContrast = contrast;
         lastSaturation = saturation;
         lastHue = hueDeg;
-        effectsNeutral = Math.abs(b - 1f) < 0.01f
+        effectsNeutral = Math.abs(lastBrightness - 1f) < 0.01f
                 && Math.abs(contrast - 1f) < 0.01f
                 && Math.abs(saturation - 1f) < 0.01f
                 && Math.abs(hueDeg) < 0.5f;
-        try { liveBrightness.setBrightness(b); } catch (Throwable ignored) { }
-        // ExoPlayer: the GL effect graph must NOT be forced at neutral
-        // brightness (the always-on RgbMatrix broke IPTV/direct playback on
-        // devices that can't run the graph). Install it on the first
-        // non-neutral change and remove it when the user returns to neutral.
-        if (exoPlayer != null) {
-            try {
-                if (!effectsNeutral && !exoEffectInstalled) {
-                    exoPlayer.setVideoEffects(java.util.Collections.singletonList(liveBrightness));
-                    exoEffectInstalled = true;
-                } else if (effectsNeutral && exoEffectInstalled) {
-                    exoPlayer.setVideoEffects(java.util.Collections.emptyList());
-                    exoEffectInstalled = false;
-                }
-            } catch (Throwable t) {
-                Log.w(TAG, "Exo setVideoEffects failed", t);
-            }
-        }
-        mainHandler.post(this::applyVlcBrightnessLive);
     }
 
-    /** JNI tweak only — never stop/setMedia (that skips / can SIGSEGV). */
+    /** JNI tweak disabled — brightness never touches the decoder pipeline. */
     private void applyVlcBrightnessLive() {
-        if (vlcPlayer == null || disposed) return;
-        // Neutral brightness must NOT enable the VLC adjust filter. The filter
-        // conflicts with hardware HEVC decode and produced the generic
-        // "unavailable or expired" error on every MKV stream.
-        if (effectsNeutral) return;
-        try {
-            if (vlcPlayer.isReleased()) return;
-            long ptr = vlcPlayer.getInstance();
-            if (ptr == 0L) return;
-            nativeSetAdjustVlcBrightness(ptr, lastBrightness);
-        } catch (Throwable t) {
-            Log.w(TAG, "VLC JNI adjust unavailable", t);
-        }
+        // Intentionally empty: see setVideoEffects. Engine brightness is
+        // disabled so playback can never be broken by an effect filter.
     }
 
     // ── VLC real-time brightness via JNI (see src/main/cpp/jni_bridge.c) ──
@@ -311,23 +279,12 @@ public class ChanPlayerEngine {
         }
     }
 
-    /** Apply the adjust filter via libVLC media options ONLY when effects are
-     *  non-neutral. A neutral pipeline must stay filter-free: the always-on
-     *  adjust filter conflicts with hardware HEVC decode and produced the
-     *  generic "unavailable or expired" error on every MKV stream. When the
-     *  user later changes brightness, the JNI bridge enables the filter at
-     *  runtime (applyVlcBrightnessLive) without re-preparing media. */
+    /** DISABLED: never add the VLC adjust filter. The software adjust filter
+     *  conflicts with hardware HEVC decode (the "unavailable or expired"
+     *  error on every MKV stream), and the visual effect is handled by the
+     *  overlay views instead. Kept as a callable no-op for callers. */
     private void addAdjustOptions(Media media) {
-        if (effectsNeutral || media == null) return;
-        try {
-            media.addOption(":video-filter=adjust");
-            media.addOption(":adjust-brightness=" + Math.max(0f, Math.min(2f, lastBrightness)));
-            media.addOption(":adjust-contrast=" + Math.max(0f, Math.min(2f, lastContrast)));
-            media.addOption(":adjust-saturation=" + Math.max(0f, Math.min(3f, lastSaturation)));
-            media.addOption(":adjust-hue=" + (((lastHue % 360f) + 360f) % 360f));
-        } catch (Exception e) {
-            Log.e(TAG, "addAdjustOptions failed", e);
-        }
+        // Intentionally empty — see setVideoEffects.
     }
 
     private int clampInt(int v, int lo, int hi) {
@@ -674,22 +631,9 @@ public class ChanPlayerEngine {
             if (exoView != null) {
                 exoView.setPlayer(exoPlayer);
             }
-            // New player → no GL effect installed yet.
-            exoEffectInstalled = false;
-            // Install the live RGB matrix ONLY when brightness is non-neutral.
-            // A neutral pipeline must stay effect-free (the always-on effect
-            // graph broke playback on some GPUs). Slider ticks later mutate
-            // liveBrightness; the graph is installed/removed in setVideoEffects.
-            if (!effectsNeutral) {
-                try {
-                    liveBrightness.setBrightness(lastBrightness);
-                    exoPlayer.setVideoEffects(java.util.Collections.singletonList(liveBrightness));
-                    exoEffectInstalled = true;
-                } catch (Throwable t) {
-                    // Some GPUs reject the effect graph — never let that kill the app.
-                    Log.e(TAG, "Could not install live brightness matrix", t);
-                }
-            }
+            // No GL effect graph is ever installed — brightness is overlay-only.
+            // Forcing an effect here broke playback on devices whose GPU can't
+            // run the graph (the generic "unavailable or expired" error).
 
             exoPlayer.addListener(new Player.Listener() {
                 @Override
@@ -855,7 +799,6 @@ public class ChanPlayerEngine {
             try { exoPlayer.release(); } catch (Throwable t) { Log.w(TAG, "exo release failed", t); }
             exoPlayer = null;
         }
-        exoEffectInstalled = false;
     }
 
     private void releaseVlc() {

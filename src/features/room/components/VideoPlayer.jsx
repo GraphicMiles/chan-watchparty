@@ -155,6 +155,7 @@ export default function VideoPlayer({
   const onReadyRef = useRef(onReady)
   const onPlayerEventRef = useRef(onPlayerEvent)
   const onEndedRef = useRef(onEnded)
+  const onErrorRef = useRef(onError)
 
   const [error, setError] = useState(null)
   const [isReady, setIsReady] = useState(false)
@@ -388,7 +389,8 @@ export default function VideoPlayer({
     onReadyRef.current = onReady
     onPlayerEventRef.current = onPlayerEvent
     onEndedRef.current = onEnded
-  }, [onReady, onPlayerEvent, onEnded])
+    onErrorRef.current = onError
+  }, [onReady, onPlayerEvent, onEnded, onError])
 
   useEffect(() => {
     if (playing !== undefined) {
@@ -650,6 +652,13 @@ export default function VideoPlayer({
     onReadyRef.current?.(adapter)
   }, [adapter])
 
+  // Stable handle for the HLS setup effect. notifyReady's identity churns
+  // whenever `adapter` changes (e.g. durationSec), which was destroying and
+  // recreating the hls.js instance mid-playback — the "rebuffer / restream /
+  // stops working" bug when the room re-rendered.
+  const notifyReadyRef = useRef(notifyReady)
+  useEffect(() => { notifyReadyRef.current = notifyReady }, [notifyReady])
+
   const emitPlay = useCallback(() => {
     playingRef.current = true
     setIsPlayingState(true)
@@ -741,7 +750,7 @@ export default function VideoPlayer({
 
     // Don't retry demuxer/pipeline errors - they're usually fatal
     if (isDemuxerError(message)) {
-      onError?.(new Error(message))
+      onErrorRef.current?.(new Error(message))
       return
     }
 
@@ -755,9 +764,9 @@ export default function VideoPlayer({
         }
       }, RETRY_DELAY)
     } else {
-      onError?.(new Error(message))
+      onErrorRef.current?.(new Error(message))
     }
-  }, [currentUrl, isHls, isLive, onError, played, toast, videoType])
+  }, [currentUrl, isHls, isLive, played, toast, videoType])
 
   const destroyHls = useCallback(() => {
     if (hlsRef.current) {
@@ -840,7 +849,7 @@ export default function VideoPlayer({
       const dur = video.duration || 0
       setDurationSec(dur)
       onDuration?.(dur)
-      notifyReady()
+      notifyReadyRef.current?.()
     }
     const onNativeError = () => {
       const mediaErr = video.error
@@ -895,7 +904,7 @@ export default function VideoPlayer({
             onDuration?.(total)
           }
         } catch { /* */ }
-        notifyReady()
+        notifyReadyRef.current?.()
       })
       hls.on(Events.LEVEL_SWITCHED, (_event, data) => {
         setCurrentLevel(data.level)
@@ -939,7 +948,7 @@ export default function VideoPlayer({
       destroyHls()
       if (!isSupported()) video.removeAttribute('src')
     }
-  }, [destroyHls, handleError, isHls, isLive, notifyReady, onDuration, toast, videoType, currentUrl])
+  }, [destroyHls, handleError, isHls, isLive, onDuration, toast, videoType, currentUrl])
 
   useEffect(() => () => {
     clearTimeout(retryTimeoutRef.current)

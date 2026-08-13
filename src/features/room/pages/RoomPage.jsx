@@ -515,6 +515,15 @@ export default function RoomPage() {
     }
   }
 
+  // Stable identity: the VideoPlayer's HLS setup effect depended on the old
+  // inline onError, so every RoomPage re-render (heartbeat, chat, reactions)
+  // destroyed and recreated the hls.js instance — "rebuffer / restream /
+  // stops working" on live streams. Keep it referentially stable.
+  const handleVideoPlayerError = useCallback((err) => {
+    console.error('VideoPlayer error:', err)
+    // Native already shows Retry / Re-resolve — don't stack a toast.
+  }, [])
+
   const onPlayerEvent = (patch) => {
     if (patch && typeof patch.currentTime === 'number' && reportPlayerPosition) {
       reportPlayerPosition(patch.currentTime, patch.isPlaying)
@@ -713,10 +722,7 @@ export default function RoomPage() {
                   onReady={onPlayerReady}
                   onPlayerEvent={onPlayerEvent}
                   onEnded={handleVideoEnded}
-                  onError={(err) => {
-                    console.error('VideoPlayer error:', err)
-                    // Native already shows Retry / Re-resolve — don't stack a toast.
-                  }}
+                  onError={handleVideoPlayerError}
                   roomId={roomId}
                   isLive={Boolean(
                     room.videoType === 'iptv'
