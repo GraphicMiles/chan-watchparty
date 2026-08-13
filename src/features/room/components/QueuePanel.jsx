@@ -168,6 +168,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
       videoUrl: videoUrl || null,
       videoType,
       thumbnail: thumb,
+      synopsis: item.synopsis || null,
       addedByUid: user?.uid || 'anonymous',
       addedByName: user?.displayName || 'Viewer',
       createdAt: serverTimestamp(),
