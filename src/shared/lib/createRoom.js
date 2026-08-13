@@ -2,10 +2,9 @@ import { doc, setDoc, deleteDoc, serverTimestamp, collection } from 'firebase/fi
 import { db } from './firebase.js'
 import { apiPath, parseJsonResponse } from './api.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, checkEmbeddable } from './youtube.js'
-import { proxyTargetUrl, isDownloadPageUrl } from './mediaApi.js'
+import { proxyTargetUrl, isDownloadPageUrl, resolveDownloadDescriptor } from './mediaApi.js'
 import { sanitizeSynopsis } from './synopsis.js'
 import { mediaDocFromDescriptor, mediaStubForCdn } from './resolvePlayback.js'
-import { resolveDownloadDescriptor } from './mediaApi.js'
 
 export function isO2TvUrl(value) {
   return /tvshows4mobile\.org|o2tvseries|o2tv\.org/i.test(String(value || ''))
