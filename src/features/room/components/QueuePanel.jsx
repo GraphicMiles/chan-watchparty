@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { collection, onSnapshot, query, orderBy, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
-import { Plus, Trash2, Play, Search, Film, Youtube, Link2, Loader2 } from 'lucide-react'
+import { Plus, Trash2, Play, Search, Film, Youtube, Link2, Loader2, RefreshCw } from 'lucide-react'
 import { db } from '../../../shared/lib/firebase.js'
 import { useUnifiedSearch } from '../../../hooks/useUnifiedSearch.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, extractVideoId, getThumbnail } from '../../../shared/lib/youtube.js'
@@ -8,11 +8,17 @@ import { Input } from '../../../shared/ui/index.js'
 import styles from './QueuePanel.module.scss'
 import { apiPath } from '../../../shared/lib/api.js'
 
+/**
+ * QueuePanel — two modes behind two pills:
+ *   Change video — pick/search a video and it PLAYS NOW (host/co-host).
+ *   Queue        — line up videos; host can play a queued item immediately.
+ * Both keep the YouTube ⇄ Direct source toggle composer.
+ */
 export default function QueuePanel({ roomId, user, canControl, onPlayNext, onChangeVideo, toast }) {
   const [queue, setQueue] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [changeUrl, setChangeUrl] = useState('')
   const [activeTab, setActiveTab] = useState('youtube') // 'youtube' or 'direct'
+  const [view, setView] = useState('queue') // 'queue' | 'change'
   const { results, loading, search, clear } = useUnifiedSearch()
 
   useEffect(() => {
@@ -63,10 +69,12 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
     }
   }, [expandedSeasons, user, toast])
 
+  /** Add an item to the queue. Returns { id, payload } so callers can play it
+   *  immediately, or null if nothing was queued. */
   const addToQueue = useCallback(async (item, episode = null) => {
     if (queue.length >= 5) {
       toast('Queue is full! Users can only add up to 5 media items to the queue.', { variant: 'error' })
-      return
+      return null
     }
 
     let videoId = ''
@@ -84,13 +92,13 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
     } else if (/thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '')) {
       // Nkiri season page - fetch and show episodes
       await fetchEpisodes(item.url || item.link)
-      return
+      return null
     } else if (item.isDirect || isDirectVideoUrl(item.url || item.link)) {
       videoUrl = normalizePlaybackUrl(item.url || item.link)
       videoType = 'direct'
     } else {
       toast('Selected item must be a playable video or YouTube link', { variant: 'error' })
-      return
+      return null
     }
 
     const thumb = item.thumbnail || item.image || (videoId ? getThumbnail(videoId) : '') || ''
@@ -106,12 +114,30 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
     }
 
     try {
-      await addDoc(collection(db, 'rooms', roomId, 'queue'), payload)
+      const ref = await addDoc(collection(db, 'rooms', roomId, 'queue'), payload)
       toast('Added to queue!', { variant: 'success' })
+      return { id: ref.id, payload }
     } catch (err) {
       toast(err.message || 'Could not add to queue', { variant: 'error' })
+      return null
     }
   }, [queue.length, activeTab, user, roomId, toast, fetchEpisodes])
+
+  /** Add to queue AND start playing it right away (host/co-host). */
+  const addAndPlay = useCallback(async (item, episode = null) => {
+    if (!canControl) {
+      toast('Only the host or co-hosts can play items immediately', { variant: 'warning' })
+      return
+    }
+    const created = await addToQueue(item, episode)
+    if (!created) return
+    try {
+      await onPlayNext(created.payload)
+      await deleteDoc(doc(db, 'rooms', roomId, 'queue', created.id)).catch(() => {})
+    } catch (err) {
+      toast(err.message || 'Could not start playback', { variant: 'error' })
+    }
+  }, [canControl, addToQueue, onPlayNext, roomId, toast])
 
   // Declared AFTER addToQueue/fetchEpisodes so it closes over already-defined
   // callbacks — fixes 'used before defined' + makes the dependency array exhaustive.
@@ -126,6 +152,11 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
     if (isDirectVideoUrl(trimmed)) {
       const normalized = normalizePlaybackUrl(trimmed)
       const title = normalized.split('/').pop()?.replace(/\.(mp4|m3u8|mkv|avi|mov|webm|ogg|flv)$/i, '') || 'Direct Video'
+      if (view === 'change') {
+        onChangeVideo(normalized)
+        setSearchQuery('')
+        return
+      }
       await addToQueue({
         title,
         videoUrl: normalized,
@@ -136,12 +167,36 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
       return
     }
 
+    // Pasted YouTube link → play now (change) or queue it
+    const ytId = extractVideoId(trimmed)
+    if (ytId) {
+      const url = `https://youtube.com/watch?v=${ytId}`
+      if (view === 'change') {
+        onChangeVideo(url)
+        setSearchQuery('')
+        return
+      }
+      await addToQueue({ title: 'YouTube video', url })
+      setSearchQuery('')
+      return
+    }
+
     await search({
       layer: activeTab,
       query: trimmed,
       options: { resolve: activeTab === 'direct' },
     })
-  }, [searchQuery, activeTab, search, toast, addToQueue])
+  }, [searchQuery, activeTab, view, search, toast, addToQueue, onChangeVideo])
+
+  /** Resolve a search result to a playable URL and change the current video. */
+  const changeToResult = useCallback((item) => {
+    const url = item.url || item.link || (item.id ? `https://youtube.com/watch?v=${item.id}` : '')
+    if (!url) {
+      toast('This item has no playable link', { variant: 'error' })
+      return
+    }
+    onChangeVideo(url)
+  }, [onChangeVideo, toast])
 
   const removeFromQueue = useCallback(async (item) => {
     if (!canControl && item.addedByUid !== user?.uid) {
@@ -169,42 +224,40 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
     }
   }, [canControl, onPlayNext, roomId, toast])
 
+  const switchView = (next) => {
+    setView(next)
+    clear()
+    setSearchQuery('')
+  }
+
+  const canChange = Boolean(canControl && onChangeVideo)
+  const showChangeTab = canChange
+
   return (
     <div className={styles.queuePanel}>
-      {/* Change the CURRENT video — paste a link (host/co-host). This is the
-          single place to change video now (ShowBrowser modal removed). */}
-      {canControl && onChangeVideo && (
-        <div className={styles.changeVideoRow}>
-          <form
-            className={styles.composerBar}
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (changeUrl.trim()) {
-                onChangeVideo(changeUrl.trim())
-                setChangeUrl('')
-              }
-            }}
+      {/* Mode pills — Change video | Queue */}
+      <div className={styles.viewPills}>
+        {showChangeTab && (
+          <button
+            type="button"
+            className={`${styles.viewPill} ${view === 'change' ? styles.viewPillActive : ''}`}
+            onClick={() => switchView('change')}
           >
-            <span className={styles.changeVideoLabel} title="Change the currently playing video">
-              <Play size={13} />
-              Change video
-            </span>
-            <Input
-              value={changeUrl}
-              onChange={(e) => setChangeUrl(e.target.value)}
-              placeholder="Paste YouTube URL or .mp4 / .m3u8 / .mkv link…"
-              className={styles.searchInput}
-            />
-            <button type="submit" className={styles.trailingBtn} title="Change video" aria-label="Change video">
-              <Loader2 size={14} className={loading ? 'spin' : 'hidden'} />
-              <Play size={14} />
-            </button>
-          </form>
-        </div>
-      )}
-      {/* Merged source toggle + search — one composer bar, tap the chip to
-          switch YouTube ⇄ Direct (icon + label + placeholder + trailing icon
-          all swap together) */}
+            <RefreshCw size={13} />
+            Change video
+          </button>
+        )}
+        <button
+          type="button"
+          className={`${styles.viewPill} ${view === 'queue' ? styles.viewPillActive : ''}`}
+          onClick={() => switchView('queue')}
+        >
+          <Play size={13} />
+          Queue{queue.length > 0 ? ` (${queue.length}/5)` : ''}
+        </button>
+      </div>
+
+      {/* Composer — source toggle + input + trailing action */}
       <div className={styles.queueControls}>
         <form onSubmit={handleSearch} className={styles.composerBar}>
           <button
@@ -222,16 +275,28 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
             placeholder={activeTab === 'direct' ? 'Paste a video link…' : 'Search YouTube…'}
             className={styles.searchInput}
           />
-          <button type="submit" className={styles.trailingBtn} title="Search" aria-label="Search">
-            {loading ? <Loader2 size={14} className="spin" /> : <Search size={14} />}
+          <button
+            type="submit"
+            className={styles.trailingBtn}
+            title={view === 'change' ? 'Play this video now' : 'Search'}
+            aria-label={view === 'change' ? 'Play now' : 'Search'}
+          >
+            {loading ? <Loader2 size={14} className="spin" /> : view === 'change' ? <Play size={14} /> : <Search size={14} />}
           </button>
         </form>
+        {view === 'change' && (
+          <p className={styles.viewHint}>Picking a result below changes the video for everyone right now.</p>
+        )}
+        {view === 'queue' && (
+          <p className={styles.viewHint}>Add videos to line up. The host can play any queued item immediately.</p>
+        )}
       </div>
+
       {/* Search results list in Card style */}
       {results.length > 0 && (
         <div className={styles.searchResultsSection}>
           <div className={styles.resultsBar}>
-            <span>Found {results.length} result(s)</span>
+            <span>{view === 'change' ? 'Pick a result to play now' : `Found ${results.length} result(s)`}</span>
             <button type="button" onClick={clear} className={styles.clearBtn}>Clear</button>
           </div>
           <div className={styles.resultsList}>
@@ -242,6 +307,8 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
               const isExpanded = expandedSeasons[item.url || item.link]
               const isLoading = loadingEpisodes[item.url || item.link]
               const episodes = isExpanded || []
+              const playable = (item.type || activeTab) === 'youtube' && (item.id || extractVideoId(item.url))
+                || item.isDirect || isDirectVideoUrl(item.url || item.link)
 
               return (
                 <div key={idx}>
@@ -257,6 +324,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
                       <h4 className={styles.cardTitle}>{item.title}</h4>
                       <span className={styles.cardMeta}>{item.source || activeTab} · {item.duration || 'Video'}</span>
                     </div>
+
                     {isNkiri ? (
                       <button
                         type="button"
@@ -266,16 +334,39 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
                       >
                         {isLoading ? 'Loading...' : isExpanded ? 'Hide Episodes' : 'Show Episodes'}
                       </button>
-                    ) : (
+                    ) : view === 'change' ? (
                       <button
                         type="button"
-                        className={`${styles.addBtn} ${isFull ? styles.disabledBtn : ''}`}
-                        onClick={() => addToQueue(item)}
-                        disabled={isFull}
-                        title={isFull ? 'Queue limit reached (max 5)' : 'Add to queue'}
+                        className={`${styles.addBtn} ${!playable ? styles.disabledBtn : ''}`}
+                        onClick={() => changeToResult(item)}
+                        disabled={!playable}
+                        title={playable ? 'Play this video now' : 'Not playable directly'}
                       >
-                        <Plus size={14} /> Add
+                        <Play size={14} /> Play now
                       </button>
+                    ) : (
+                      <div className={styles.resultActions}>
+                        {canControl && (
+                          <button
+                            type="button"
+                            className={styles.iconBtn}
+                            onClick={() => addAndPlay(item)}
+                            disabled={isFull}
+                            title={isFull ? 'Queue limit reached (max 5)' : 'Add and play now'}
+                          >
+                            <Play size={13} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className={`${styles.addBtn} ${isFull ? styles.disabledBtn : ''}`}
+                          onClick={() => addToQueue(item)}
+                          disabled={isFull}
+                          title={isFull ? 'Queue limit reached (max 5)' : 'Add to queue'}
+                        >
+                          <Plus size={14} /> Add
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -287,14 +378,24 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
                           <div className={styles.episodeInfo}>
                             <span className={styles.episodeTitle}>{ep.title}</span>
                           </div>
-                          <button
-                            type="button"
-                            className={`${styles.addBtn} ${isFull ? styles.disabledBtn : ''}`}
-                            onClick={() => addToQueue(item, ep)}
-                            disabled={isFull}
-                          >
-                            <Plus size={14} /> Add
-                          </button>
+                          {view === 'change' ? (
+                            <button
+                              type="button"
+                              className={styles.addBtn}
+                              onClick={() => changeToResult(ep)}
+                            >
+                              <Play size={14} /> Play
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className={`${styles.addBtn} ${isFull ? styles.disabledBtn : ''}`}
+                              onClick={() => addToQueue(item, ep)}
+                              disabled={isFull}
+                            >
+                              <Plus size={14} /> Add
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>

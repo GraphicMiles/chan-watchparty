@@ -582,6 +582,58 @@
   cursor: pointer;
 }
 
+/* Brightness popup — full-screen overlay, centered over the player */
+.brightnessOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: brightnessFade 0.15s ease;
+}
+
+.brightnessPopup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  background: #18191D;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  min-width: 280px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  animation: brightnessPop 0.18s ease;
+}
+
+.brightnessHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.brightnessHint {
+  font-size: 10.5px;
+  color: var(--room-text-secondary);
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+
+@keyframes brightnessFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes brightnessPop {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .popupSliderVal {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;

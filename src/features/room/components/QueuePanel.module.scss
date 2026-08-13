@@ -7,31 +7,59 @@
   padding: 4px;
 }
 
-/* ── Change current video (paste link) — the single change-video entry ── */
-.changeVideoRow {
+/* ── Mode pills — Change video | Queue ── */
+.viewPills {
   flex-shrink: 0;
+  display: flex;
+  gap: 8px;
   padding: 10px 12px 0;
 }
 
-.changeVideoLabel {
+.viewPill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  flex: 1;
+  justify-content: center;
   background: var(--room-surface);
-  border: none;
-  border-radius: 14px;
-  padding: 8px 11px;
-  font-size: 11px;
+  border: 1px solid var(--room-divider);
+  border-radius: 999px;
+  padding: 9px 12px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--room-text-secondary);
-  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
   white-space: nowrap;
 }
 
-.changeVideoLabel svg {
+.viewPill svg {
   width: 13px;
   height: 13px;
-  color: var(--accent-orange, #F5F5F7);
+  flex-shrink: 0;
+}
+
+.viewPill:hover {
+  color: var(--room-text-primary);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.viewPillActive {
+  background: var(--accent-orange);
+  border-color: var(--accent-orange);
+  color: #fff;
+}
+
+.viewPillActive:hover {
+  color: #fff;
+}
+
+.viewHint {
+  margin: 8px 2px 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--room-text-secondary);
+  opacity: 0.85;
 }
 
 /* ── Queue pane ── */
@@ -241,6 +269,40 @@
 .disabledBtn {
   background: var(--room-divider) !important;
   color: var(--room-text-secondary) !important;
+  cursor: not-allowed;
+}
+
+/* Result action group (queue view) */
+.resultActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--room-surface);
+  border: 1px solid var(--room-divider);
+  color: var(--room-text-primary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.iconBtn:hover:not(:disabled) {
+  background: var(--accent-orange);
+  border-color: var(--accent-orange);
+  color: #fff;
+}
+
+.iconBtn:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
