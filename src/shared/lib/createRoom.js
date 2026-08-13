@@ -2,8 +2,9 @@ import { doc, setDoc, deleteDoc, serverTimestamp, collection } from 'firebase/fi
 import { db } from './firebase.js'
 import { apiPath, parseJsonResponse } from './api.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, checkEmbeddable } from './youtube.js'
-import { proxyTargetUrl, isDownloadPageUrl, resolveDownloadLink, resolveDownloadDescriptor, fetchTitleSynopsis } from './mediaApi.js'
+import { proxyTargetUrl, isDownloadPageUrl, fetchTitleSynopsis } from './mediaApi.js'
 import { sanitizeSynopsis } from './synopsis.js'
+import { resolvePlaybackForUser } from './resolvePlayback.js'
 
 export function isO2TvUrl(value) {
   return /tvshows4mobile\.org|o2tvseries|o2tv\.org/i.test(String(value || ''))
@@ -58,33 +59,20 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
       throw new Error('Paste a direct video file link (.mp4 / .m3u8 / .mkv) or pick an episode')
     }
 
-    // DownloadWella / fsmc links expire fast. Two rules:
-    //  1. If we still have the episode PAGE url (content.sourceUrl), ALWAYS
-    //     resolve fresh at create time — the room starts from a live token.
-    //  2. Otherwise, if the url itself is a downloadwella *page* (HTML), walk
-    //     the form now. Already-resolved CDN urls are left as-is.
+    // Always resolve DownloadWella pages at create time (same helper as
+    // queue play-now). Already-resolved CDN urls with no page are left as-is.
     const rawVideoUrl = proxyTargetUrl(videoUrl)
     pageUrl = content?.sourceUrl ? proxyTargetUrl(content.sourceUrl) : ''
-    if (pageUrl && /downloadwella\.com|fsmc/i.test(pageUrl)) {
-      // We have the original episode page — always walk the form for a fresh
-      // token, and keep the full descriptor so the native player can play the
-      // CDN directly with correct headers (Phase B).
-      try {
-        mediaDescriptor = await resolveDownloadDescriptor(user, pageUrl, content?.title || 'Chan video')
-        videoUrl = normalizePlaybackUrl(mediaDescriptor.streamUrl)
-      } catch (err) {
-        if (/expired|resolve|download/i.test(err.message || '')) throw err
-        // Non-fatal: let the proxy attempt the existing url at playback time.
-      }
-    } else if (isDownloadPageUrl(rawVideoUrl)) {
-      // Page url only (no sourceUrl saved) — resolve it now.
-      try {
-        videoUrl = await resolveDownloadLink(user, rawVideoUrl, content?.title || 'Chan video')
-      } catch (err) {
-        if (/expired|resolve|download/i.test(err.message || '')) throw err
-      }
+    if ((pageUrl && /downloadwella\.com|fsmc/i.test(pageUrl)) || isDownloadPageUrl(rawVideoUrl)) {
+      const resolved = await resolvePlaybackForUser(user, {
+        url: videoUrl,
+        sourceUrl: pageUrl || (isDownloadPageUrl(rawVideoUrl) ? rawVideoUrl : null),
+        title: content?.title || 'Chan video',
+      })
+      videoUrl = resolved.videoUrl
+      mediaDescriptor = resolved.media
+      pageUrl = resolved.sourceUrl || pageUrl
     }
-    // Already-resolved CDN url with no page url: leave as-is (can't refresh).
 
     if (isDownloadPageUrl(videoUrl)) {
       throw new Error('The download link is a page, not a video file — it may be expired. Go back and pick the episode again.')

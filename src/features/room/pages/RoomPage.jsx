@@ -17,7 +17,7 @@ import Chat from '../components/Chat.jsx'
 import QueuePanel from '../components/QueuePanel.jsx'
 import ParticipantList from '../components/ParticipantList.jsx'
 import { SyncPulse } from '../../../shared/components/SyncPulse.jsx'
-import { extractVideoId, isDirectVideoUrl, normalizePlaybackUrl } from '../../../shared/lib/youtube.js'
+import { extractVideoId, normalizePlaybackUrl } from '../../../shared/lib/youtube.js'
 import { cleanMediaTitle } from '../../../shared/lib/titleFormat.js'
 import { isDisplayMediaSupported } from '../services/livekit.js'
 import { Button, Input, Card, Modal, Badge, useToast } from '../../../shared/ui/index.js'
@@ -26,6 +26,7 @@ import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
 import { refreshDownloadDescriptor, fetchTitleSynopsis } from '../../../shared/lib/mediaApi.js'
 import { sanitizeSynopsis } from '../../../shared/lib/synopsis.js'
+import { resolvePlaybackForUser } from '../../../shared/lib/resolvePlayback.js'
 
 const SOUND_FX_URLS = {
   airhorn: 'https://cdn.freesound.org/previews/435/435255_8863641-lq.mp3',
@@ -338,48 +339,51 @@ export default function RoomPage() {
     }
   }
 
-  // Change the currently-playing video to a pasted link (called from the
-  // Queue tab — the single place to change video now).
-  const changeVideo = async (url) => {
-    const trimmedUrl = String(url || '').trim()
+  // Change the currently-playing video. extras.sourceUrl is the episode
+  // PAGE when the pick is DownloadWella — we resolve a fresh token first.
+  const changeVideo = async (url, extras = {}) => {
+    const trimmedUrl = String(url || extras.sourceUrl || '').trim()
     if (!trimmedUrl) return
 
     const id = extractVideoId(trimmedUrl)
-    const isDirect = isDirectVideoUrl(trimmedUrl) || /\.(mp4|m3u8|mkv|avi|mov|webm|flv|ts)(\?|#|$)/i.test(trimmedUrl)
-    const isM3u8 = /\.m3u8(\?|#|$)/i.test(trimmedUrl)
-    const playbackUrl = normalizePlaybackUrl(trimmedUrl)
-    
     try {
       setBusy(true)
-      
+
       if (id) {
-        await updateRoom({ 
-          videoId: id, 
+        await updateRoom({
+          videoId: id,
           videoUrl: null,
           videoType: 'youtube',
           activityType: 'youtube',
           isLive: false,
-          title: room.title,
-          synopsis: null,
+          title: extras.title || room.title,
+          synopsis: extras.synopsis !== undefined ? sanitizeSynopsis(extras.synopsis) : null,
+          media: null,
+          sourceUrl: null,
         })
         await writePlayerState({ videoId: id, videoUrl: null, isPlaying: false, currentTime: 0 })
-      } else if (isDirect || trimmedUrl) {
-        const nextType = isM3u8 ? 'iptv' : 'direct'
-        await updateRoom({ 
-          videoId: null, 
-          videoUrl: playbackUrl,
+      } else {
+        const resolved = await resolvePlaybackForUser(user, {
+          url: trimmedUrl,
+          videoUrl: extras.videoUrl || trimmedUrl,
+          sourceUrl: extras.sourceUrl,
+          title: extras.title || room.title,
+        })
+        const nextType = resolved.isM3u8 ? 'iptv' : 'direct'
+        await updateRoom({
+          videoId: null,
+          videoUrl: resolved.videoUrl,
           videoType: nextType,
           activityType: nextType,
-          isLive: isM3u8,
-          title: room.title,
-          synopsis: null,
+          isLive: resolved.isM3u8,
+          title: extras.title || room.title,
+          synopsis: extras.synopsis !== undefined ? sanitizeSynopsis(extras.synopsis) : null,
+          media: resolved.media,
+          sourceUrl: resolved.sourceUrl,
         })
-        await writePlayerState({ videoId: null, videoUrl: playbackUrl, isPlaying: false, currentTime: 0 })
-      } else {
-        toast('Paste a valid YouTube URL or direct video link (.mp4, .mkv, etc.)', { variant: 'error' })
-        return
+        await writePlayerState({ videoId: null, videoUrl: resolved.videoUrl, isPlaying: false, currentTime: 0 })
       }
-      
+
       toast('Video updated', { variant: 'success' })
     } catch (err) {
       toast(err.message || 'Could not update video', { variant: 'error' })
@@ -908,6 +912,25 @@ export default function RoomPage() {
             </div>
             <div className={styles.confirmActions}>
               <Button variant="secondary" onClick={() => { clearTimeout(autoNextTimerRef.current); setAutoNextPrompt(null) }}>
+                Cancel
+              </Button>
+              <Button variant="cta" loading={busy} onClick={async () => {
+                if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current)
+                const item = autoNextPrompt
+                setAutoNextPrompt(null)
+                await onPlayNextQueueItem(item)
+                await deleteDoc(doc(db, 'rooms', roomId, 'queue', item.id)).catch(() => {})
+              }}>
+                Play Next Now
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </Layout>
+  )
+}
+nt); setAutoNextPrompt(null) }}>
                 Cancel
               </Button>
               <Button variant="cta" loading={busy} onClick={async () => {

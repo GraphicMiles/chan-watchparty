@@ -10,6 +10,7 @@ import { cleanMediaTitle } from '../../../shared/lib/titleFormat.js'
 import { Input } from '../../../shared/ui/index.js'
 import styles from './QueuePanel.module.scss'
 import { apiPath } from '../../../shared/lib/api.js'
+import { isDownloadPageUrl, proxyTargetUrl } from '../../../shared/lib/mediaApi.js'
 
 /**
  * QueuePanel — two modes behind two pills:
@@ -133,14 +134,26 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
     let videoUrl = null
     let videoType = 'youtube'
 
+    let sourceUrl = item.sourceUrl || null
+
     if ((item.type || activeTab) === 'youtube' && (item.id || extractVideoId(item.url))) {
       videoId = item.id || extractVideoId(item.url)
       videoType = 'youtube'
     } else if (episode) {
-      // Episode from expanded Nkiri season - resolve downloadwella
-      videoUrl = episode.url
+      // Store the episode PAGE, not a dead CDN token. Play-now resolves fresh.
+      item = episode
       videoType = 'direct'
-      item = episode // Use episode data for title/thumbnail
+      const epUrl = episode.url || episode.link || ''
+      if (isDownloadPageUrl(epUrl) || /downloadwella\.com|fsmc/i.test(epUrl)) {
+        sourceUrl = proxyTargetUrl(epUrl)
+        videoUrl = null
+      } else if (episode.isDirectMedia || isDirectVideoUrl(epUrl)) {
+        videoUrl = normalizePlaybackUrl(epUrl)
+        sourceUrl = episode.sourceUrl || null
+      } else {
+        sourceUrl = proxyTargetUrl(epUrl) || null
+        videoUrl = null
+      }
     } else if (/thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '')) {
       // Nkiri page — seasonal shows expand into an episode list; standalone
       // movies resolve straight to the playable file (never a nested card).
@@ -150,12 +163,20 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
       }
       const resolved = await resolveNkiriMovie(item)
       if (!resolved) return null
-      videoUrl = resolved.url
       videoType = 'direct'
-      item = resolved // title/thumbnail from the resolved file
+      item = resolved
+      const page = item.url || item.link || ''
+      if (isDownloadPageUrl(page)) {
+        sourceUrl = proxyTargetUrl(page)
+        videoUrl = null
+      } else {
+        videoUrl = resolved.url
+        sourceUrl = resolved.sourceUrl || (isDownloadPageUrl(page) ? page : null)
+      }
     } else if (item.isDirect || isDirectVideoUrl(item.url || item.link)) {
       videoUrl = normalizePlaybackUrl(item.url || item.link)
       videoType = 'direct'
+      sourceUrl = item.sourceUrl || null
     } else {
       toast('Selected item must be a playable video or YouTube link', { variant: 'error' })
       return null
@@ -166,6 +187,7 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
       title: (item.title || 'Untitled').slice(0, 150),
       videoId: videoId || null,
       videoUrl: videoUrl || null,
+      sourceUrl: sourceUrl || null,
       videoType,
       thumbnail: thumb,
       synopsis: item.synopsis || null,
@@ -249,24 +271,22 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
     })
   }, [searchQuery, activeTab, view, search, toast, addToQueue, onChangeVideo])
 
-  /** Resolve a search result to a playable URL and change the current video. */
+  /** Hand the pick to changeVideo — it resolves DownloadWella pages first. */
   const changeToResult = useCallback(async (item) => {
-    // Standalone Nkiri movie → resolve the page to a playable file first.
-    if (/thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '') && isStandaloneResult(item)) {
-      const resolved = await resolveNkiriMovie(item)
-      if (resolved?.url) onChangeVideo(resolved.url, { synopsis: resolved.synopsis, title: resolved.title })
-      return
-    }
     const url = item.url || item.link || (item.id ? `https://youtube.com/watch?v=${item.id}` : '')
-    if (!url) {
+    if (!url && !item.sourceUrl) {
       toast('This item has no playable link', { variant: 'error' })
       return
     }
-    onChangeVideo(url, {
+    const page = (isDownloadPageUrl(url) || /downloadwella\.com|fsmc/i.test(url || ''))
+      ? proxyTargetUrl(url)
+      : (item.sourceUrl || null)
+    onChangeVideo(url || page, {
+      sourceUrl: page,
       synopsis: item.synopsis || item.description || episodesModal?.synopsis || null,
       title: item.title || item.label,
     })
-  }, [onChangeVideo, resolveNkiriMovie, toast, episodesModal])
+  }, [onChangeVideo, toast, episodesModal])
 
   const removeFromQueue = useCallback(async (item) => {
     if (!canControl && item.addedByUid !== user?.uid) {
