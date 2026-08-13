@@ -990,6 +990,48 @@ export default async function handler(req, res) {
         return ok(res, { results: [], count: 0, directCount: 0, resolved: false })
       }
 
+      // Nkiri / thenkiri URL — show page → episode list (robust resolver:
+      // direct-CDN episodes like ds2.nkiserv.com, downloadwella pages, plus
+      // the show synopsis). This is the path the Media Browser + queue
+      // search actually call (action:'scrape'), so synopsis flows here.
+      if (/thenkiri\.com|nkiri\.com/i.test(scrapeUrl)) {
+        try {
+          const episodes = await Promise.race([
+            getNkiriEpisodes(scrapeUrl),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Nkiri episodes timed out')), 20_000)),
+          ])
+          const list = Array.isArray(episodes) ? episodes : []
+          const results = list.map((ep, index) => ({
+            id: `nkiri-episode-${index}-${Buffer.from(String(ep.url || index)).toString('base64url').slice(0, 12)}`,
+            title: ep.title || `Episode ${index + 1}`,
+            label: ep.title || `Episode ${index + 1}`,
+            url: ep.url,
+            link: ep.url,
+            source: 'nkiri',
+            provider: 'downloadwella',
+            type: 'direct',
+            isDirect: ep.isDirectMedia === true,
+            playableInRoom: ep.isDirectMedia === true,
+            requiresResolve: ep.isDirectMedia !== true,
+            o2tvKind: 'nkiri-episode',
+            showName: scrapeUrl,
+            episodeNum: index + 1,
+            container: ep.container || 'unknown',
+            isDirectMedia: ep.isDirectMedia === true,
+          })).filter(ep => ep.url)
+          return ok(res, {
+            results,
+            count: results.length,
+            showName: scrapeUrl,
+            synopsis: episodes?.synopsis || null,
+            stage: 'episodes',
+          })
+        } catch (err) {
+          console.error('Scrape Nkiri failed:', err.message)
+          return ok(res, { results: [], count: 0, directCount: 0, resolved: false, error: 'Could not load Nkiri episodes' })
+        }
+      }
+
       // Unknown URL — try to extract any video links from the page
       try {
         const html = await fetchPage(scrapeUrl)

@@ -126,6 +126,7 @@ export default function CreateRoomPage() {
         videoType: streamType,
         isLive: presetIsLive,
         sourceUrl: presetSourceUrl || undefined,
+        synopsis: presetSynopsis || undefined,
       })
       return
     }

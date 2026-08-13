@@ -387,7 +387,9 @@ export async function getNkiriEpisodes(showUrl) {
     if (seen.has(href)) return
     seen.add(href)
     let text = String(textRaw || '').replace(/\s+/g, ' ').trim()
-    if (!text) {
+    // Useless anchor text ("Download Episode", "Click here", "Continue
+    // Reading") → derive a real title from the URL filename instead.
+    if (!text || /^(download|click here|continue reading|download episode|watch now|view|link|episode download)/i.test(text) || text.length < 3) {
       const urlMatch = href.match(/\/([^/]+)\.html?$/i) || href.match(/\/([^/?#]+)$/)
       text = urlMatch ? urlMatch[1].replace(/[-._+]/g, ' ').replace(/\.(mp4|mkv|m3u8|webm|avi|mov|flv|ts)$/i, '').replace(/\b\w/g, (l) => l.toUpperCase()) : 'Episode'
     }
