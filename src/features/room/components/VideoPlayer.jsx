@@ -1340,8 +1340,9 @@ export default function VideoPlayer({
   // adjustments (Exo RgbAdjustment / VLC adjust filter). Web keeps its CSS path.
   useEffect(() => {
     if (!isNativeEmbedded) return
-    // Brightness 0.5..2 (50%..200%). The plugin handles dim (<=1, pure
-    // overlay, no engine) vs brighten (>1, engine Brightness effect).
+    // Brightness 0..2 (0%..200%). The plugin routes this to the REAL engine
+    // effect for ALL values (Exo live RgbMatrix / VLC adjust JNI) — never
+    // overlay blending — so toggling the slider never rebuffers or skips.
     VideoPlayerPlugin.setBrightnessDim({ brightness: brightnessMultiplier }).catch(() => {})
   }, [isNativeEmbedded, brightnessMultiplier])
 
