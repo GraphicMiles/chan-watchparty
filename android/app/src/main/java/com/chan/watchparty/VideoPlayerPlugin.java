@@ -378,6 +378,14 @@ public class VideoPlayerPlugin extends Plugin {
             call.reject("URL is required");
             return;
         }
+        // Never attach a surface to a dying Activity — change-video can land
+        // here right as the app backgrounds/exits. Reject cleanly instead of
+        // letting ensureOverlay()/attachOverlay() NPE the process.
+        final Activity activity = getActivity();
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
+            call.reject("Activity is not ready");
+            return;
+        }
         String title = call.getString("title", "Chan Video");
         Double startSeconds = call.getDouble("startSeconds");
         String referer = call.getString("referer", "");
