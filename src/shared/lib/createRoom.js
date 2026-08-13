@@ -4,7 +4,8 @@ import { apiPath, parseJsonResponse } from './api.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, checkEmbeddable } from './youtube.js'
 import { proxyTargetUrl, isDownloadPageUrl } from './mediaApi.js'
 import { sanitizeSynopsis } from './synopsis.js'
-import { resolvePlaybackForUser, mediaDocFromDescriptor } from './resolvePlayback.js'
+import { mediaDocFromDescriptor, mediaStubForCdn } from './resolvePlayback.js'
+import { resolveDownloadDescriptor } from './mediaApi.js'
 
 export function isO2TvUrl(value) {
   return /tvshows4mobile\.org|o2tvseries|o2tv\.org/i.test(String(value || ''))
@@ -59,18 +60,21 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
       throw new Error('Paste a direct video file link (.mp4 / .m3u8 / .mkv) or pick an episode')
     }
 
-    // Always resolve DownloadWella pages at create time (same helper as
-    // queue play-now). Already-resolved CDN urls with no page are left as-is.
+    // Same contract as the last working create path: ONLY form-walk a
+    // DownloadWella/fsmc PAGE. A nkiserv file + thenkiri show page must
+    // stay a file — scraping the show again picks the wrong episode.
+    const rawVideoUrl = proxyTargetUrl(videoUrl)
     pageUrl = content?.sourceUrl ? proxyTargetUrl(content.sourceUrl) : ''
-    const resolved = await resolvePlaybackForUser(user, {
-      url: videoUrl,
-      videoUrl,
-      sourceUrl: pageUrl || null,
-      title: content?.title || 'Chan video',
-    })
-    videoUrl = resolved.videoUrl
-    mediaDescriptor = resolved.media
-    pageUrl = resolved.sourceUrl || pageUrl
+    const wellaPage = (pageUrl && isDownloadPageUrl(pageUrl))
+      ? pageUrl
+      : (isDownloadPageUrl(rawVideoUrl) ? rawVideoUrl : '')
+    if (wellaPage) {
+      mediaDescriptor = await resolveDownloadDescriptor(user, wellaPage, content?.title || 'Chan video')
+      videoUrl = normalizePlaybackUrl(mediaDescriptor.streamUrl)
+      pageUrl = wellaPage
+    } else {
+      mediaDescriptor = mediaStubForCdn(rawVideoUrl || videoUrl, pageUrl || null)
+    }
 
     if (isDownloadPageUrl(videoUrl)) {
       throw new Error('The download link is a page, not a video file — it may be expired. Go back and pick the episode again.')

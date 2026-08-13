@@ -1,7 +1,8 @@
-// Capacitor/Android must hit the Render API — a blank VITE_API_URL becomes
-// https://localhost/api/... and resolve/proxy silently fail in the WebView.
-const DEFAULT_API = 'https://chan-aunk.onrender.com'
-export const API_URL = String(import.meta.env.VITE_API_URL || DEFAULT_API).replace(/\/+$/, '')
+// Production API is Render. Ignore a leftover Vercel VITE_API_URL so the
+// APK cannot keep calling a host that no longer matches resolve/proxy.
+const RENDER_API = 'https://chan-aunk.onrender.com'
+const fromEnv = String(import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+export const API_URL = /onrender\.com/i.test(fromEnv) ? fromEnv : RENDER_API
 
 export function apiPath(path) {
   const normalizedPath = String(path || '')
