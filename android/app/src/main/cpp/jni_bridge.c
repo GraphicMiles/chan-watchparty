@@ -44,7 +44,7 @@ Java_com_chan_watchparty_ChanPlayerEngine_nativeSetAdjustVlcBrightness(
         return JNI_FALSE;
     }
 
-    float b = brightness < 0.5f ? 0.5f : (brightness > 2.0f ? 2.0f : brightness);
+    float b = brightness < 0.0f ? 0.0f : (brightness > 2.0f ? 2.0f : brightness);
     set_int((void *)mediaPlayerPtr, LIBVLC_ADJUST_ENABLE, 1);
     set_float((void *)mediaPlayerPtr, LIBVLC_ADJUST_BRIGHTNESS, b);
     return JNI_TRUE;

@@ -203,11 +203,12 @@ public class VideoPlayerPlugin extends Plugin {
     private float lastEngineBrightness = 1f;
 
     private void applyBrightness(float brightness) {
-        // 0..2 visual only. Engine Brightness / VLC adjust-rebuild skip
-        // and rebuffer the stream — never call them from the slider.
+        // Real engine brightness 0..2. Clear any leftover blend overlays
+        // so the picture comes from Exo/VLC, not a white/black wash.
         float b = Math.max(0f, Math.min(2f, brightness));
-        if (overlay != null) overlay.setBrightnessDim(b);
         lastEngineBrightness = b;
+        if (overlay != null) overlay.setBrightnessDim(1f);
+        if (engine != null) engine.setVideoEffects(b, 1f, 1f, 0f);
     }
 
     @PluginMethod
@@ -584,6 +585,13 @@ public class VideoPlayerPlugin extends Plugin {
                     fsControlsView.setVisibility(View.VISIBLE);
                     fsPushHandler.removeCallbacks(fsPushRunnable);
                     fsPushHandler.post(fsPushRunnable);
+                    final int pct = Math.round(lastEngineBrightness * 100f);
+                    fsControlsView.post(() -> {
+                        try {
+                            fsControlsView.evaluateJavascript(
+                                    "window.chanBrightness && window.chanBrightness(" + pct + ");", null);
+                        } catch (Exception ignored) { }
+                    });
                 }
             } else {
                 // Restore the embedded stage rect (re-anchors the surface back
