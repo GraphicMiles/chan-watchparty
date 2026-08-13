@@ -108,7 +108,11 @@ export default function NativeEmbeddedPlayer({
   useEffect(() => {
     if (prevUrlRef.current === url) return
     prevUrlRef.current = url
-    if (!sessionActiveRef.current) return
+    if (!url) return
+    // A new URL is a new session — revive even if the previous media
+    // hit terminalError (that path sets sessionActive=false).
+    sessionActiveRef.current = true
+    setErrorMsg(null)
     // Reset session state and load the new media from the start (the room's
     // playerState sync will resume/pause as needed).
     stateRef.current = { posSec: 0, durSec: 0, playing: false, ended: false, endedHandled: false }
