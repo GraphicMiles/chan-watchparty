@@ -64,8 +64,9 @@ android {
             minifyEnabled false
             shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        if (file("app/chan-release.keystore").exists()) {
-            signingConfig signingConfigs.release
+            if (file("app/chan-release.keystore").exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
