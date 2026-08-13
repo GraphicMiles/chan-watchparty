@@ -26,7 +26,7 @@ import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
 import { refreshDownloadDescriptor, fetchTitleSynopsis } from '../../../shared/lib/mediaApi.js'
 import { sanitizeSynopsis, looksLikeAiSynopsis } from '../../../shared/lib/synopsis.js'
-import { resolvePlaybackForUser } from '../../../shared/lib/resolvePlayback.js'
+import { resolvePlaybackForUser, mediaDocFromDescriptor } from '../../../shared/lib/resolvePlayback.js'
 
 const SOUND_FX_URLS = {
   airhorn: 'https://cdn.freesound.org/previews/435/435255_8863641-lq.mp3',
@@ -974,24 +974,4 @@ export default function RoomPage() {
       )}
     </Layout>
   )
-}
-)
-}
-nt="cta" loading={busy} onClick={async () => {
-                if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current)
-                const item = autoNextPrompt
-                setAutoNextPrompt(null)
-                await onPlayNextQueueItem(item)
-                await deleteDoc(doc(db, 'rooms', roomId, 'queue', item.id)).catch(() => {})
-              }}>
-                Play Next Now
-              </Button>
-            </div>
-          </div>
-        </Modal>
-      )}
-    </Layout>
-  )
-}
-)
 }
