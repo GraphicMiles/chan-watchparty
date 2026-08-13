@@ -1375,16 +1375,14 @@ export default function VideoPlayer({
             startSeconds={currentSec || played || 0}
             referer={(() => {
               const stream = nativePlaybackUrl(media?.streamUrl || currentUrl) || ''
-              const hay = `${stream} ${media?.referer || ''} ${currentUrl || ''}`
-              if (/downloadwella|fsmc/i.test(hay)) return media?.referer || 'https://downloadwella.com/'
-              // Nkiri/nkiserv CDNs 403 when sent a thenkiri Referer.
+              // Header must match the FILE host. A leftover DownloadWella
+              // Referer on a nkiserv URL 403s create-room playback.
+              if (/downloadwella|fsmc/i.test(stream)) return media?.referer || 'https://downloadwella.com/'
               return undefined
             })()}
             headers={(() => {
               const stream = nativePlaybackUrl(media?.streamUrl || currentUrl) || ''
-              if (/downloadwella|fsmc/i.test(stream) || /downloadwella|fsmc/i.test(media?.referer || '')) {
-                return media?.headers || undefined
-              }
+              if (/downloadwella|fsmc/i.test(stream)) return media?.headers || undefined
               if (!media?.headers) return undefined
               const next = { ...media.headers }
               delete next.Referer
