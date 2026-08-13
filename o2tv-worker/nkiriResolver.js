@@ -65,12 +65,17 @@ function isAllowedMediaUrl(value) {
     const parsed = new URL(value)
     if (!['https:', 'http:'].includes(parsed.protocol)) return false
     const hostname = parsed.hostname.toLowerCase()
-    const looksLikeMedia = MEDIA_RE.test(parsed.pathname) || MEDIA_RE.test(parsed.href)
-      || /\/d\/[a-z0-9]+/i.test(parsed.pathname) || /\/files?\//i.test(parsed.pathname)
+    const path = parsed.pathname || ''
+    // Bare directories / nav paths (e.g. /files/) are never media files.
+    if (!path || path === '/' || path.endsWith('/')) return false
+    // HTML/PHP/ASP pages are never media files.
+    if (/\.(html?|php|aspx?|jsp|shtml)(\?|#|$|\/)/i.test(path)) return false
+    const looksLikeMedia = MEDIA_RE.test(path) || MEDIA_RE.test(parsed.href)
+      || /\/d\/[a-z0-9]+/i.test(path) || /\/files?\//i.test(path)
     if (!looksLikeMedia) return false
     return hostname === 'downloadwella.com' || hostname.endsWith('.downloadwella.com')
       || hostname.includes('downloadwella') || hostname.includes('fsmc')
-      || /\.(mp4|mkv|webm|m3u8)(\?|#|$)/i.test(parsed.pathname)
+      || /\.(mp4|mkv|webm|m3u8)(\?|#|$)/i.test(path)
   } catch { return false }
 }
 
@@ -128,9 +133,13 @@ function directUrlsFromHtml(html, pageUrl) {
     } catch { /* ignore */ }
   }
   $('a[href], source[src], video[src], iframe[src]').each((_, el) => add($(el).attr('href') || $(el).attr('src')))
-  const rawMatches = html.match(/https?:[^\s"'<>]+\.(?:mp4|mkv|m3u8|webm|mov|avi|flv|ts)(?:\?[^\s"'<>]*)?/gi) || []
+  // Media URLs embedded in text/JS. The lookahead stops the regex from matching
+  // ".mkv" inside ".mkv.html" (a download PAGE) and the bracket exclusion stops
+  // forum-code artifacts like "[URL=…mkv.html]Silo…mkv[/URL]" from being treated
+  // as files — those two were returning HTML pages as playable links.
+  const rawMatches = html.match(/https?:\/\/[^\s"'<>[\]]+?\.(?:mp4|mkv|m3u8|webm|mov|avi|flv|ts)(?=[\s"'<>[\]#?&]|$)(?:\?[^\s"'<>[\]]*)?/gi) || []
   rawMatches.forEach(add)
-  const dMatches = html.match(/https?:\/\/[^\s"'<>]*\/d\/[a-z0-9]{8,}[^\s"'<>]*/gi) || []
+  const dMatches = html.match(/https?:\/\/[^\s"'<>[\]]*\/d\/[a-z0-9]{8,}[^\s"'<>[\]]*/gi) || []
   dMatches.forEach(add)
   return [...urls]
 }
