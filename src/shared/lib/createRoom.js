@@ -104,14 +104,19 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
   }
 
   let synopsis = sanitizeSynopsis(content?.synopsis)
+  let synopsisSource = content?.synopsis ? 'page' : null
   if (!synopsis) {
     const groqTitle = content?.title || roomTitle
     const groqExtra = content?.showName
       ? `TV episode of ${content.showName}`
       : 'TV show or movie'
     synopsis = sanitizeSynopsis(await fetchTitleSynopsis(user, groqTitle, groqExtra))
+    if (synopsis) synopsisSource = 'ai'
   }
-  if (synopsis) roomData.synopsis = synopsis
+  if (synopsis) {
+    roomData.synopsis = synopsis
+    if (synopsisSource) roomData.synopsisSource = synopsisSource
+  }
 
   if (videoType === 'youtube' && videoId) {
     roomData.videoId = videoId

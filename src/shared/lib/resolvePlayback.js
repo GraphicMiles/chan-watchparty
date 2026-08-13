@@ -13,14 +13,17 @@ export function mediaStubForCdn(rawUrl, sourceUrl = null) {
   const streamUrl = proxyTargetUrl(rawUrl) || rawUrl
   if (!streamUrl || isDownloadPageUrl(streamUrl) || isNkiriHtmlPage(streamUrl)) return null
   const hay = `${streamUrl} ${sourceUrl || ''}`
-  let referer = null
-  if (/downloadwella|fsmc/i.test(hay)) referer = 'https://downloadwella.com/'
-  else if (/nkiri|nkiserv|thenkiri/i.test(hay)) referer = 'https://thenkiri.com/'
-  if (!referer) return null
+  // DownloadWella CDNs require their own Referer. Nkiri/nkiserv CDNs
+  // reject a thenkiri Referer (403) — play those with UA only.
+  const needsWella = /downloadwella|fsmc/i.test(hay)
+  if (!needsWella && !/nkiri|nkiserv|thenkiri/i.test(hay)) return null
+  const referer = needsWella ? 'https://downloadwella.com/' : null
+  const headers = { 'User-Agent': PLAYBACK_UA }
+  if (referer) headers.Referer = referer
   return {
     streamUrl,
     referer,
-    headers: { Referer: referer, 'User-Agent': PLAYBACK_UA },
+    headers,
     sourceUrl: sourceUrl || null,
     container: /\.mkv(\?|#|$)/i.test(streamUrl) ? 'mkv' : (/\.mp4(\?|#|$)/i.test(streamUrl) ? 'mp4' : null),
     codec: null,
@@ -64,10 +67,18 @@ export function pickSourceUrl(item = {}) {
 
 export function mediaDocFromDescriptor(descriptor, fallbackSourceUrl = null) {
   if (!descriptor?.streamUrl) return null
+  const stream = descriptor.streamUrl
+  const wella = /downloadwella|fsmc/i.test(`${stream} ${descriptor.sourceUrl || ''} ${fallbackSourceUrl || ''}`)
+  const referer = wella ? (descriptor.referer || 'https://downloadwella.com/') : null
+  const headers = descriptor.headers ? { ...descriptor.headers } : null
+  if (headers && !wella) {
+    delete headers.Referer
+    delete headers.referer
+  }
   return {
-    streamUrl: descriptor.streamUrl,
-    referer: descriptor.referer || 'https://downloadwella.com/',
-    headers: descriptor.headers || null,
+    streamUrl: stream,
+    referer,
+    headers,
     container: descriptor.container || null,
     codec: descriptor.codec || null,
     sourceUrl: descriptor.sourceUrl || fallbackSourceUrl || null,
