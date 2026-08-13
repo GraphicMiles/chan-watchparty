@@ -67,6 +67,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
   const [seasonNum, setSeasonNum] = useState(null)
   const [resolvingIdx, setResolvingIdx] = useState(null)
   const abortRef = useRef(0)
+  const showPageUrlRef = useRef(null)
 
   const emit = useCallback((content) => {
     onPick?.(content)
@@ -250,6 +251,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     setStage('episodes')
     setEpisodes([])
     setEpisodesSynopsis(null)
+    showPageUrlRef.current = showUrl || null
     if (showNameArg) setShowName(showNameArg)
     try {
       const data = await mediaPost(user, { action: 'scrape', url: showUrl })
@@ -371,13 +373,18 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     // legacy-page path that previously errored trying to resolve a
     // non-existent downloadwella page.
     if (ep.isDirectMedia || /\.(mp4|mkv|m3u8|webm|avi|mov|flv|ts)(\?|#|$)/i.test(ep.url || '')) {
+      const epTitle = ep.title || ep.label || `Episode ${idx + 1}`
       emit({
         kind: 'direct',
         url: normalizePlaybackUrl(ep.url),
-        title: ep.title || ep.label || `${showName} Episode ${idx + 1}`,
+        title: showName ? `${showName} — ${epTitle}` : epTitle,
         thumbnail: safeThumb(ep.thumbnail || showThumb),
         videoType: 'direct',
         source: 'nkiri',
+        // Show page (not the CDN) — native player needs a Referer and
+        // create-room must not lose the origin when the CDN URL is long.
+        sourceUrl: showPageUrlRef.current || undefined,
+        showName: showName || undefined,
         synopsis: ep.synopsis || episodesSynopsis || null,
       })
       toast('Episode ready', { variant: 'success' })
