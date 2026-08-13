@@ -254,6 +254,46 @@ public class VideoPlayerPlugin extends Plugin {
         });
     }
 
+    private boolean volumePopupWired = false;
+
+    /** Show the native volume popover OVER the video (video keeps playing). */
+    @PluginMethod
+    public void showVolumePopup(PluginCall call) {
+        try {
+            Boolean visible = call.getBoolean("visible", true);
+            Double volume = call.getDouble("volume", 1.0);
+            Boolean muted = call.getBoolean("muted", false);
+            ensureOverlay();
+            overlay.showVolumePopup(visible == null || visible,
+                    volume == null ? 1f : volume.floatValue(),
+                    Boolean.TRUE.equals(muted));
+            wireVolumePopupListener();
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "showVolumePopup failed", e);
+            try { call.reject("Volume popup failed: " + e.getMessage()); } catch (Exception ignored) { }
+        }
+    }
+
+    private void wireVolumePopupListener() {
+        if (volumePopupWired || overlay == null) return;
+        volumePopupWired = true;
+        overlay.setVolumePopupListener(new RoomPlayerOverlayView.VolumePopupListener() {
+            @Override
+            public void onVolumeChanged(float volume, boolean muted) {
+                // Drive the real engine volume immediately (no re-prepare).
+                if (engine != null) engine.setVolume(muted ? 0f : volume);
+                notifyListeners("volumeChanged", new JSObject()
+                        .put("volume", (double) volume)
+                        .put("muted", muted));
+            }
+            @Override
+            public void onVolumePopupClosed() {
+                notifyListeners("volumePopupClosed", new JSObject());
+            }
+        });
+    }
+
     private void rotateOrientation() {
         try {
             int cur = getActivity().getResources().getConfiguration().orientation;
@@ -743,6 +783,7 @@ public class VideoPlayerPlugin extends Plugin {
             engine = null;
         }
         brightnessPopupWired = false; // next showBrightnessPopup re-wires listeners
+        volumePopupWired = false; // next showVolumePopup re-wires listeners
         fullscreen = false;
         try { showSystemUi(); } catch (Exception ignored) { }
     }
