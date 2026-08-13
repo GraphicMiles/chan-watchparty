@@ -6,7 +6,8 @@ import { useAuth } from '../auth/hooks/useAuth.jsx'
 import { isO2TvUrl, isDirectVideoUrl, normalizePlaybackUrl, getThumbnail } from '../lib/youtube.js'
 import { isSuitableThumbnail } from '../lib/mediaHelper.js'
 import { cleanMediaTitle } from '../lib/titleFormat.js'
-import { mediaPost, resolveDownloadLink, friendlyApiError, proxyTargetUrl } from '../lib/mediaApi.js'
+import { mediaPost, friendlyApiError, proxyTargetUrl, isDownloadPageUrl } from '../lib/mediaApi.js'
+import { resolvePlaybackForUser } from '../lib/resolvePlayback.js'
 import { isSeasonalResult, isStandaloneResult, isMovieTitle } from '../lib/mediaType.js'
 import { useToast } from '../ui/index.js'
 
@@ -219,23 +220,27 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     setResolvingIdx(-1)
     setBrowseError(null)
     try {
-      const scraped = await mediaPost(user, { action: 'scrape', url, options: { resolve: true } })
-      const direct = (scraped.results || []).find((r) => r.isDirect || r.playableInRoom || /\/api\/proxy\?/i.test(r.url || ''))
-        || (scraped.results || [])[0]
-      if (!direct?.url) throw new Error('Could not resolve a playable link for this movie')
+      // Same helper as create-room / queue play-now: walk DownloadWella if
+      // scrape returns a page; never emit HTML as videoUrl.
+      const resolved = await resolvePlaybackForUser(user, {
+        title: title || item?.title || 'Movie',
+        url,
+        sourceUrl: url,
+        synopsis: item?.synopsis || null,
+      })
       emit({
         kind: 'direct',
-        url: normalizePlaybackUrl(direct.url),
+        url: resolved.videoUrl,
         title: cleanMediaTitle(title) || cleanMediaTitle(item?.title) || 'Direct video',
-        thumbnail: safeThumb(thumb || direct.thumbnail || item?.thumbnail),
+        thumbnail: safeThumb(thumb || item?.thumbnail),
         videoType: 'direct',
         source: item?.source || 'nkiri',
-        sourceUrl: url, // keep the page URL so re-resolve can get a fresh token
-        meta: direct.meta || null,
-        synopsis: direct.synopsis || item?.synopsis || null,
+        sourceUrl: resolved.sourceUrl || url,
+        media: resolved.media,
+        synopsis: item?.synopsis || null,
       })
       toast('Movie ready', { variant: 'success' })
-      return direct
+      return resolved
     } catch (err) {
       setBrowseError(friendlyApiError(err.message || 'Failed to resolve movie'))
       return null
@@ -306,27 +311,22 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       // other page via the generic scrape (works for any page URL).
       if (!epSlug && ep.url) {
         const epUrl = proxyTargetUrl(ep.url)
-        const isDw = /downloadwella\.com|fsmc/i.test(epUrl)
-          && !/\.(mp4|m3u8|mkv|webm|avi|mov|flv|ts)(\?|#|$)/i.test(epUrl)
-        let playUrl
-        if (isDw) {
-          playUrl = await resolveDownloadLink(user, epUrl, ep.title || showName || `Episode ${epNum}`)
-        } else {
-          const scraped = await mediaPost(user, { action: 'scrape', url: epUrl })
-          const direct = (scraped.results || []).find((r) => r.isDirect || r.playableInRoom || /\/api\/proxy\?/i.test(r.url || ''))
-            || (scraped.results || [])[0]
-          if (!direct?.url) throw new Error('Could not resolve a playable link for this episode')
-          playUrl = normalizePlaybackUrl(direct.url)
-        }
+        const resolved = await resolvePlaybackForUser(user, {
+          title: ep.title || showName || `Episode ${epNum}`,
+          url: epUrl,
+          sourceUrl: isDownloadPageUrl(epUrl) ? epUrl : (ep.sourceUrl || null),
+          videoUrl: (ep.isDirectMedia || isDirectVideoUrl(epUrl)) ? epUrl : null,
+        })
         if (reqId !== abortRef.current) return
         emit({
           kind: 'direct',
-          url: playUrl,
+          url: resolved.videoUrl,
           title: ep.title || ep.label || `${showName} S${String(epSeasonNum).padStart(2, '0')}E${String(epNum).padStart(2, '0')}`,
           thumbnail: safeThumb(ep.thumbnail || showThumb),
           videoType: 'direct',
           source: ep.source || 'nkiri',
-          sourceUrl: ep.url,
+          sourceUrl: resolved.sourceUrl || ep.url,
+          media: resolved.media,
           synopsis: ep.synopsis || episodesSynopsis || null,
         })
         toast('Episode ready', { variant: 'success' })
@@ -487,15 +487,20 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     if (isDwPage) {
       setResolvingIdx(-1)
       try {
-        const playUrl = await resolveDownloadLink(user, rawCandidate, itemTitle)
+        const resolved = await resolvePlaybackForUser(user, {
+          title: itemTitle || 'Direct video',
+          url: rawCandidate,
+          sourceUrl: rawCandidate,
+        })
         emit({
           kind: 'direct',
-          url: playUrl,
+          url: resolved.videoUrl,
           title: itemTitle || 'Direct video',
           thumbnail: safeThumb(item.thumbnail || item.image),
           videoType: 'direct',
           source: 'nkiri',
-          sourceUrl: candidateStr, // keep the page URL for later re-resolve
+          sourceUrl: resolved.sourceUrl || candidateStr,
+          media: resolved.media,
           synopsis: item.synopsis || item.description || null,
         })
       } catch (err) {

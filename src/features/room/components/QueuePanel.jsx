@@ -11,6 +11,7 @@ import { Input } from '../../../shared/ui/index.js'
 import styles from './QueuePanel.module.scss'
 import { apiPath } from '../../../shared/lib/api.js'
 import { isDownloadPageUrl, proxyTargetUrl } from '../../../shared/lib/mediaApi.js'
+import { resolvePlaybackForUser } from '../../../shared/lib/resolvePlayback.js'
 
 /**
  * QueuePanel — two modes behind two pills:
@@ -278,15 +279,22 @@ export default function QueuePanel({ roomId, user, canControl, onPlayNext, onCha
       toast('This item has no playable link', { variant: 'error' })
       return
     }
+    // Show listing → pick an episode. Never resolve the show page (wrong file).
+    if (isSeasonalResult(item) && /thenkiri\.com|nkiri\.com/i.test(url || '')) {
+      await openEpisodes(item)
+      return
+    }
     const page = (isDownloadPageUrl(url) || /downloadwella\.com|fsmc/i.test(url || ''))
       ? proxyTargetUrl(url)
       : (item.sourceUrl || null)
-    onChangeVideo(url || page, {
+    const file = (item.isDirectMedia || isDirectVideoUrl(url)) ? url : (item.videoUrl || null)
+    onChangeVideo(file || url || page, {
       sourceUrl: page,
+      videoUrl: file || undefined,
       synopsis: item.synopsis || item.description || episodesModal?.synopsis || null,
       title: item.title || item.label,
     })
-  }, [onChangeVideo, toast, episodesModal])
+  }, [onChangeVideo, toast, episodesModal, openEpisodes])
 
   const removeFromQueue = useCallback(async (item) => {
     if (!canControl && item.addedByUid !== user?.uid) {
