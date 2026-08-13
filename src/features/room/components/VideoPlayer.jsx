@@ -1006,50 +1006,6 @@ export default function VideoPlayer({
     nativeApiRef.current = api || null
   }, [])
 
-  // ── Native live state (DIRECT feed): the control bar talks straight to the
-  // native plugin — no middleman. This is the single source of truth for the
-  // room clock / duration / play-pause in native mode. It consumes the Java
-  // 'playbackProgress' push (the proven notifyListeners channel) and polls
-  // getPosition() as a backup.
-  const [nativeDebug, setNativeDebug] = useState('')
-  useEffect(() => {
-    if (!isNativeEmbedded) return undefined
-    let cancelled = false
-    let remove = null
-
-    const apply = (e) => {
-      if (cancelled) return
-      const cs = (e?.positionMs || 0) / 1000
-      const ds = (e?.durationMs || 0) / 1000
-      if (typeof e?.positionMs === 'number' && Number.isFinite(cs)) setCurrentSec(cs)
-      if (typeof e?.durationMs === 'number' && Number.isFinite(ds) && ds > 0) setDurationSec(ds)
-      if (typeof e?.isPlaying === 'boolean') {
-        playingRef.current = e.isPlaying
-        setIsPlayingState(e.isPlaying)
-        if (e.isPlaying) setIsBuffering(false)
-      }
-      setNativeDebug(`t=${cs.toFixed(1)}s d=${ds.toFixed(1)}s ${e?.isPlaying ? 'playing' : 'paused'}`)
-    }
-
-    VideoPlayerPlugin.addListener('playbackProgress', apply)
-      .then((l) => { if (cancelled) { try { l?.remove?.() } catch { /* */ } } else remove = l?.remove })
-      .catch(() => {})
-
-    const poll = setInterval(async () => {
-      if (cancelled) return
-      try {
-        const p = await VideoPlayerPlugin.getPosition()
-        if (!cancelled) apply({ positionMs: p?.positionMs || 0, durationMs: p?.durationMs || 0, isPlaying: p?.isPlaying })
-      } catch { /* backup poll best-effort */ }
-    }, 1000)
-
-    return () => {
-      cancelled = true
-      clearInterval(poll)
-      try { remove?.() } catch { /* */ }
-    }
-  }, [isNativeEmbedded])
-
   // ── Native surface tap handling ───────────────────────────────────────
   // The native overlay forwards every touch with its x/y fraction (fx, fy).
   // We implement the same gestures as the web player:
@@ -1215,23 +1171,6 @@ export default function VideoPlayer({
   const togglePlayPause = useCallback((e) => {
     e?.stopPropagation()
     if (!canControl) return
-    // Native mode: drive the engine DIRECTLY — independent of the adapter/
-    // nativeApiRef wiring, so play/pause always works even if that wiring
-    // never connected.
-    if (isNativeEmbedded) {
-      if (playingRef.current) {
-        VideoPlayerPlugin.pause().catch(() => {})
-        playingRef.current = false
-        setIsPlayingState(false)
-        setIsBuffering(false)
-      } else {
-        VideoPlayerPlugin.play().catch(() => {})
-        playingRef.current = true
-        setIsPlayingState(true)
-        setIsBuffering(true)
-      }
-      return
-    }
     if (playingRef.current) {
       adapter.pauseVideo()
       setIsBuffering(false)
@@ -1239,20 +1178,16 @@ export default function VideoPlayer({
       setIsBuffering(true)
       adapter.playVideo()
     }
-  }, [canControl, adapter, isNativeEmbedded])
+  }, [canControl, adapter])
 
   const jumpSeconds = useCallback((delta, e) => {
     e?.stopPropagation()
     if (!canControl) return
     const cur = currentTime()
     const target = Math.max(0, Math.min(durationSec || 999999, cur + delta))
-    if (isNativeEmbedded) {
-      VideoPlayerPlugin.seekTo({ positionMs: Math.max(0, Math.round(target * 1000)) }).catch(() => {})
-    } else {
-      adapter.seekTo(target, 'seconds')
-    }
+    adapter.seekTo(target, 'seconds')
     emitSeek(target)
-  }, [canControl, currentTime, durationSec, adapter, emitSeek, isNativeEmbedded])
+  }, [canControl, currentTime, durationSec, adapter, emitSeek])
 
   const handleSeekSlider = useCallback((e) => {
     e.stopPropagation()
@@ -1261,14 +1196,10 @@ export default function VideoPlayer({
     const dur = adapter.getDuration() || durationSec || 0
     const targetSec = fraction * dur
     // Always seek by absolute seconds so MKV remux uses ?t= correctly
-    if (isNativeEmbedded) {
-      VideoPlayerPlugin.seekTo({ positionMs: Math.max(0, Math.round(targetSec * 1000)) }).catch(() => {})
-    } else {
-      adapter.seekTo(targetSec, 'seconds')
-    }
+    adapter.seekTo(targetSec, 'seconds')
     setCurrentSec(targetSec)
     emitSeek(targetSec)
-  }, [canControl, adapter, durationSec, emitSeek, isNativeEmbedded])
+  }, [canControl, adapter, durationSec, emitSeek])
 
   const toggleFullscreen = useCallback(async (e) => {
     e?.stopPropagation()
@@ -1980,9 +1911,6 @@ export default function VideoPlayer({
           </button>
 
           <span className={styles.timeText}>{formatTime(currentSec)}</span>
-          {isNativeEmbedded && (
-            <span className={styles.nativeDebug}>{nativeDebug || '…'}</span>
-          )}
           {nativeBuffering && (
             <span className={styles.bufferingTag}>
               <Loader2 size={13} className={styles.spinSmall} />
