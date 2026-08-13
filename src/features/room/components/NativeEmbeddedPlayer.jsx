@@ -493,11 +493,36 @@ export default function NativeEmbeddedPlayer({
     propsRef.current.onApi?.(apiRef.current)
   })
 
+  // ── Position poll — runs UNCONDITIONALLY on mount, fully independent of the
+  // listener/show() setup below. The engine plays even if showEmbedded()'s
+  // promise stalls, and without this poll the control bar stays frozen
+  // (0:00 time, play button always "play", dead seek). This is the SINGLE
+  // source of time/duration; play-state comes from the native 'playing'/
+  // 'paused' events via stateRef (one feed, no flapping).
+  useEffect(() => {
+    const poll = setInterval(async () => {
+      if (!sessionActiveRef.current) return
+      try {
+        const p = await VideoPlayerPlugin.getPosition()
+        if (!sessionActiveRef.current) return
+        stateRef.current.posSec = (p?.positionMs || 0) / 1000
+        stateRef.current.durSec = (p?.durationMs || 0) / 1000
+        propsRef.current.onProgress?.({
+          currentSec: stateRef.current.posSec,
+          durationSec: stateRef.current.durSec,
+          playing: stateRef.current.playing,
+          buffering: false,
+          percent: 0,
+        })
+      } catch { /* poll best-effort */ }
+    }, 1000)
+    return () => clearInterval(poll)
+  }, [])
+
   // ── Lifecycle: show, measure, poll, close ────────────────────────────
   useEffect(() => {
     let cancelled = false
     let raf = 0
-    let poll = null
     let listenerHandle = null
 
     const measureAndSetRect = () => {
@@ -558,28 +583,6 @@ export default function NativeEmbeddedPlayer({
         } catch { /* tap relay optional */ }
         measureAndSetRect()
         await showRef.current(cfgRef.current, stateRef.current.posSec || startSeconds).catch(() => {})
-        // SINGLE source of truth for the control bar (the pre-synopsis flow):
-        // poll the engine's real position/duration once a second and hand it
-        // to the parent via onProgress. Play/pause state comes ONLY from the
-        // native 'playing'/'paused' events (see handleEvent) — never from a
-        // second feed, so the play button can't flap between sources.
-        poll = setInterval(async () => {
-          if (cancelled || !sessionActiveRef.current) return
-          try {
-            const p = await VideoPlayerPlugin.getPosition()
-            if (p && !cancelled) {
-              stateRef.current.posSec = (p.positionMs || 0) / 1000
-              stateRef.current.durSec = (p.durationMs || 0) / 1000
-              propsRef.current.onProgress?.({
-                currentSec: stateRef.current.posSec,
-                durationSec: stateRef.current.durSec,
-                playing: stateRef.current.playing,
-                buffering: false,
-                percent: 0,
-              })
-            }
-          } catch { /* poll best-effort */ }
-        }, 1000)
       } catch (err) {
         if (!cancelled) handleEventRef.current?.({ state: 'error', kind: 'other', message: err?.message || 'Could not start the player' })
       }
@@ -592,7 +595,6 @@ export default function NativeEmbeddedPlayer({
       sessionActiveRef.current = false
       clearTimers()
       cancelAnimationFrame(raf)
-      if (poll) clearInterval(poll)
       if (listenerHandle) {
         try { listenerHandle.remove?.() } catch { /* */ }
       }
