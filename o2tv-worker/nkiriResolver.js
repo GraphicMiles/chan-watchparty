@@ -557,10 +557,12 @@ export async function probeStream(mediaUrl, referer = 'https://downloadwella.com
  * The descriptor is the single source of truth for the player: which URL to
  * open, with which headers, what codec/container, and how to refresh it.
  */
-export async function buildStreamDescriptor({ streamUrls, sourceUrl, title, referer, synopsis = null }) {
+export async function buildStreamDescriptor({ streamUrls, sourceUrl, title, referer, synopsis = null, skipProbe = false }) {
   const list = (streamUrls || []).filter(Boolean)
   const primary = list[0] || null
-  const probe = primary ? await probeStream(primary, referer) : null
+  // A Range GET here consumes one-shot DownloadWella tokens before the
+  // player starts. Callers on the create/play path must skipProbe.
+  const probe = (!skipProbe && primary) ? await probeStream(primary, referer) : null
 
   let container = probe?.container || null
   if (!container && primary) {

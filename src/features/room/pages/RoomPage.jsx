@@ -489,7 +489,6 @@ export default function RoomPage() {
         /* ignore */
       }
     }
-    fillSynopsisAfterPlay()
   }
 
   const onPlayerEvent = (patch) => {
@@ -497,6 +496,8 @@ export default function RoomPage() {
       reportPlayerPosition(patch.currentTime, patch.isPlaying)
     }
     if (canControl) writePlayerState(patch)
+    // Groq only after the stream is actually playing — never on prepare/ready.
+    if (patch?.isPlaying) fillSynopsisAfterPlay()
   }
 
   // Calculate dynamic Vibe Lighting (#3) — crisp border instead of blur shadow
