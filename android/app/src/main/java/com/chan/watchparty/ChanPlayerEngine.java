@@ -796,9 +796,11 @@ public class ChanPlayerEngine {
     }
 
     private void releaseExo() {
-        if (exoView != null) exoView.setPlayer(null);
+        try {
+            if (exoView != null) exoView.setPlayer(null);
+        } catch (Exception ignored) { }
         if (exoPlayer != null) {
-            exoPlayer.release();
+            try { exoPlayer.release(); } catch (Throwable t) { Log.w(TAG, "exo release failed", t); }
             exoPlayer = null;
         }
     }
@@ -807,11 +809,11 @@ public class ChanPlayerEngine {
         if (vlcPlayer != null) {
             try { vlcPlayer.stop(); } catch (Exception ignored) { }
             try { vlcPlayer.detachViews(); } catch (Exception ignored) { }
-            vlcPlayer.release();
+            try { vlcPlayer.release(); } catch (Throwable t) { Log.w(TAG, "vlc release failed", t); }
             vlcPlayer = null;
         }
         if (libVLC != null) {
-            libVLC.release();
+            try { libVLC.release(); } catch (Throwable t) { Log.w(TAG, "libVLC release failed", t); }
             libVLC = null;
         }
         vlcStarted = false;
