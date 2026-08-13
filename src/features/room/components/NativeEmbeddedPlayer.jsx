@@ -493,12 +493,15 @@ export default function NativeEmbeddedPlayer({
     propsRef.current.onApi?.(apiRef.current)
   })
 
-  // ── Position poll — runs UNCONDITIONALLY on mount, fully independent of the
-  // listener/show() setup below. The engine plays even if showEmbedded()'s
-  // promise stalls, and without this poll the control bar stays frozen
-  // (0:00 time, play button always "play", dead seek). This is the SINGLE
-  // source of time/duration; play-state comes from the native 'playing'/
-  // 'paused' events via stateRef (one feed, no flapping).
+  // ── Position poll — the SINGLE source of truth for the control bar.
+  // Runs UNCONDITIONALLY on mount (independent of the listener/show() setup
+  // below, so a stalled showEmbedded() promise can't freeze the bar), and
+  // reads position + duration + play-state DIRECTLY from the engine via
+  // getPosition(). Play-state therefore cannot depend on the 'playing'/
+  // 'paused' event channel firing — the button reflects the engine within 1s
+  // no matter what. (The events still fire onPlayerEvent for room sync, but
+  // they agree with getPosition() since both read the same engine, so there
+  // is exactly one authoritative source — no flapping.)
   useEffect(() => {
     const poll = setInterval(async () => {
       if (!sessionActiveRef.current) return
@@ -507,6 +510,7 @@ export default function NativeEmbeddedPlayer({
         if (!sessionActiveRef.current) return
         stateRef.current.posSec = (p?.positionMs || 0) / 1000
         stateRef.current.durSec = (p?.durationMs || 0) / 1000
+        if (typeof p?.isPlaying === 'boolean') stateRef.current.playing = p.isPlaying
         propsRef.current.onProgress?.({
           currentSec: stateRef.current.posSec,
           durationSec: stateRef.current.durSec,
