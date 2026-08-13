@@ -708,8 +708,14 @@ export default function VideoPlayer({
     // Non-blocking soft preflight: do NOT delay the player. Only surface a hard
     // error if the probe clearly returns HTML/JSON error (expired link, 502/504).
     // Skip for remux=1 — player must start progressive remux immediately.
+    // Also skip token hosts (downloadwella/fsmc/nkiserv): their CDN links are
+    // single-use, and this bytes=0-1 probe makes an extra upstream request that
+    // burns the token BEFORE the player's real request — the exact "unavailable
+    // or expired" failure we're killing.
     const isRemux = /[?&]remux=1(?:&|$)/i.test(currentUrl || '')
-    if (!isHls && currentUrl && videoType === 'direct' && currentUrl.includes('/api/proxy') && !isRemux) {
+    const preflightTarget = proxyTargetUrl(currentUrl || '') || ''
+    const isTokenHost = /downloadwella|fsmc|nkiserv|thenkiri/i.test(preflightTarget)
+    if (!isHls && currentUrl && videoType === 'direct' && currentUrl.includes('/api/proxy') && !isRemux && !isTokenHost) {
       const checkUrl = async () => {
         try {
           let checkRes

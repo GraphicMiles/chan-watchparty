@@ -393,15 +393,35 @@ async function handleNkiriResolve({ url, title, force = false }) {
   }
 
   try {
-    const resolved = await Promise.race([
-      resolveDownloadwellaPage(episodeUrl),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Nkiri resolve timed out')), 55_000)),
-    ])
+    // Retry the form-walk. A dead/expired token, a transient CDN hiccup, or a
+    // flaky countdown page should NOT end the resolve after a single attempt —
+    // walk the page again for a fresh token.
+    const RESOLVE_ATTEMPTS = 3
+    let resolved = null
+    let lastError = null
+    for (let attempt = 0; attempt < RESOLVE_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 600 * attempt))
+      try {
+        resolved = await Promise.race([
+          resolveDownloadwellaPage(episodeUrl),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Nkiri resolve timed out')), 30_000)),
+        ])
+      } catch (err) {
+        lastError = String(err?.message || 'Nkiri resolve failed')
+        resolved = null
+      }
+      if (resolved?.directUrls?.length) break
+      if (resolved?.error) lastError = resolved.error
+    }
 
     const streamUrls = resolved?.directUrls || []
     if (!streamUrls.length) {
-      const message = resolved?.error || 'Could not create DownloadWella link'
-      negativeSet(key, { error: message })
+      const message = lastError || 'Could not create DownloadWella link'
+      // Only PERMANENT page failures get a cooldown. Token/transient failures
+      // stay retryable so the client can immediately re-walk for a fresh link.
+      if (/could not load downloadwella page|not an HTTP URL|^no URL$/i.test(message)) {
+        negativeSet(key, { error: message })
+      }
       auditResolve({ resolveId, host: hostOf(episodeUrl), outcome: 'error', ms: Date.now() - started, error: message })
       throw Object.assign(new Error(message), { status: 404 })
     }

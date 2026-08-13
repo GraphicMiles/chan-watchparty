@@ -20,6 +20,7 @@ function friendlyError(kind, message) {
 
 const NETWORK_RETRIES = 2
 const RETRY_BACKOFF_MS = [1500, 3000]
+const REFRESH_ATTEMPTS = 3 // how many times we re-walk the page for a fresh token
 
 /**
  * NativeEmbeddedPlayer — the ONE player for non-YouTube content on Android.
@@ -79,7 +80,12 @@ export default function NativeEmbeddedPlayer({
   const timersRef = useRef([])
   const mirrorIdxRef = useRef(0)
   const netRetryRef = useRef(0)
+  const refreshAttemptsRef = useRef(0)
   const cfgRef = useRef({ url, title, referer, headers, container, codec })
+  const mirrorsRef = useRef(mirrors)
+  useEffect(() => {
+    mirrorsRef.current = mirrors
+  }, [mirrors])
   const controlsHeightRef = useRef(controlsHeight)
   useEffect(() => {
     controlsHeightRef.current = controlsHeight
@@ -119,6 +125,7 @@ export default function NativeEmbeddedPlayer({
     readySentRef.current = false
     mirrorIdxRef.current = 0
     netRetryRef.current = 0
+    refreshAttemptsRef.current = 0
     showRef.current(cfgRef.current, 0).catch(() => {})
   }, [url])
 
@@ -159,9 +166,11 @@ export default function NativeEmbeddedPlayer({
 
   const show = async (cfg, startSec) => {
     if (!sessionActiveRef.current) return
+    // NOTE: mirror/net-retry/refresh counters are NOT reset here — a failure
+    // during a fallback chain (mirror → retry → refresh) must advance those
+    // counters, not rewind them (rewinding caused infinite retry loops).
+    // Only a NEW url (the url-change effect) resets them.
     readySentRef.current = false
-    mirrorIdxRef.current = 0
-    netRetryRef.current = 0
     try {
       await VideoPlayerPlugin.showEmbedded({
         url: cfg.url,
@@ -197,20 +206,37 @@ export default function NativeEmbeddedPlayer({
       container: desc.container || container,
       codec: desc.codec || codec,
     }
+    // Fresh descriptor → fresh mirror set + a clean refresh budget.
+    if (Array.isArray(desc.mirrors) && desc.mirrors.length) {
+      mirrorsRef.current = desc.mirrors
+    }
+    mirrorIdxRef.current = 0
+    refreshAttemptsRef.current = 0
   }
 
   const refreshAndPlay = async (posSec) => {
     if (!onRefresh || !sourceUrl) return false
+    if (refreshAttemptsRef.current >= REFRESH_ATTEMPTS) {
+      terminalError('expired', 'Could not get a fresh link after several tries. Pick the episode again.')
+      return true
+    }
+    refreshAttemptsRef.current += 1
     /* recovering */
-    await VideoPlayerPlugin.showStatus({ text: 'Refreshing link…' }).catch(() => {})
+    await VideoPlayerPlugin.showStatus({ text: `Refreshing link (${refreshAttemptsRef.current}/${REFRESH_ATTEMPTS})…` }).catch(() => {})
     try {
       const desc = await onRefresh(sourceUrl, title)
       if (!sessionActiveRef.current) return true
-      adoptDescriptor(desc)
+      adoptDescriptor(desc) // resets mirror index + refresh budget on success
       await show(cfgRef.current, posSec)
       return true
     } catch (err) {
-      if (sessionActiveRef.current) terminalError('expired', err?.message)
+      if (!sessionActiveRef.current) return true
+      // A dead token is transient — re-walk the page again instead of failing.
+      if (refreshAttemptsRef.current < REFRESH_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 900))
+        return refreshAndPlay(posSec)
+      }
+      terminalError('expired', err?.message)
       return true
     }
   }
@@ -219,8 +245,18 @@ export default function NativeEmbeddedPlayer({
     if (!sessionActiveRef.current) return
     const posSec = stateRef.current.posSec
 
-    // expired → refresh from sourceUrl
+    // expired → try the next mirror (same form-walk, different token), then
+    // re-walk the page for a fresh token (with its own retry budget).
     if (kind === 'expired') {
+      const m = mirrorsRef.current[mirrorIdxRef.current]
+      if (m) {
+        mirrorIdxRef.current += 1
+        netRetryRef.current = 0
+        /* recovering */
+        await VideoPlayerPlugin.showStatus({ text: 'Trying another server…' }).catch(() => {})
+        await show({ ...cfgRef.current, url: m }, posSec)
+        return
+      }
       if (onRefresh && sourceUrl) {
         await refreshAndPlay(posSec)
         return
@@ -239,7 +275,7 @@ export default function NativeEmbeddedPlayer({
         later(() => show(cfgRef.current, posSec), RETRY_BACKOFF_MS[attempt] || 3000)
         return
       }
-      const m = mirrors[mirrorIdxRef.current]
+      const m = mirrorsRef.current[mirrorIdxRef.current]
       if (m) {
         mirrorIdxRef.current += 1
         netRetryRef.current = 0
@@ -258,7 +294,7 @@ export default function NativeEmbeddedPlayer({
 
     // decode → try a mirror once, else honest failure
     if (kind === 'decode') {
-      const m = mirrors[mirrorIdxRef.current]
+      const m = mirrorsRef.current[mirrorIdxRef.current]
       if (m) {
         mirrorIdxRef.current += 1
         /* recovering */
@@ -270,12 +306,19 @@ export default function NativeEmbeddedPlayer({
       return
     }
 
-    // other → probe to classify precisely, then recurse
+    // other → classify. Token-host CDNs (DownloadWella/fsmc/nkiserv/thenkiri)
+    // carry single-use links: a probe here would consume the token. Treat the
+    // failure as an expired link and go straight to mirror/refresh recovery.
+    const url = cfgRef.current.url || ''
+    if (/downloadwella|fsmc|nkiserv|thenkiri/i.test(url)) {
+      await recover('expired', message)
+      return
+    }
     try {
       const probe = await VideoPlayerPlugin.probeStatus({ url: cfgRef.current.url, referer: cfgRef.current.referer })
       if (!sessionActiveRef.current) return
       if (probe.ok) {
-        const m = mirrors[mirrorIdxRef.current]
+        const m = mirrorsRef.current[mirrorIdxRef.current]
         if (m) {
           mirrorIdxRef.current += 1
           await show({ ...cfgRef.current, url: m }, posSec)
@@ -511,9 +554,18 @@ export default function NativeEmbeddedPlayer({
     setBusyAction('retry')
     setErrorMsg(null)
     sessionActiveRef.current = true
+    refreshAttemptsRef.current = 0
     try {
-      await showRef.current(cfgRef.current, stateRef.current.posSec)
-    } catch { /* handled inside show */ } finally {
+      const url = cfgRef.current.url || ''
+      // A dead token URL won't recover by retrying the same URL — re-walk the
+      // page for a fresh link instead.
+      if (/downloadwella|fsmc|nkiserv|thenkiri/i.test(url) && onRefresh && sourceUrl) {
+        await refreshAndPlay(stateRef.current.posSec)
+      } else {
+        netRetryRef.current = 0
+        await showRef.current(cfgRef.current, stateRef.current.posSec)
+      }
+    } catch { /* handled inside show/refresh */ } finally {
       setBusyAction(null)
     }
   }

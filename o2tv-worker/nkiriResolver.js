@@ -17,6 +17,21 @@ const REQUEST_MS = 8000
 const PROBE_MS = 4000
 const COUNTDOWN_MAX_WAIT_MS = 20000 // some XFileSharing pages require waiting out a JS countdown
 
+/**
+ * Hosts whose CDN links carry single-use / minutes-lived tokens.
+ * A Range probe (or any extra GET) on these consumes or re-validates the
+ * token, so we must NEVER probe them — the player's first request must be
+ * the real one. Failures are handled by mirror fallback + page re-resolve.
+ */
+function isTokenHostUrl(value) {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase()
+    return /downloadwella|fsmc|nkiserv|thenkiri/i.test(hostname)
+  } catch {
+    return /downloadwella|fsmc|nkiserv|thenkiri/i.test(String(value || ''))
+  }
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_MS) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -139,6 +154,19 @@ async function probeDirectUrl(mediaUrl) {
   } catch { return mediaUrl } // timeout/network — keep candidate, proxy will verify
 }
 
+/**
+ * Verify candidate media URLs WITHOUT touching single-use token hosts.
+ * Token-host links pass through unverified (a Range probe would consume the
+ * token); everything else gets the usual range probe.
+ */
+async function verifyCandidates(urls) {
+  const list = (urls || []).slice(0, 6)
+  const results = await Promise.all(list.map((u) => (
+    isTokenHostUrl(u) ? u : probeDirectUrl(u)
+  )))
+  return results.filter(Boolean)
+}
+
 function pickBestForm($) {
   const preferredOps = ['download2', 'download1', 'download']
   for (const op of preferredOps) {
@@ -165,8 +193,7 @@ async function walkForms(startUrl, startHtml, startCookies) {
   for (let step = 0; step < MAX_FORM_STEPS; step += 1) {
     const fromPage = directUrlsFromHtml(html, currentUrl)
     if (fromPage.length) {
-      const live = await Promise.all(fromPage.slice(0, 3).map(probeDirectUrl))
-      const ok = live.filter(Boolean)
+      const ok = await verifyCandidates(fromPage)
       if (ok.length) return { directUrls: ok }
     }
     const $ = cheerio.load(html)
@@ -201,6 +228,7 @@ async function walkForms(startUrl, startHtml, startCookies) {
       if (!location) break
       const next = new URL(location, action).href
       if (isAllowedMediaUrl(next)) {
+        if (isTokenHostUrl(next)) return { directUrls: [next] }
         const live = await probeDirectUrl(next)
         if (live) return { directUrls: [live] }
       }
@@ -217,8 +245,7 @@ async function walkForms(startUrl, startHtml, startCookies) {
     currentUrl = response.url || action
     const after = directUrlsFromHtml(html, currentUrl)
     if (after.length) {
-      const live = await Promise.all(after.slice(0, 3).map(probeDirectUrl))
-      const ok = live.filter(Boolean)
+      const ok = await verifyCandidates(after)
       if (ok.length) return { directUrls: ok }
     }
     // JS countdown pages: the free link only appears after a timer. Detect a
@@ -300,8 +327,10 @@ export async function resolveDownloadwellaPage(pageUrl) {
   if (!target) return { directUrls: [], error: 'no URL' }
   if (!/^https?:\/\//i.test(target)) return { directUrls: [], error: 'not an HTTP URL' }
 
-  // Direct media file → probe it (any host).
+  // Direct media file → hand it straight to the player. Token hosts must NOT
+  // be probed (the probe consumes the token); other hosts get a quick check.
   if (isAllowedMediaUrl(target)) {
+    if (isTokenHostUrl(target)) return { directUrls: [target] }
     const live = await probeDirectUrl(target)
     if (live) return { directUrls: [live] }
     return { directUrls: [], expired: true, error: 'token expired' }
@@ -318,8 +347,7 @@ export async function resolveDownloadwellaPage(pageUrl) {
     if (html) {
       const urls = directUrlsFromHtml(html, target)
       if (urls.length) {
-        const live = await Promise.all(urls.slice(0, 3).map(probeDirectUrl))
-        const ok = live.filter(Boolean)
+        const ok = await verifyCandidates(urls)
         if (ok.length) return { directUrls: ok, synopsis: extractPageSynopsis(html) }
       }
       const synopsis = extractPageSynopsis(html)
@@ -342,6 +370,7 @@ export async function resolveDownloadwellaPage(pageUrl) {
       if (!location) break
       const next = new URL(location, currentUrl).href
       if (isAllowedMediaUrl(next)) {
+        if (isTokenHostUrl(next)) return { directUrls: [next] }
         const live = await probeDirectUrl(next)
         if (live) return { directUrls: [live] }
       }
@@ -357,8 +386,7 @@ export async function resolveDownloadwellaPage(pageUrl) {
   const pageSynopsis = extractPageSynopsis(html)
   const pageDirect = directUrlsFromHtml(html, currentUrl)
   if (pageDirect.length) {
-    const live = await Promise.all(pageDirect.slice(0, 3).map(probeDirectUrl))
-    const ok = live.filter(Boolean)
+    const ok = await verifyCandidates(pageDirect)
     if (ok.length) return { directUrls: ok, synopsis: pageSynopsis }
   }
   const walked = await walkForms(currentUrl, html, cookies)

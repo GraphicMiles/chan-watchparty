@@ -24,7 +24,7 @@ import { Button, Input, Card, Modal, Badge, useToast } from '../../../shared/ui/
 import { Layout } from '../../../shared/layout/index.js'
 import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
-import { refreshDownloadDescriptor, fetchTitleSynopsis } from '../../../shared/lib/mediaApi.js'
+import { refreshDownloadDescriptor, fetchTitleSynopsis, proxyTargetUrl } from '../../../shared/lib/mediaApi.js'
 import { sanitizeSynopsis, looksLikeAiSynopsis } from '../../../shared/lib/synopsis.js'
 import { resolvePlaybackForUser, mediaDocFromDescriptor } from '../../../shared/lib/resolvePlayback.js'
 
@@ -321,14 +321,14 @@ export default function RoomPage() {
   // descriptor (sourceUrl) to walk the page form for a FRESH token, updates
   // the room doc (videoUrl + media descriptor) so ALL viewers recover, and
   // returns the new descriptor for immediate native playback (Phase B).
-  const reResolveVideo = useCallback(async (staleUrl) => {
+  const reResolveVideo = useCallback(async (staleUrl, quiet = false) => {
     if (!canControl) {
-      toast('Only the host or a co-host can re-resolve the link', { variant: 'warning' })
+      if (!quiet) toast('Only the host or a co-host can re-resolve the link', { variant: 'warning' })
       throw new Error('Only the host or a co-host can re-resolve the link')
     }
     setBusy(true)
     try {
-      toast('Re-resolving link…', { variant: 'info' })
+      if (!quiet) toast('Re-resolving link…', { variant: 'info' })
       const resolveFrom = (room?.media?.sourceUrl && /downloadwella\.com|fsmc/i.test(room.media.sourceUrl))
         ? room.media.sourceUrl
         : (room?.sourceUrl && /downloadwella\.com|fsmc/i.test(room.sourceUrl))
@@ -345,15 +345,39 @@ export default function RoomPage() {
         media: mediaDoc,
       })
       await writePlayerState({ videoUrl: freshUrl, isPlaying: false, currentTime: 0 }, true)
-      toast('Link refreshed — playing', { variant: 'success' })
+      if (!quiet) toast('Link refreshed — playing', { variant: 'success' })
       return descriptor
     } catch (err) {
-      toast(err.message || 'Could not re-resolve the link', { variant: 'error' })
+      if (!quiet) toast(err.message || 'Could not re-resolve the link', { variant: 'error' })
       throw err
     } finally {
       setBusy(false)
     }
   }, [canControl, user, room, updateRoom, writePlayerState, toast])
+
+  // Mint a FRESH token the moment a newly-created direct room opens. The token
+  // resolved at create time can die while the room sits paused (or be consumed
+  // by an upstream probe), so we re-walk the page here — before the host ever
+  // presses play. Only for the controller, only for DownloadWella-backed rooms,
+  // and only within the first 90s of the room's life (never reset a returning
+  // session that is mid-playback).
+  const freshTokenKeyRef = useRef(null)
+  useEffect(() => {
+    if (!canControl || !room) return
+    if (freshTokenKeyRef.current === roomId) return
+    if (room.videoType !== 'direct') return
+    const sourceUrl = room.media?.sourceUrl || room.sourceUrl || ''
+    const streamUrl = room.media?.streamUrl || room.videoUrl || ''
+    if (!/downloadwella\.com|fsmc/i.test(proxyTargetUrl(sourceUrl))) return
+    if (!/downloadwella|fsmc|nkiserv|thenkiri/i.test(proxyTargetUrl(streamUrl))) return
+    const ageMs = room.createdAt?.toMillis ? Date.now() - room.createdAt.toMillis() : Infinity
+    if (ageMs > 90_000) return
+    freshTokenKeyRef.current = roomId
+    reResolveVideo(streamUrl, true).catch(() => {
+      // Keep the stored link. If it's dead, the player's recovery machine will
+      // re-resolve with retries.
+    })
+  }, [canControl, room, roomId, reResolveVideo])
 
   const isDirectVideo = room?.videoType === 'direct' || room?.videoType === 'iptv' || room?.videoType === 'sports' || room?.videoType === 'nsfw'
   const isYoutube = !isDirectVideo && (activityType === 'youtube' || activityType === 'direct')
@@ -704,7 +728,9 @@ export default function RoomPage() {
                   subtitleVtt={room.subtitleVtt}
                   media={room?.media || null}
                   onReResolve={canControl ? reResolveVideo : null}
-                  onRefresh={canControl ? reResolveVideo : null}
+                  // Wrap so the native player's extra (sourceUrl, title) args
+                  // never land in reResolveVideo's `quiet` param.
+                  onRefresh={canControl ? (src) => reResolveVideo(src) : null}
                   // Mobile chat/queue sheet: the native surface is CLIPPED to
                   // the area above the sheet (sheet height = min(70vh, 520px),
                   // mirroring RoomPage.module.css), so the panel renders ON
