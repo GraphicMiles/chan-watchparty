@@ -36,10 +36,10 @@
 .warning .icon { color: var(--warning); }
 
 .message {
-  flex: 1;
-  font-size: 14px;
-  line-height: 1.45;
-  white-space: pre-wrap;
+  flex: 0 1 auto;
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: normal;
 }
 
 .close {

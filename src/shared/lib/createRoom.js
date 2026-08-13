@@ -2,7 +2,7 @@ import { doc, setDoc, deleteDoc, serverTimestamp, collection } from 'firebase/fi
 import { db } from './firebase.js'
 import { apiPath, parseJsonResponse } from './api.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, checkEmbeddable } from './youtube.js'
-import { proxyTargetUrl, isDownloadPageUrl, fetchTitleSynopsis } from './mediaApi.js'
+import { proxyTargetUrl, isDownloadPageUrl } from './mediaApi.js'
 import { sanitizeSynopsis } from './synopsis.js'
 import { resolvePlaybackForUser, mediaDocFromDescriptor } from './resolvePlayback.js'
 
@@ -103,19 +103,13 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
     lastHeartbeat: serverTimestamp(),
   }
 
-  let synopsis = sanitizeSynopsis(content?.synopsis)
-  let synopsisSource = content?.synopsis ? 'page' : null
-  if (!synopsis) {
-    const groqTitle = content?.title || roomTitle
-    const groqExtra = content?.showName
-      ? `TV episode of ${content.showName}`
-      : 'TV show or movie'
-    synopsis = sanitizeSynopsis(await fetchTitleSynopsis(user, groqTitle, groqExtra))
-    if (synopsis) synopsisSource = 'ai'
-  }
+  // Page extract only. Do NOT await Groq here — that delay expires
+  // DownloadWella tokens before the host even opens the player.
+  // RoomPage backfills an AI blurb after join if synopsis is missing.
+  const synopsis = sanitizeSynopsis(content?.synopsis)
   if (synopsis) {
     roomData.synopsis = synopsis
-    if (synopsisSource) roomData.synopsisSource = synopsisSource
+    roomData.synopsisSource = content?.synopsisSource || 'page'
   }
 
   if (videoType === 'youtube' && videoId) {

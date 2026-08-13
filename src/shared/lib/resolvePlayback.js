@@ -8,22 +8,37 @@ import {
 
 const PLAYBACK_UA = 'Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36'
 
+/**
+ * Single Referer rule for native + proxy + Firestore media:
+ *  - DownloadWella/fsmc FILE, or a stream we got by walking a Wella PAGE
+ *    → Referer https://downloadwella.com/  (even if the CDN host is nkiserv)
+ *  - Bare nkiserv / thenkiri file (no Wella page) → UA only, no Referer
+ *  - Never send Referer: thenkiri.com on a file request (403s nkiserv)
+ */
+export function playbackAccess(streamUrl, media = null) {
+  const stream = proxyTargetUrl(streamUrl || media?.streamUrl || '') || streamUrl || null
+  const page = media?.sourceUrl || null
+  const walkedWella = Boolean(page && isDownloadPageUrl(page))
+  const streamWella = Boolean(stream && /downloadwella|fsmc/i.test(stream))
+  const referer = (walkedWella || streamWella)
+    ? (media?.referer && /downloadwella|fsmc/i.test(media.referer)
+      ? media.referer
+      : 'https://downloadwella.com/')
+    : null
+  const headers = { 'User-Agent': PLAYBACK_UA }
+  if (referer) headers.Referer = referer
+  return { streamUrl: stream, referer, headers }
+}
+
 /** Headers the native engine needs for Nkiri/DownloadWella CDNs. */
 export function mediaStubForCdn(rawUrl, sourceUrl = null) {
   const streamUrl = proxyTargetUrl(rawUrl) || rawUrl
   if (!streamUrl || isDownloadPageUrl(streamUrl) || isNkiriHtmlPage(streamUrl)) return null
-  const hay = `${streamUrl} ${sourceUrl || ''}`
-  // DownloadWella CDNs require their own Referer. Nkiri/nkiserv CDNs
-  // reject a thenkiri Referer (403) — play those with UA only.
-  const needsWella = /downloadwella|fsmc/i.test(hay)
-  if (!needsWella && !/nkiri|nkiserv|thenkiri/i.test(hay)) return null
-  const referer = needsWella ? 'https://downloadwella.com/' : null
-  const headers = { 'User-Agent': PLAYBACK_UA }
-  if (referer) headers.Referer = referer
+  const access = playbackAccess(streamUrl, { sourceUrl, referer: null })
   return {
     streamUrl,
-    referer,
-    headers,
+    referer: access.referer,
+    headers: access.headers,
     sourceUrl: sourceUrl || null,
     container: /\.mkv(\?|#|$)/i.test(streamUrl) ? 'mkv' : (/\.mp4(\?|#|$)/i.test(streamUrl) ? 'mp4' : null),
     codec: null,
@@ -68,17 +83,12 @@ export function pickSourceUrl(item = {}) {
 export function mediaDocFromDescriptor(descriptor, fallbackSourceUrl = null) {
   if (!descriptor?.streamUrl) return null
   const stream = descriptor.streamUrl
-  const wella = /downloadwella|fsmc/i.test(`${stream} ${descriptor.sourceUrl || ''} ${fallbackSourceUrl || ''}`)
-  const referer = wella ? (descriptor.referer || 'https://downloadwella.com/') : null
-  const headers = descriptor.headers ? { ...descriptor.headers } : null
-  if (headers && !wella) {
-    delete headers.Referer
-    delete headers.referer
-  }
+  const sourceUrl = descriptor.sourceUrl || fallbackSourceUrl || null
+  const access = playbackAccess(stream, { sourceUrl, referer: descriptor.referer || null })
   return {
     streamUrl: stream,
-    referer,
-    headers,
+    referer: access.referer,
+    headers: access.headers,
     container: descriptor.container || null,
     codec: descriptor.codec || null,
     sourceUrl: descriptor.sourceUrl || fallbackSourceUrl || null,

@@ -689,7 +689,7 @@ export default function RoomPage() {
                   onEnded={handleVideoEnded}
                   onError={(err) => {
                     console.error('VideoPlayer error:', err)
-                    toast?.(err?.message || 'Video playback failed. Try another source.', { variant: 'error', duration: 5000 })
+                    // Native already shows Retry / Re-resolve — don't stack a toast.
                   }}
                   roomId={roomId}
                   isLive={Boolean(
