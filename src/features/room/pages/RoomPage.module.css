@@ -260,17 +260,23 @@
   overflow: hidden !important;
 }
 
-/* Synopsis — mockup meta block under the video (2-line clamp) */
+/* Synopsis — under the video, above chrome. flex-shrink so it is not
+   eaten by the stage overflow / sheet. */
 .synopsis {
-  margin: 10px 4px 0;
+  margin: 0 2px;
+  padding: 8px 10px;
   font-size: 13px;
-  line-height: 1.5;
-  color: var(--room-text-secondary, #A6A6B0);
+  line-height: 1.45;
+  color: var(--room-text-primary, #F5F5F7);
+  background: var(--room-surface, #18191D);
+  border: 1px solid var(--room-divider, #2a2b30);
+  border-radius: 10px;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  max-width: 720px;
+  max-width: 100%;
+  flex-shrink: 0;
 }
 
 .metaBar {

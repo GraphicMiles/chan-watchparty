@@ -24,7 +24,7 @@ import { Button, Input, Card, Modal, Badge, useToast } from '../../../shared/ui/
 import { Layout } from '../../../shared/layout/index.js'
 import ShareRoom from '../components/ShareRoom.jsx'
 import styles from './RoomPage.module.css'
-import { refreshDownloadDescriptor } from '../../../shared/lib/mediaApi.js'
+import { refreshDownloadDescriptor, fetchTitleSynopsis } from '../../../shared/lib/mediaApi.js'
 import { sanitizeSynopsis } from '../../../shared/lib/synopsis.js'
 
 const SOUND_FX_URLS = {
@@ -120,6 +120,23 @@ export default function RoomPage() {
   } = useRoom(roomId, inviteCode)
 
   const { isHost, writePlayerState, canControl } = usePlayerSync(roomId, room, playerRef)
+
+  // Existing rooms created before synopsis was wired: fill from the title
+  // once, then the snapshot updates RoomPage.
+  const synopsisFillRef = useRef(false)
+  useEffect(() => {
+    if (!canControl || !user || !room || room.synopsis || synopsisFillRef.current) return
+    const title = room.title || room.media?.title
+    if (!title) return
+    synopsisFillRef.current = true
+    let cancelled = false
+    ;(async () => {
+      const text = sanitizeSynopsis(await fetchTitleSynopsis(user, title, room.videoType || ''))
+      if (cancelled || !text) return
+      try { await updateRoom({ synopsis: text }) } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  }, [canControl, user, room, updateRoom])
 
   // Continuously report player position so leave/beforeunload can freeze the exact timestamp
   useEffect(() => {
@@ -687,6 +704,10 @@ export default function RoomPage() {
             )}
           </div>
 
+          {room?.synopsis ? (
+            <p className={styles.synopsis}>{room.synopsis}</p>
+          ) : null}
+
           {canControl && (
             <Card className={styles.controlsCard}>
               <div className={styles.controls}>
@@ -715,13 +736,6 @@ export default function RoomPage() {
                 </div>
               )}
             </Card>
-          )}
-
-          {/* Synopsis for the currently-playing video (mockup meta block) —
-              only when the source page provided one. Cleared when the video
-              changes (see changeVideo / onPlayNextQueueItem). */}
-          {room?.synopsis && (
-            <p className={styles.synopsis}>{room.synopsis}</p>
           )}
 
           <div className={styles.metaBar}>

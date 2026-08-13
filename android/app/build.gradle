@@ -85,6 +85,12 @@ android {
     }
 }
 
+// Media3 marks Effect / RgbMatrix as UnstableApi. Treat as warning so a
+// marker-annotation mismatch cannot fail the APK build.
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs += ["-Xlint:-removal"]
+}
+
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'

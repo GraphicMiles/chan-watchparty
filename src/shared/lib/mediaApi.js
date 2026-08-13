@@ -144,6 +144,17 @@ export async function resolveDownloadDescriptor(user, pageUrl, title) {
  * Refresh a descriptor from its sourceUrl (fresh token). Same shape as
  * resolveDownloadDescriptor; the server walks the page form again.
  */
+/** Ask the server for a 1–2 sentence synopsis from a title (Groq). */
+export async function fetchTitleSynopsis(user, title, extra = '') {
+  if (!user || !title) return null
+  try {
+    const data = await mediaPost(user, { action: 'titleSynopsis', title, extra })
+    return typeof data.synopsis === 'string' ? data.synopsis : null
+  } catch {
+    return null
+  }
+}
+
 export async function refreshDownloadDescriptor(user, sourceUrl, title) {
   const raw = proxyTargetUrl(sourceUrl)
   if (!user) throw new Error('Sign in to use media tools')

@@ -2,7 +2,7 @@ import { doc, setDoc, deleteDoc, serverTimestamp, collection } from 'firebase/fi
 import { db } from './firebase.js'
 import { apiPath, parseJsonResponse } from './api.js'
 import { isDirectVideoUrl, normalizePlaybackUrl, checkEmbeddable } from './youtube.js'
-import { proxyTargetUrl, isDownloadPageUrl, resolveDownloadLink, resolveDownloadDescriptor } from './mediaApi.js'
+import { proxyTargetUrl, isDownloadPageUrl, resolveDownloadLink, resolveDownloadDescriptor, fetchTitleSynopsis } from './mediaApi.js'
 import { sanitizeSynopsis } from './synopsis.js'
 
 export function isO2TvUrl(value) {
