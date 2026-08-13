@@ -215,6 +215,9 @@
 
 .resultCard {
   display: flex;
+  align-items: center; /* direct children (e.g. the Play chip on episode
+                         rows) hug their content instead of stretching to
+                         the row height */
   gap: 12px;
   text-align: left;
   width: 100%;
