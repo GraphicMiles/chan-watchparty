@@ -47,11 +47,11 @@
 .viewPillActive {
   background: var(--accent-orange);
   border-color: var(--accent-orange);
-  color: #fff;
+  color: #0A0A0C;
 }
 
 .viewPillActive:hover {
-  color: #fff;
+  color: #0A0A0C;
 }
 
 .viewHint {
@@ -249,21 +249,30 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 30px;
-  padding: 0 12px;
-  border-radius: var(--radius-pill);
+  /* Compact auto-fit chip — short labels (Add / Play / Show Episodes) hug
+     their text instead of stretching into an oversized pill */
+  height: auto;
+  padding: 5px 10px;
+  border-radius: 999px;
   background: var(--accent-orange);
-  color: #fff;
-  font-size: 12px;
+  color: #0A0A0C;
+  font-size: 11px;
   font-weight: 600;
   border: none;
   cursor: pointer;
   transition: all 0.15s ease;
   flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.addBtn svg {
+  width: 13px;
+  height: 13px;
 }
 
 .addBtn:hover:not(:disabled) {
   background: #e85e22;
+  color: #fff;
 }
 
 .disabledBtn {
@@ -298,7 +307,7 @@
 .iconBtn:hover:not(:disabled) {
   background: var(--accent-orange);
   border-color: var(--accent-orange);
-  color: #fff;
+  color: #0A0A0C;
 }
 
 .iconBtn:disabled {
