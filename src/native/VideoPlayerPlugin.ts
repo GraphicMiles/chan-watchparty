@@ -89,6 +89,9 @@ export interface VideoPlayerPlugin {
    *  The video keeps playing underneath; slider changes arrive on the
    *  'brightnessChanged' event. */
   showBrightnessPopup(options: { visible: boolean; brightness?: number }): Promise<void>
+  /** Show the NATIVE volume popover over the video surface (Android only).
+   *  The video keeps playing underneath; changes arrive on 'volumeChanged'. */
+  showVolumePopup(options: { visible: boolean; volume?: number; muted?: boolean }): Promise<void>
   /** Attach a VTT subtitle track (empty detaches). */
   setSubtitles(options: { vttText: string }): Promise<void>
   /** Enumerate native video tracks for the quality menu. */
@@ -132,6 +135,16 @@ export interface VideoPlayerPlugin {
   /** Native brightness popup was closed (backdrop tap). */
   addListener(
     eventName: 'brightnessPopupClosed',
+    handler: (event: unknown) => void
+  ): Promise<{ remove: () => void }>
+  /** Native volume popover slider/mute changed. */
+  addListener(
+    eventName: 'volumeChanged',
+    handler: (event: { volume: number; muted: boolean }) => void
+  ): Promise<{ remove: () => void }>
+  /** Native volume popover was closed (backdrop tap). */
+  addListener(
+    eventName: 'volumePopupClosed',
     handler: (event: unknown) => void
   ): Promise<{ remove: () => void }>
 }

@@ -319,6 +319,27 @@ export default function VideoPlayer({
     }
   }, [isNativeEmbedded, brightnessMultiplier])
 
+  const [volumePop, setVolumePop] = useState(false)
+  const volumeOpenRef = useRef(false)
+
+  // Volume popover: on Android the popover is rendered in the NATIVE layer
+  // (RoomPlayerOverlayView) so it sits above the video surface — the video
+  // keeps playing underneath. On web it's the CSS overlay. Same pattern as
+  // the brightness popover so both center identically and never clip.
+  const toggleVolumePopup = useCallback(() => {
+    if (isNativeEmbedded) {
+      const next = !volumeOpenRef.current
+      volumeOpenRef.current = next
+      setVolumePop(next)
+      VideoPlayerPlugin.showVolumePopup({ visible: next, volume: localVolume, muted: localMuted }).catch(() => {})
+    } else {
+      setVolumePop((v) => {
+        volumeOpenRef.current = !v
+        return !v
+      })
+    }
+  }, [isNativeEmbedded, localVolume, localMuted])
+
   // Sync brightness from the native popup slider + close events back to JS.
   useEffect(() => {
     if (!isNativeEmbedded) return undefined
@@ -334,6 +355,28 @@ export default function VideoPlayer({
       if (cancelled) return
       brightnessOpenRef.current = false
       setBrightnessPop(false)
+    }).then((l) => { if (cancelled) { try { l?.remove?.() } catch {} } else removeClosed = l?.remove })
+    return () => {
+      cancelled = true
+      try { removeChanged?.(); removeClosed?.() } catch { /* ignore */ }
+    }
+  }, [isNativeEmbedded])
+
+  // Sync volume from the native popover slider + close events back to JS.
+  useEffect(() => {
+    if (!isNativeEmbedded) return undefined
+    let removeChanged
+    let removeClosed
+    let cancelled = false
+    VideoPlayerPlugin.addListener('volumeChanged', (e) => {
+      if (cancelled) return
+      if (typeof e?.volume === 'number') setLocalVolume(Math.max(0, Math.min(1, e.volume)))
+      if (typeof e?.muted === 'boolean') setLocalMuted(e.muted)
+    }).then((l) => { if (cancelled) { try { l?.remove?.() } catch {} } else removeChanged = l?.remove })
+    VideoPlayerPlugin.addListener('volumePopupClosed', () => {
+      if (cancelled) return
+      volumeOpenRef.current = false
+      setVolumePop(false)
     }).then((l) => { if (cancelled) { try { l?.remove?.() } catch {} } else removeClosed = l?.remove })
     return () => {
       cancelled = true
@@ -1581,21 +1624,11 @@ export default function VideoPlayer({
                   <button
                     type="button"
                     className={styles.controlIconBtn}
-                    onClick={toggleMute}
-                    title={localMuted ? 'Unmute' : 'Mute'}
+                    onClick={(e) => { e.stopPropagation(); toggleVolumePopup() }}
+                    title="Volume"
                   >
                     {localMuted || localVolume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
                   </button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={localMuted ? 0 : localVolume}
-                    onChange={handleVolumeChange}
-                    className={styles.volumeSlider}
-                    title="Volume"
-                  />
                 </div>
 
                 <button
@@ -1665,6 +1698,43 @@ export default function VideoPlayer({
                         <span className={styles.popupSliderVal}>{Math.round(brightnessMultiplier * 100)}%</span>
                       </div>
                       <span className={styles.brightnessHint}>0% – 200%</span>
+                    </div>
+                  </div>
+                )}
+                {volumePop && !isNativeEmbedded && (
+                  <div className={styles.volumeOverlay} onClick={() => setVolumePop(false)}>
+                    <div
+                      className={styles.volumePopup}
+                      onClick={(e) => e.stopPropagation()}
+                      role="dialog"
+                      aria-label="Volume"
+                    >
+                      <div className={styles.brightnessHeader}>
+                        <Volume2 size={15} style={{ color: 'var(--room-text-secondary)' }} />
+                        <span>Volume</span>
+                      </div>
+                      <div className={styles.popupSliderRow}>
+                        <button
+                          type="button"
+                          className={styles.controlIconBtn}
+                          onClick={toggleMute}
+                          title={localMuted ? 'Unmute' : 'Mute'}
+                        >
+                          {localMuted || localVolume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                        </button>
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={localMuted ? 0 : localVolume}
+                          onChange={handleVolumeChange}
+                          className={styles.volumeSlider}
+                          title="Volume"
+                        />
+                        <span className={styles.popupSliderVal}>{Math.round((localMuted ? 0 : localVolume) * 100)}%</span>
+                      </div>
+                      <span className={styles.brightnessHint}>0% – 100%</span>
                     </div>
                   </div>
                 )}
@@ -1899,21 +1969,11 @@ export default function VideoPlayer({
               <button
                 type="button"
                 className={styles.controlIconBtn}
-                onClick={toggleMute}
-                title={localMuted ? 'Unmute' : 'Mute'}
+                onClick={(e) => { e.stopPropagation(); toggleVolumePopup() }}
+                title="Volume"
               >
                 {localMuted || localVolume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
               </button>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={localMuted ? 0 : localVolume}
-                onChange={handleVolumeChange}
-                className={styles.volumeSlider}
-                title="Volume"
-              />
             </div>
 
             <button
@@ -1986,6 +2046,43 @@ export default function VideoPlayer({
                     <span className={styles.popupSliderVal}>{Math.round(brightnessMultiplier * 100)}%</span>
                   </div>
                   <span className={styles.brightnessHint}>0% – 200%</span>
+                </div>
+              </div>
+            )}
+            {volumePop && !isNativeEmbedded && (
+              <div className={styles.volumeOverlay} onClick={() => setVolumePop(false)}>
+                <div
+                  className={styles.volumePopup}
+                  onClick={(e) => e.stopPropagation()}
+                  role="dialog"
+                  aria-label="Volume"
+                >
+                  <div className={styles.brightnessHeader}>
+                    <Volume2 size={15} style={{ color: 'var(--room-text-secondary)' }} />
+                    <span>Volume</span>
+                  </div>
+                  <div className={styles.popupSliderRow}>
+                    <button
+                      type="button"
+                      className={styles.controlIconBtn}
+                      onClick={toggleMute}
+                      title={localMuted ? 'Unmute' : 'Mute'}
+                    >
+                      {localMuted || localVolume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                    </button>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={localMuted ? 0 : localVolume}
+                      onChange={handleVolumeChange}
+                      className={styles.volumeSlider}
+                      title="Volume"
+                    />
+                    <span className={styles.popupSliderVal}>{Math.round((localMuted ? 0 : localVolume) * 100)}%</span>
+                  </div>
+                  <span className={styles.brightnessHint}>0% – 100%</span>
                 </div>
               </div>
             )}

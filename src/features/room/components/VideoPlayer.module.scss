@@ -582,8 +582,11 @@
   cursor: pointer;
 }
 
-/* Brightness popup — full-screen overlay, centered over the player */
-.brightnessOverlay {
+/* Brightness / Volume popups — full-screen overlay, centered over the player.
+   Shared so both popovers center identically and never clip off the mobile
+   viewport (max-width keeps them inside the screen; flex centers both axes). */
+.brightnessOverlay,
+.volumeOverlay {
   position: fixed;
   inset: 0;
   z-index: 400;
@@ -591,10 +594,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 0px);
   animation: brightnessFade 0.15s ease;
 }
 
-.brightnessPopup {
+.brightnessPopup,
+.volumePopup {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -602,8 +607,9 @@
   background: #18191D;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 16px;
-  min-width: 280px;
-  max-width: 90vw;
+  width: min(300px, calc(100vw - 32px));
+  min-width: 0;
+  max-width: calc(100vw - 32px);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
   animation: brightnessPop 0.18s ease;
 }

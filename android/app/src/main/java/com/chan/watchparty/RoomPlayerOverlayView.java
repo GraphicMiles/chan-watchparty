@@ -59,6 +59,24 @@ public class RoomPlayerOverlayView extends FrameLayout {
     }
     private BrightnessPopupListener brightnessPopupListener;
 
+    // Volume popover — rendered in the native layer (above the video surface),
+    // so the video keeps playing while the user adjusts volume. Mirrors the
+    // brightness popover's layout/centering.
+    private View volumeScrim;
+    private LinearLayout volumePopup;
+    private SeekBar volumeSeek;
+    private TextView volumeValue;
+    private TextView volumeMuteBtn;
+    private float lastVolume = 1f;
+    private boolean lastMuted = false;
+
+    /** Callbacks from the volume popover to the plugin (applies + syncs JS). */
+    public interface VolumePopupListener {
+        void onVolumeChanged(float volume, boolean muted);
+        void onVolumePopupClosed();
+    }
+    private VolumePopupListener volumePopupListener;
+
     private LinearLayout controlsBar;
     private ImageButton btnPlayPause;
     private SeekBar seekBar;
@@ -174,6 +192,7 @@ public class RoomPlayerOverlayView extends FrameLayout {
         setClipToPadding(false);
 
         buildBrightnessPopup(context);
+        buildVolumePopup(context);
 
         // Friendly status text (fetching / buffering / finished / errors)
         statusView = new TextView(context);
@@ -558,7 +577,10 @@ public class RoomPlayerOverlayView extends FrameLayout {
         brightnessSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                 if (!fromUser) return;
-                float b = (50 + progress) / 100f; // 0.5..2.0
+                // 0..200 → 0%..200%. The old (50+progress)/100 mapping made a
+                // centered slider jump to 150% and clamped the top half of the
+                // track — the slider position must equal the value.
+                float b = Math.max(0f, Math.min(2f, progress / 100f));
                 lastBrightness = b;
                 if (brightnessValue != null) brightnessValue.setText(Math.round(b * 100f) + "%");
                 if (brightnessPopupListener != null) brightnessPopupListener.onBrightnessChanged(b);
@@ -583,9 +605,9 @@ public class RoomPlayerOverlayView extends FrameLayout {
             if (brightnessValue != null) brightnessValue.setText(Math.round(lastBrightness * 100f) + "%");
             // Reparent onto the window so the panel is not clipped to the
             // (often short) video rect — that was "tap does nothing".
-            attachPopupToWindow();
+            attachPopupToWindow(brightnessScrim, brightnessPopup);
         } else {
-            detachPopupFromWindow();
+            detachPopupFromWindow(brightnessScrim, brightnessPopup);
         }
         if (brightnessScrim != null) brightnessScrim.setVisibility(visible ? VISIBLE : GONE);
         if (brightnessPopup != null) brightnessPopup.setVisibility(visible ? VISIBLE : GONE);
@@ -596,11 +618,11 @@ public class RoomPlayerOverlayView extends FrameLayout {
         if (!visible && brightnessPopupListener != null) brightnessPopupListener.onBrightnessPopupClosed();
     }
 
-    private void attachPopupToWindow() {
+    private void attachPopupToWindow(View scrim, View popup) {
         View root = getRootView();
-        if (!(root instanceof ViewGroup) || brightnessScrim == null || brightnessPopup == null) return;
+        if (!(root instanceof ViewGroup) || scrim == null || popup == null) return;
         ViewGroup decor = (ViewGroup) root;
-        reparent(brightnessScrim, decor, new FrameLayout.LayoutParams(
+        reparent(scrim, decor, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
@@ -609,18 +631,18 @@ public class RoomPlayerOverlayView extends FrameLayout {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
         );
-        reparent(brightnessPopup, decor, popupLp);
-        brightnessScrim.setElevation(40f);
-        brightnessPopup.setElevation(41f);
+        reparent(popup, decor, popupLp);
+        scrim.setElevation(40f);
+        popup.setElevation(41f);
     }
 
-    private void detachPopupFromWindow() {
-        if (brightnessScrim == null || brightnessPopup == null) return;
-        reparent(brightnessScrim, this, new FrameLayout.LayoutParams(
+    private void detachPopupFromWindow(View scrim, View popup) {
+        if (scrim == null || popup == null) return;
+        reparent(scrim, this, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
-        reparent(brightnessPopup, this, new FrameLayout.LayoutParams(
+        reparent(popup, this, new FrameLayout.LayoutParams(
                 dp(290),
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
@@ -647,11 +669,163 @@ public class RoomPlayerOverlayView extends FrameLayout {
         brightnessPopupListener = listener;
     }
 
+    /** Build the centered volume popover (scrim + panel + mute + slider + %). */
+    private void buildVolumePopup(Context context) {
+        int dp = (int) (context.getResources().getDisplayMetrics().density + 0.5f);
+
+        volumeScrim = new View(context);
+        volumeScrim.setBackgroundColor(0x1A000000);
+        volumeScrim.setVisibility(GONE);
+        volumeScrim.setOnClickListener(v -> hideVolumePopup());
+        addView(volumeScrim, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
+        volumePopup = new LinearLayout(context);
+        volumePopup.setOrientation(LinearLayout.VERTICAL);
+        volumePopup.setPadding(18 * dp, 16 * dp, 18 * dp, 14 * dp);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0xFF18191D);
+        bg.setCornerRadius(16 * dp);
+        bg.setStroke(dp, 0x29FFFFFF);
+        volumePopup.setBackground(bg);
+        volumePopup.setVisibility(GONE);
+
+        // Title row (title on the left)
+        LinearLayout titleRow = new LinearLayout(context);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.setPadding(0, 0, 0, 10 * dp);
+
+        TextView title = new TextView(context);
+        title.setText("Volume");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(13f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        volumePopup.addView(titleRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        // Slider row: mute toggle + slider + live % value
+        LinearLayout sliderRow = new LinearLayout(context);
+        sliderRow.setOrientation(LinearLayout.HORIZONTAL);
+        sliderRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        volumeMuteBtn = new TextView(context);
+        volumeMuteBtn.setText("Mute");
+        volumeMuteBtn.setTextColor(0xFFF5F5F7);
+        volumeMuteBtn.setTextSize(12f);
+        volumeMuteBtn.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        volumeMuteBtn.setGravity(Gravity.CENTER);
+        volumeMuteBtn.setPadding(10 * dp, 6 * dp, 10 * dp, 6 * dp);
+        volumeMuteBtn.setBackgroundColor(0x22FFFFFF);
+        volumeMuteBtn.setOnClickListener(v -> {
+            lastMuted = !lastMuted;
+            float show = lastMuted ? 0f : Math.max(0f, lastVolume);
+            if (volumeMuteBtn != null) volumeMuteBtn.setText(lastMuted ? "Unmute" : "Mute");
+            if (volumeSeek != null) volumeSeek.setProgress(Math.round(show * 100f));
+            if (volumeValue != null) volumeValue.setText(Math.round(show * 100f) + "%");
+            if (volumePopupListener != null) volumePopupListener.onVolumeChanged(show, lastMuted);
+        });
+
+        volumeSeek = new SeekBar(context);
+        volumeSeek.setMax(100);
+        volumeSeek.setProgress(100);
+        volumeValue = new TextView(context);
+        volumeValue.setText("100%");
+        volumeValue.setTextColor(0xFFF5F5F7);
+        volumeValue.setTextSize(12f);
+        volumeValue.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        volumeValue.setPadding(10 * dp, 0, 0, 0);
+        volumeValue.setMinWidth(46 * dp);
+        volumeValue.setGravity(Gravity.CENTER_VERTICAL);
+
+        sliderRow.addView(volumeMuteBtn, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        sliderRow.addView(volumeSeek, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        sliderRow.addView(volumeValue);
+        volumePopup.addView(sliderRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        // Hint
+        TextView hint = new TextView(context);
+        hint.setText("0% – 100%");
+        hint.setTextColor(0xFFA6A6B0);
+        hint.setTextSize(10.5f);
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(0, 8 * dp, 0, 0);
+        volumePopup.addView(hint, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        volumeSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (!fromUser) return;
+                float v = Math.max(0f, Math.min(1f, progress / 100f));
+                if (v > 0f) lastVolume = v;
+                boolean muted = v <= 0f;
+                lastMuted = muted;
+                if (volumeMuteBtn != null) volumeMuteBtn.setText(muted ? "Unmute" : "Mute");
+                if (volumeValue != null) volumeValue.setText(Math.round(v * 100f) + "%");
+                if (volumePopupListener != null) volumePopupListener.onVolumeChanged(v, muted);
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) { }
+            @Override public void onStopTrackingTouch(SeekBar sb) { }
+        });
+
+        FrameLayout.LayoutParams popupLp = new FrameLayout.LayoutParams(
+                (int) (290 * dp),
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+        );
+        addView(volumePopup, popupLp);
+    }
+
+    /** Show/hide the volume popover (video keeps playing — it's just an overlay). */
+    public void showVolumePopup(boolean visible, float volume, boolean muted) {
+        lastVolume = Math.max(0f, Math.min(1f, volume));
+        lastMuted = muted;
+        float show = muted ? 0f : lastVolume;
+        if (volumeSeek != null) volumeSeek.setProgress(Math.round(show * 100f));
+        if (volumeValue != null) volumeValue.setText(Math.round(show * 100f) + "%");
+        if (volumeMuteBtn != null) volumeMuteBtn.setText(muted ? "Unmute" : "Mute");
+        if (visible) {
+            attachPopupToWindow(volumeScrim, volumePopup);
+        } else {
+            detachPopupFromWindow(volumeScrim, volumePopup);
+        }
+        if (volumeScrim != null) volumeScrim.setVisibility(visible ? VISIBLE : GONE);
+        if (volumePopup != null) volumePopup.setVisibility(visible ? VISIBLE : GONE);
+        if (visible) {
+            if (volumeScrim != null) volumeScrim.bringToFront();
+            if (volumePopup != null) volumePopup.bringToFront();
+        }
+        if (!visible && volumePopupListener != null) volumePopupListener.onVolumePopupClosed();
+    }
+
+    /** Hide the volume popover programmatically (used by the scrim tap). */
+    private void hideVolumePopup() {
+        showVolumePopup(false, lastVolume, lastMuted);
+    }
+
+    public void setVolumePopupListener(VolumePopupListener listener) {
+        volumePopupListener = listener;
+    }
+
     // ── Teardown ─────────────────────────────────────────────────────────
 
     public void teardown() {
         handler.removeCallbacksAndMessages(null);
-        try { detachPopupFromWindow(); } catch (Exception ignored) { }
+        try { detachPopupFromWindow(brightnessScrim, brightnessPopup); } catch (Exception ignored) { }
+        try { detachPopupFromWindow(volumeScrim, volumePopup); } catch (Exception ignored) { }
         if (engine != null) {
             engine.release();
             engine = null;
