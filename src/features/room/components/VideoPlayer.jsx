@@ -307,6 +307,39 @@ export default function VideoPlayer({
 
   const [brightnessPop, setBrightnessPop] = useState(false)
 
+  // Brightness popup: on Android the popup is rendered in the NATIVE layer
+  // (RoomPlayerOverlayView) so it sits above the video surface — the video
+  // keeps playing underneath. On web it's the CSS overlay.
+  const toggleBrightnessPopup = useCallback(() => {
+    if (isNativeEmbedded) {
+      const next = !brightnessPop
+      setBrightnessPop(next)
+      VideoPlayerPlugin.showBrightnessPopup({ visible: next, brightness: brightnessMultiplier }).catch(() => {})
+    } else {
+      setBrightnessPop((v) => !v)
+    }
+  }, [isNativeEmbedded, brightnessPop, brightnessMultiplier])
+
+  // Sync brightness from the native popup slider + close events back to JS.
+  useEffect(() => {
+    if (!isNativeEmbedded) return undefined
+    let removeChanged
+    let removeClosed
+    let cancelled = false
+    VideoPlayerPlugin.addListener('brightnessChanged', (e) => {
+      if (typeof e?.brightness === 'number' && !cancelled) {
+        setBrightnessMultiplier(Math.max(0.5, Math.min(2, e.brightness)))
+      }
+    }).then((l) => { if (cancelled) { try { l?.remove?.() } catch {} } else removeChanged = l?.remove })
+    VideoPlayerPlugin.addListener('brightnessPopupClosed', () => {
+      if (!cancelled) setBrightnessPop(false)
+    }).then((l) => { if (cancelled) { try { l?.remove?.() } catch {} } else removeClosed = l?.remove })
+    return () => {
+      cancelled = true
+      try { removeChanged?.(); removeClosed?.() } catch { /* ignore */ }
+    }
+  }, [isNativeEmbedded])
+
   useEffect(() => {
     onReadyRef.current = onReady
     onPlayerEventRef.current = onPlayerEvent
@@ -1349,7 +1382,7 @@ export default function VideoPlayer({
             onApi={handleNativeApi}
             onControlsTap={handleNativeTap}
             onFullscreenChange={(v) => { setIsFullscreen(Boolean(v)) }}
-            visible={!surfaceHidden && !brightnessPop}
+            visible={!surfaceHidden}
             clipBottomPx={surfaceClipBottom}
           />
         ) : isHls ? (
@@ -1577,13 +1610,13 @@ export default function VideoPlayer({
                 <button
                   type="button"
                   className={`${styles.controlIconBtn} ${brightnessMultiplier !== 1 ? styles.activeBrightnessBtn : ''}`}
-                  onClick={(e) => { e.stopPropagation(); setBrightnessPop(!brightnessPop) }}
+                  onClick={(e) => { e.stopPropagation(); toggleBrightnessPopup() }}
                   title="Brightness (50%..200%)"
                 >
                   <Sun size={16} style={{ color: brightnessMultiplier !== 1 ? '#FAB005' : 'inherit' }} />
                   <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
                 </button>
-                {brightnessPop && (
+                {brightnessPop && !isNativeEmbedded && (
                   <div className={styles.brightnessOverlay} onClick={() => setBrightnessPop(false)}>
                     <div
                       className={styles.brightnessPopup}
@@ -1898,13 +1931,13 @@ export default function VideoPlayer({
             <button
               type="button"
               className={`${styles.controlIconBtn} ${brightnessMultiplier !== 1 ? styles.activeBrightnessBtn : ''}`}
-              onClick={(e) => { e.stopPropagation(); setBrightnessPop(!brightnessPop) }}
+              onClick={(e) => { e.stopPropagation(); toggleBrightnessPopup() }}
               title="Brightness (50%..200%)"
             >
               <Sun size={16} style={{ color: brightnessMultiplier !== 1 ? '#FAB005' : 'inherit' }} />
               <span>{brightnessMultiplier === 1 ? 'Brightness' : `${Math.round(brightnessMultiplier * 100)}%`}</span>
             </button>
-            {brightnessPop && (
+            {brightnessPop && !isNativeEmbedded && (
               <div className={styles.brightnessOverlay} onClick={() => setBrightnessPop(false)}>
                 <div
                   className={styles.brightnessPopup}

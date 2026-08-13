@@ -85,6 +85,10 @@ export interface VideoPlayerPlugin {
    * touches the engine, so it can't interrupt playback.
    */
   setBrightnessDim(options: { brightness: number }): Promise<void>
+  /** Show the NATIVE brightness popup over the video surface (Android only).
+   *  The video keeps playing underneath; slider changes arrive on the
+   *  'brightnessChanged' event. */
+  showBrightnessPopup(options: { visible: boolean; brightness?: number }): Promise<void>
   /** Attach a VTT subtitle track (empty detaches). */
   setSubtitles(options: { vttText: string }): Promise<void>
   /** Enumerate native video tracks for the quality menu. */
@@ -119,6 +123,16 @@ export interface VideoPlayerPlugin {
   addListener(
     eventName: 'controlsEvent',
     handler: (event: ControlsEvent) => void
+  ): Promise<{ remove: () => void }>
+  /** Native brightness popup slider moved. */
+  addListener(
+    eventName: 'brightnessChanged',
+    handler: (event: { brightness: number }) => void
+  ): Promise<{ remove: () => void }>
+  /** Native brightness popup was closed (backdrop tap). */
+  addListener(
+    eventName: 'brightnessPopupClosed',
+    handler: (event: unknown) => void
   ): Promise<{ remove: () => void }>
 }
 

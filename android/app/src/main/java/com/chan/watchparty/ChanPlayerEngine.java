@@ -229,17 +229,39 @@ public class ChanPlayerEngine {
                     Log.e(TAG, "Exo setVideoEffects failed", e);
                 }
             }
-            // libVLC 3.6.5 has no adjust-filter Java API — use media options
-            // (:video-filter=adjust) and re-prepare the media, resuming at the
-            // current position (seek applied on Playing to avoid the restart).
+            // VLC: libVLC 3.6.5's Java API has no adjust filter, but the C API
+            // (libvlc_video_set_adjust_float) is exported by libvlc.so and works
+            // at RUNTIME — our tiny JNI bridge (chanvlcbrightness) reaches it via
+            // dlopen/dlsym on the media player's native handle. Real brightness,
+            // live, zero playback impact. If the bridge is unavailable, fall back
+            // to the old media-options re-prepare path.
             if (vlcPlayer != null) {
-                if (!effectsQueued) {
-                    effectsQueued = true;
-                    mainHandler.postDelayed(effectsDebounce, 300);
+                boolean applied = false;
+                try {
+                    applied = nativeSetAdjustVlcBrightness(vlcPlayer.getInstance(), brightness);
+                } catch (Throwable t) {
+                    Log.w(TAG, "VLC JNI adjust unavailable", t);
+                }
+                if (!applied && !effectsNeutral) {
+                    if (!effectsQueued) {
+                        effectsQueued = true;
+                        mainHandler.postDelayed(effectsDebounce, 300);
+                    }
                 }
             }
         });
     }
+
+    // ── VLC real-time brightness via JNI (see src/main/cpp/jni_bridge.c) ──
+    static {
+        try {
+            System.loadLibrary("chanvlcbrightness");
+        } catch (Throwable t) {
+            Log.w(TAG, "chanvlcbrightness not available — VLC brightness falls back to re-prepare", t);
+        }
+    }
+    /** Call libvlc_video_set_adjust_float on the media player handle. */
+    private static native boolean nativeSetAdjustVlcBrightness(long mediaPlayerPtr, float brightness);
 
     private void applyEffectsNow() {
         effectsQueued = false;
