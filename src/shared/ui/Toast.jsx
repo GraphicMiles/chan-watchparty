@@ -36,13 +36,35 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className={styles.viewport} aria-live="polite" aria-relevant="additions">
+      <div
+        className={styles.viewport}
+        aria-live="polite"
+        aria-relevant="additions"
+        style={{
+          width: 'auto',
+          maxWidth: 'calc(100vw - 24px)',
+          alignItems: 'center',
+        }}
+      >
         {toasts.map((t) => {
           const Icon = ICONS[t.variant] || Info
           return (
-            <div key={t.id} className={`${styles.toast} ${styles[t.variant]}`} role="status">
-              <Icon size={18} className={styles.icon} />
-              <span className={styles.message}>{t.message}</span>
+            <div
+              key={t.id}
+              className={`${styles.toast} ${styles[t.variant]}`}
+              role="status"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                width: 'max-content',
+                maxWidth: '100%',
+                gap: 6,
+                padding: '6px 10px',
+                boxSizing: 'border-box',
+              }}
+            >
+              <Icon size={16} className={styles.icon} />
+              <span className={styles.message} style={{ flex: '0 1 auto' }}>{t.message}</span>
               <button type="button" className={styles.close} onClick={() => dismiss(t.id)} aria-label="Dismiss">
                 <X size={14} />
               </button>

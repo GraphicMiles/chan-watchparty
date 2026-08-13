@@ -1,8 +1,8 @@
 apply plugin: 'com.android.application'
 
 // CI versioning: pass via -PversionCode=X -PversionName=Y
-def ciVersionCode = project.hasProperty('versionCode') ? project.property('versionCode') as int : 1
-def ciVersionName = project.hasProperty('versionName') ? project.property('versionName') : '1.0'
+def ciVersionCode = project.hasProperty('versionCode') ? project.property('versionCode') as int : 20260813
+def ciVersionName = project.hasProperty('versionName') ? project.property('versionName') : '1.0.218'
 
 android {
     namespace "com.chan.watchparty"
