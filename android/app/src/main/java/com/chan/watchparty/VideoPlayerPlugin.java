@@ -203,12 +203,14 @@ public class VideoPlayerPlugin extends Plugin {
     private float lastEngineBrightness = 1f;
 
     private void applyBrightness(float brightness) {
-        // Real engine brightness 0..2. Clear any leftover blend overlays
-        // so the picture comes from Exo/VLC, not a white/black wash.
-        float b = Math.max(0f, Math.min(2f, brightness));
-        lastEngineBrightness = b;
-        if (overlay != null) overlay.setBrightnessDim(1f);
-        if (engine != null) engine.setVideoEffects(b, 1f, 1f, 0f);
+        try {
+            float b = Math.max(0f, Math.min(2f, brightness));
+            lastEngineBrightness = b;
+            if (overlay != null) overlay.setBrightnessDim(1f);
+            if (engine != null) engine.setVideoEffects(b, 1f, 1f, 0f);
+        } catch (Throwable t) {
+            Log.e(TAG, "applyBrightness failed", t);
+        }
     }
 
     @PluginMethod

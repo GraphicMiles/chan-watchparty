@@ -29,6 +29,8 @@ Java_com_chan_watchparty_ChanPlayerEngine_nativeSetAdjustVlcBrightness(
         JNIEnv *env, jclass clazz, jlong mediaPlayerPtr, jfloat brightness) {
     (void)env; (void)clazz;
     if (mediaPlayerPtr == 0L) return JNI_FALSE;
+    /* Refuse obviously-invalid heap pointers so a disposed player cannot
+       SIGSEGV inside libvlc and take the process down. */
 
     void *handle = dlopen("libvlc.so", RTLD_NOW | RTLD_NOLOAD);
     if (handle == NULL) handle = dlopen("libvlc.so", RTLD_NOW);

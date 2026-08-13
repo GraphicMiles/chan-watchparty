@@ -34,6 +34,7 @@ const ALLOWED_ACTIONS = [
   'solveCaptchaImage',
   'probeIptv',
   'refreshCatalog',
+  'titleSynopsis',
 ]
 
 // ─── Resolve audit log (Phase A) ───
@@ -795,6 +796,16 @@ export default async function handler(req, res) {
     // ─── Catalog refresh (cron) ───
     if (action === 'refreshCatalog') {
       return ok(res, await refreshIptvCatalog(req, body))
+    }
+
+    // Title → 1–2 sentence blurb (Groq). Used when a room is created
+    // without a page extract so RoomPage always has something to show.
+    if (action === 'titleSynopsis') {
+      const title = String(body.title || body.query || '').trim()
+      if (!title) return ok(res, { synopsis: null })
+      const extra = String(body.extra || '').trim()
+      const synopsis = await synopsisFallback(null, title, extra)
+      return ok(res, { synopsis: synopsis || null, title })
     }
 
     // ─── Native Android captcha OCR proxy ───

@@ -202,68 +202,35 @@ public class ChanPlayerEngine {
     public boolean isEnded() { return ended; }
 
     /**
-     * Apply video adjustments to the active engine.
-     * multipliers: brightness/contrast/saturation ~1.0 neutral; hueDeg degrees (0 neutral).
-     * Exo → RgbAdjustment; VLC → libVLC adjust filter.
+     * Real engine brightness (0..2). Does NOT rebuild media.
+     * Exo: writes a per-frame RGB matrix already in the pipeline.
+     * VLC: JNI tweak only (filter already on the media).
      */
     public void setVideoEffects(float brightness, float contrast, float saturation, float hueDeg) {
-        mainHandler.post(() -> {
-            lastBrightness = brightness;
-            lastContrast = contrast;
-            lastSaturation = saturation;
-            lastHue = hueDeg;
-            effectsNeutral = Math.abs(brightness - 1f) < 0.01f
-                    && Math.abs(contrast - 1f) < 0.01f
-                    && Math.abs(saturation - 1f) < 0.01f
-                    && Math.abs(hueDeg) < 0.5f;
-            boolean neutral = effectsNeutral;
-            if (exoPlayer != null) {
-                try {
-                    if (neutral) {
-                        exoPlayer.setVideoEffects(java.util.Collections.emptyList());
-                    } else {
-                        java.util.List<androidx.media3.common.Effect> effects = new java.util.ArrayList<>();
-                        effects.add(new Brightness(brightness - 1f)); // -1..1, 0 neutral
-                        effects.add(new Contrast(contrast - 1f));     // -1..1, 0 neutral
-                        HslAdjustment.Builder hsl = new HslAdjustment.Builder()
-                                .adjustHue(hueDeg)
-                                .adjustSaturation((saturation - 1f) * 100f); // -100..100, 0 neutral
-                        effects.add(hsl.build());
-                        exoPlayer.setVideoEffects(effects);
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, "Exo setVideoEffects failed", e);
-                }
-            }
-            // VLC: libVLC 3.6.5's Java API has no adjust filter, but the C API
-            // (libvlc_video_set_adjust_float) is exported by libvlc.so and works
-            // at RUNTIME — our tiny JNI bridge (chanvlcbrightness) reaches it via
-            // dlopen/dlsym on the media player's native handle. CRITICAL: the
-            // adjust filter is enabled at MEDIA BUILD TIME (addAdjustOptions
-            // always adds it), so runtime calls only TWEAK the brightness value
-            // — never insert the filter mid-stream (which restarts the vout and
-            // can SIGSEGV, especially across a media switch). Guards: never call
-            // on a released/zeroed player (disposed/isReleased/ptr==0).
-            if (vlcPlayer != null && !disposed) {
-                boolean applied = false;
-                try {
-                    if (!vlcPlayer.isReleased()) {
-                        long ptr = vlcPlayer.getInstance();
-                        if (ptr != 0L) {
-                            applied = nativeSetAdjustVlcBrightness(ptr, brightness);
-                        }
-                    }
-                } catch (Throwable t) {
-                    Log.w(TAG, "VLC JNI adjust unavailable", t);
-                }
-                if (!applied && !effectsNeutral) {
-                    if (!effectsQueued) {
-                        effectsQueued = true;
-                        mainHandler.postDelayed(effectsDebounce, 300);
-                    }
-                }
-            }
-        });
+        final float b = Math.max(0f, Math.min(2f, brightness));
+        lastBrightness = b;
+        lastContrast = contrast;
+        lastSaturation = saturation;
+        lastHue = hueDeg;
+        effectsNeutral = Math.abs(b - 1f) < 0.01f
+                && Math.abs(contrast - 1f) < 0.01f
+                && Math.abs(saturation - 1f) < 0.01f
+                && Math.abs(hueDeg) < 0.5f;
+        try { liveBrightness.setBrightness(b); } catch (Throwable ignored) { }
+        mainHandler.post(this::applyVlcBrightnessLive);
+    }
+
+    /** JNI tweak only — never stop/setMedia (that skips / can SIGSEGV). */
+    private void applyVlcBrightnessLive() {
+        if (vlcPlayer == null || disposed) return;
+        try {
+            if (vlcPlayer.isReleased()) return;
+            long ptr = vlcPlayer.getInstance();
+            if (ptr == 0L) return;
+            nativeSetAdjustVlcBrightness(ptr, lastBrightness);
+        } catch (Throwable t) {
+            Log.w(TAG, "VLC JNI adjust unavailable", t);
+        }
     }
 
     // ── VLC real-time brightness via JNI (see src/main/cpp/jni_bridge.c) ──
@@ -278,12 +245,9 @@ public class ChanPlayerEngine {
     private static native boolean nativeSetAdjustVlcBrightness(long mediaPlayerPtr, float brightness);
 
     private void applyEffectsNow() {
+        // Intentionally does NOT stop/rebuild — that skips. JNI only.
         effectsQueued = false;
-        if (vlcPlayer == null || disposed) return;
-        long pos = vlcPlayer.getTime();
-        pendingSeekMs = Math.max(0, pos);
-        vlcPlayer.stop();
-        rebuildVlcMedia();
+        applyVlcBrightnessLive();
     }
 
     /** Rebuild the VLC media (after effect changes) applying the adjust filter. */
@@ -671,8 +635,9 @@ public class ChanPlayerEngine {
             try {
                 liveBrightness.setBrightness(lastBrightness);
                 exoPlayer.setVideoEffects(java.util.Collections.singletonList(liveBrightness));
-            } catch (Exception e) {
-                Log.e(TAG, "Could not install live brightness matrix", e);
+            } catch (Throwable t) {
+                // Some GPUs reject the effect graph — never let that kill the app.
+                Log.e(TAG, "Could not install live brightness matrix", t);
             }
 
             exoPlayer.addListener(new Player.Listener() {
