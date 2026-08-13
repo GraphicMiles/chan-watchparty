@@ -65,26 +65,6 @@ public class VideoPlayerPlugin extends Plugin {
     private android.webkit.WebView fsControlsView;
     private boolean fsControlsLoaded = false;
     private final android.os.Handler fsPushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    // Live progress pusher: the room's control bar needs position/duration/
-    // play-state. We push it over the SAME notifyListeners channel that is
-    // already proven to reach JS (error/ready/playing events) instead of
-    // depending on JS→Java getPosition() round-trips. This is what keeps the
-    // room clock/seek/play-pause in sync.
-    private final android.os.Handler progressPushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private final Runnable progressPushRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (engine == null) return;
-            try {
-                JSObject o = new JSObject()
-                        .put("positionMs", engine.getPositionMs())
-                        .put("durationMs", engine.getDurationMs())
-                        .put("isPlaying", engine.isPlaying());
-                notifyListeners("playbackProgress", o);
-            } catch (Exception ignored) { }
-            progressPushHandler.postDelayed(this, 500);
-        }
-    };
     private String lastTitle = "Chan Video";
     private String lastVtt = "";
     private boolean lastIsLive = false;
@@ -503,9 +483,6 @@ public class VideoPlayerPlugin extends Plugin {
                     engine.prepare(url, title, referer,
                             (long) Math.max(0, startSeconds == null ? 0 : startSeconds * 1000),
                             headers, container, codec);
-                    // Start pushing live progress to the room's control bar.
-                    progressPushHandler.removeCallbacks(progressPushRunnable);
-                    progressPushHandler.post(progressPushRunnable);
                     call.resolve();
                 } catch (Exception e) {
                     Log.e(TAG, "showEmbedded failed", e);
@@ -802,7 +779,6 @@ public class VideoPlayerPlugin extends Plugin {
 
     private void teardown() {
         try { fsPushHandler.removeCallbacks(fsPushRunnable); } catch (Exception ignored) { }
-        try { progressPushHandler.removeCallbacks(progressPushRunnable); } catch (Exception ignored) { }
         if (fsControlsView != null) {
             try {
                 ((ViewGroup) getActivity().getWindow().getDecorView()).removeView(fsControlsView);
@@ -914,41 +890,8 @@ public class VideoPlayerPlugin extends Plugin {
     public void handleOnConfigurationChanged(Configuration newConfig) {
         super.handleOnConfigurationChanged(newConfig);
         // JS re-measures the stage on orientation change and calls setRect.
-        // In fullscreen the surface is MATCH_PARENT (setRect early-returns),
-        // so re-apply the fullscreen layout on rotate AND make sure the video
-        // surface re-renders at the new orientation size.
-        if (fullscreen && overlay != null) {
-            getActivity().runOnUiThread(() -> {
-                try {
-                    ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
-                    overlay.setLayoutParams(new FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.MATCH_PARENT));
-                    overlay.setVisible(true);
-                    overlay.setFullscreenUi(true);
-                    // Re-assert the correct surface visibility (Exo texture
-                    // view vs VLC layout) so the video isn't left hidden.
-                    if (engine != null) {
-                        if (engine.isExoActive()) overlay.showExo();
-                        else overlay.showVlc();
-                    }
-                    overlay.requestLayout();
-                    // Refresh the engine surface ONLY once the overlay has
-                    // actually been laid out at the new dimensions (the
-                    // rotation animation means a fixed delay races the layout).
-                    final android.view.ViewTreeObserver vto = overlay.getViewTreeObserver();
-                    vto.addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
-                        @Override
-                        public void onGlobalLayout() {
-                            try { vto.removeOnGlobalLayoutListener(this); } catch (Exception ignored) { }
-                            if (!fullscreen) return;
-                            try { hideSystemUi(); } catch (Exception ignored) { }
-                            if (engine != null) engine.refreshSurface();
-                        }
-                    });
-                } catch (Exception ignored) { }
-            });
-        }
+        // The engine surfaces (ExoPlayer texture view / libVLC VLCVideoLayout)
+        // re-size themselves on a config change; no manual re-layout here.
     }
 
     private boolean isInPip() {
