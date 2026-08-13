@@ -1,4 +1,7 @@
-export const API_URL = String(import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+// Capacitor/Android must hit the Render API — a blank VITE_API_URL becomes
+// https://localhost/api/... and resolve/proxy silently fail in the WebView.
+const DEFAULT_API = 'https://chan-aunk.onrender.com'
+export const API_URL = String(import.meta.env.VITE_API_URL || DEFAULT_API).replace(/\/+$/, '')
 
 export function apiPath(path) {
   const normalizedPath = String(path || '')

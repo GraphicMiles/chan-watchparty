@@ -6,6 +6,8 @@
     "androidScheme": "https",
     "allowNavigation": [
       "*.vercel.app",
+      "*.onrender.com",
+      "chan-aunk.onrender.com",
       "*.firebaseio.com",
       "*.googleapis.com",
       "*.gstatic.com",

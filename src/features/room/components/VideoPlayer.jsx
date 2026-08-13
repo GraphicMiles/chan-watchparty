@@ -11,6 +11,7 @@ import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
 import { normalizePlaybackUrl, isRemuxProxyUrl, withRemuxSeekTime, getRemuxSeekTime } from '../../../shared/lib/youtube.js'
 import { proxyTargetUrl } from '../../../shared/lib/mediaApi.js'
+import { playbackAccess } from '../../../shared/lib/resolvePlayback.js'
 import { useToast } from '../../../shared/ui/index.js'
 import NativeEmbeddedPlayer from './NativeEmbeddedPlayer.jsx'
 import styles from './VideoPlayer.module.scss'
@@ -1370,25 +1371,11 @@ export default function VideoPlayer({
       >
         {isNativeEmbedded ? (
           <NativeEmbeddedPlayer
-            url={nativePlaybackUrl(media?.streamUrl || currentUrl)}
+            url={playbackAccess(media?.streamUrl || currentUrl, media).streamUrl}
             title="Chan Video"
             startSeconds={currentSec || played || 0}
-            referer={(() => {
-              const stream = nativePlaybackUrl(media?.streamUrl || currentUrl) || ''
-              // Header must match the FILE host. A leftover DownloadWella
-              // Referer on a nkiserv URL 403s create-room playback.
-              if (/downloadwella|fsmc/i.test(stream)) return media?.referer || 'https://downloadwella.com/'
-              return undefined
-            })()}
-            headers={(() => {
-              const stream = nativePlaybackUrl(media?.streamUrl || currentUrl) || ''
-              if (/downloadwella|fsmc/i.test(stream)) return media?.headers || undefined
-              if (!media?.headers) return undefined
-              const next = { ...media.headers }
-              delete next.Referer
-              delete next.referer
-              return next
-            })()}
+            referer={playbackAccess(media?.streamUrl || currentUrl, media).referer || undefined}
+            headers={playbackAccess(media?.streamUrl || currentUrl, media).headers}
             container={media?.container || undefined}
             codec={media?.codec || undefined}
             sourceUrl={media?.sourceUrl || undefined}

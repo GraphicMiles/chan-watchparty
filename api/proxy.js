@@ -273,7 +273,11 @@ async function streamDirectResponse(upstreamRes, req, res, options = {}) {
 /** Build common upstream headers (Referer / Origin / UA). */
 function buildUpstreamHeaders(targetUrl, req, refererOverride) {
   const hostname = targetUrl.hostname.toLowerCase()
-  let referer = targetUrl.origin
+  // Default: origin of the file. nkiserv/thenkiri CDNs 403 a thenkiri
+  // Referer and often 403 their own origin — only send a Referer when
+  // the client passed one (DownloadWella form-walk) or the host needs it.
+  const isNkiriCdn = hostname.includes('nkiserv') || hostname.includes('thenkiri') || hostname === 'nkiri.com' || hostname.endsWith('.nkiri.com')
+  let referer = isNkiriCdn ? '' : targetUrl.origin
   if (refererOverride && /^https?:\/\//i.test(refererOverride) && refererOverride.length < 512) {
     referer = refererOverride
   } else if (hostname.includes('xvideos') || hostname.includes('cdn-xl') || hostname.includes('cdn.xh') || hostname.includes('xvideos-cdn')) {
@@ -302,7 +306,7 @@ function buildUpstreamHeaders(targetUrl, req, refererOverride) {
     'User-Agent': UPSTREAM_UA,
     Accept: '*/*',
     'Accept-Language': 'en-US,en;q=0.9',
-    Referer: referer,
+    ...(referer ? { Referer: referer } : {}),
     ...(hostname.includes('phncdn') || hostname.includes('pornhub')
       ? { Origin: 'https://www.pornhub.com' }
       : hostname.includes('spankbang') || hostname.includes('sb-cd') || hostname.includes('spankcdn')
