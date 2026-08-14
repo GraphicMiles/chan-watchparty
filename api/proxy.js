@@ -53,6 +53,57 @@ function isDomainAllowed(hostname) {
   return allowlist.some(domain => lower === domain.slice(1) || lower.endsWith(domain))
 }
 
+/**
+ * Origin/Referer gate for the media proxy.
+ *
+ * A hostname allowlist cannot secure this endpoint in practice: the IPTV
+ * catalog is a third-party M3U fetched at runtime (thousands of rotating CDN
+ * hosts, many bare IPs), so any static list would either be permanently stale
+ * or silently break live TV. Instead, require that the request comes from one
+ * of our own front-ends.
+ *
+ * This stops the endpoint being used as a free general-purpose relay from
+ * other sites, while leaving legitimate playback untouched. Note it is a
+ * deterrent, not authentication: Origin/Referer are trivially forged outside a
+ * browser. It is layered on top of the existing SSRF checks in
+ * validateFetchUrl() and the per-IP rate limit.
+ *
+ * Requests with NO Origin and NO Referer are allowed: Android's native player
+ * (ExoPlayer/libVLC) and <video> range requests frequently omit both, and
+ * blocking them would break native playback.
+ *
+ * Set PROXY_REQUIRE_KNOWN_ORIGIN=false to disable.
+ */
+function isRequestOriginAllowed(req) {
+  if (String(process.env.PROXY_REQUIRE_KNOWN_ORIGIN || '').toLowerCase() === 'false') return true
+
+  const origin = req.headers?.origin || ''
+  const referer = req.headers?.referer || req.headers?.referrer || ''
+  if (!origin && !referer) return true // native players send neither
+
+  let host = ''
+  try {
+    host = new URL(origin || referer).hostname.toLowerCase()
+  } catch {
+    return true // unparseable — do not block playback on a malformed header
+  }
+
+  // Always-trusted local/native contexts.
+  if (host === 'localhost' || host === '127.0.0.1') return true
+
+  // Reuse the CORS allowlist when configured so there is one source of truth.
+  try {
+    const configured = JSON.parse(process.env.ALLOWED_ORIGINS || '[]')
+    if (Array.isArray(configured) && configured.length) {
+      return configured.some((entry) => {
+        try { return new URL(entry).hostname.toLowerCase() === host } catch { return false }
+      })
+    }
+  } catch { /* fall through to the built-in defaults */ }
+
+  return host.endsWith('.onrender.com') || host.endsWith('.vercel.app')
+}
+
 function validateProxyUrl(rawUrl) {
   const parsed = validateFetchUrl(rawUrl)
   if (!isDomainAllowed(parsed.hostname)) {
@@ -385,6 +436,10 @@ export default async function handler(req, res) {
     res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' })
     res.end(JSON.stringify({ success: false, error: 'Too many proxy requests — slow down' }))
     return
+  }
+
+  if (!isRequestOriginAllowed(req)) {
+    return fail(res, 403, 'This proxy only serves requests from the Chan app')
   }
 
   try {

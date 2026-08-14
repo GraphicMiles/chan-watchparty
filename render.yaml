@@ -26,10 +26,21 @@ services:
       # this does not break local dev or the Android build.
       - key: ALLOWED_ORIGINS
         sync: false
-      # Proxy hostname allowlist (JSON array). MUST be set — when unset,
-      # /api/proxy will fetch any public domain, i.e. it is an open proxy
-      # running on your bandwidth.
+      # Proxy hostname allowlist (JSON array). Intentionally left UNSET: the
+      # IPTV catalog is a third-party M3U fetched at runtime (thousands of
+      # rotating CDN hosts, many bare IPs), so a static list would break live
+      # TV. /api/proxy is instead protected by the SSRF checks in ssrf.js, a
+      # per-IP rate limit, and the Origin/Referer gate below.
       - key: PROXY_ALLOWED_DOMAINS
+        sync: false
+      # Set to "false" to disable the proxy Origin/Referer gate if it ever
+      # blocks a legitimate client. Defaults to enabled.
+      - key: PROXY_REQUIRE_KNOWN_ORIGIN
+        sync: false
+      # Referer presented to the YouTube Data API. Set this if the key is
+      # HTTP-referrer-restricted (Render provides RENDER_EXTERNAL_URL
+      # automatically, which is used as the default).
+      - key: YOUTUBE_API_REFERER
         sync: false
       # Optional: persistent rate limiting. Without these the limiter is
       # in-memory and resets on every deploy and free-tier spin-down.

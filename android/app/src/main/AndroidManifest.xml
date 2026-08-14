@@ -37,11 +37,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Handle deep links for room invites -->
+            <!-- Handle deep links for room invites.
+                 The app is hosted on Render; the old Vercel host is kept so
+                 invite links already shared from that domain still open the
+                 app instead of dead-ending in a browser. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="chan-aunk.onrender.com" />
                 <data android:scheme="https" android:host="chan-yz3p.vercel.app" />
             </intent-filter>
 

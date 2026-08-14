@@ -3,6 +3,11 @@ import { apiPath } from './api.js'
 
 const YOUTUBE_API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY || ''
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
+// Referer sent only when there is no browser window (SSR/native contexts).
+// This was hardcoded to the retired Vercel host; if the API key is
+// HTTP-referrer-restricted, that host must stay on the key's allowlist or the
+// request is rejected. Points at the live Render deployment instead.
+const FALLBACK_REFERER = 'https://chan-aunk.onrender.com/'
 
 const VIDEO_ID_RE =
   /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|youtube\.com\/shorts\/)([^"&?/ ]{11})/
@@ -314,7 +319,7 @@ export async function searchYouTube(query, maxResults = 10) {
   
   const res = await fetch(`${YOUTUBE_API_BASE}/search?${params}`, {
     headers: {
-      Referer: typeof window !== 'undefined' ? window.location.href : 'https://chan-yz3p.vercel.app/',
+      Referer: typeof window !== 'undefined' ? window.location.href : FALLBACK_REFERER,
     },
   })
   if (!res.ok) {
@@ -346,7 +351,7 @@ export async function getVideoDetails(videoId) {
   
   const res = await fetch(`${YOUTUBE_API_BASE}/videos?${params}`, {
     headers: {
-      Referer: typeof window !== 'undefined' ? window.location.href : 'https://chan-yz3p.vercel.app/',
+      Referer: typeof window !== 'undefined' ? window.location.href : FALLBACK_REFERER,
     },
   })
   if (!res.ok) {
