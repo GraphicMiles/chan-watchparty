@@ -936,35 +936,72 @@ public class ChanPlayerEngine {
     /** True if ExoPlayer is the active engine. */
     public boolean isExoActive() { return exoPlayer != null; }
 
-    /**
-     * Refresh the video surface after an orientation change (config change
-     * without activity recreation). libVLC does not always re-size its video
-     * output after a rotate, which left the fullscreen surface black while
-     * the controls stayed visible. Re-attaching the views forces libVLC to
-     * rebuild the vout to the new dimensions. ExoPlayer's texture view
-     * re-sizes on its own — nothing to do there.
-     */
+    /** Refresh using whichever native surface currently owns the video. */
     public void refreshSurface() {
+        int width = 0;
+        int height = 0;
+        if (exoPlayer != null && exoView != null) {
+            width = exoView.getWidth();
+            height = exoView.getHeight();
+        } else if (vlcPlayer != null && vlcLayout != null) {
+            width = vlcLayout.getWidth();
+            height = vlcLayout.getHeight();
+        }
+        refreshSurface(width, height);
+    }
+
+    /**
+     * Re-fit the active output after the overlay has completed a fullscreen or
+     * orientation layout. This is deliberately NON-DESTRUCTIVE:
+     *
+     * - PlayerView owns ExoPlayer's TextureView. Detaching/rebinding the player
+     *   during rotation destroys that output surface and can leave a black
+     *   frame, so only request a fresh layout/invalidate here.
+     * - libVLC's VideoHelper already supports resize through
+     *   updateVideoSurfaces()/IVLCVout.setWindowSize(). Detach/attach is used
+     *   only as recovery when Android actually destroyed the VLC surfaces.
+     *
+     * Playback state, position, decoder and media are never recreated.
+     */
+    public void refreshSurface(int width, int height) {
+        final int targetWidth = Math.max(0, width);
+        final int targetHeight = Math.max(0, height);
         mainHandler.post(() -> {
             if (disposed) return;
-            // ExoPlayer: re-bind the surface so its texture view re-fits the
-            // new orientation size.
+
             if (exoPlayer != null && exoView != null) {
                 try {
-                    exoView.setPlayer(null);
-                    exoView.setPlayer(exoPlayer);
+                    exoView.requestLayout();
+                    exoView.invalidate();
+                    android.view.View surface = exoView.getVideoSurfaceView();
+                    if (surface != null) {
+                        surface.requestLayout();
+                        surface.invalidate();
+                    }
                 } catch (Throwable t) {
-                    Log.w(TAG, "refreshSurface (Exo rebind) failed", t);
+                    Log.w(TAG, "refreshSurface (Exo layout) failed", t);
                 }
             }
-            // libVLC does not re-size its video output after a rotate without
-            // a detach/attach.
+
             if (vlcPlayer != null && vlcLayout != null) {
                 try {
-                    vlcPlayer.detachViews();
-                    vlcPlayer.attachViews(vlcLayout, null, false, false);
+                    vlcLayout.requestLayout();
+                    vlcLayout.invalidate();
+                    org.videolan.libvlc.interfaces.IVLCVout vout = vlcPlayer.getVLCVout();
+                    if (!vout.areViewsAttached()) {
+                        // Surface destruction is uncommon with configChanges,
+                        // but some vendor ROMs still recreate it. Recover only
+                        // in that case; never tear down a healthy live surface.
+                        try { vlcPlayer.detachViews(); } catch (Throwable ignored) { }
+                        vlcPlayer.attachViews(vlcLayout, null, false, false);
+                        vout = vlcPlayer.getVLCVout();
+                    }
+                    if (targetWidth > 0 && targetHeight > 0) {
+                        vout.setWindowSize(targetWidth, targetHeight);
+                    }
+                    vlcPlayer.updateVideoSurfaces();
                 } catch (Throwable t) {
-                    Log.w(TAG, "refreshSurface (VLC re-attach) failed", t);
+                    Log.w(TAG, "refreshSurface (VLC resize) failed", t);
                 }
             }
         });

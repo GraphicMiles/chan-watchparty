@@ -69,6 +69,101 @@ public class VideoPlayerPlugin extends Plugin {
         }
     }
 
+    // Incrementing generation cancels stale retries from the previous
+    // orientation/fullscreen layout without removing unrelated main-thread
+    // callbacks (position updates, popovers, teardown, etc.).
+    private int surfaceRefreshGeneration = 0;
+    private static final int SURFACE_REFRESH_MAX_ATTEMPTS = 12;
+
+    /**
+     * Wait until the overlay reports stable dimensions for the requested
+     * orientation, then resize the engine output. onConfigurationChanged is
+     * delivered before Android finishes the decor/layout transition, so a
+     * single fixed delay can still capture the old dimensions on slower ROMs.
+     */
+    private void scheduleSurfaceRefresh(boolean expectFullscreen, int expectedOrientation) {
+        runOnMainThread(() -> {
+            final int generation = ++surfaceRefreshGeneration;
+            if (overlay == null || engine == null || overlay.getParent() == null) return;
+            if (expectFullscreen) {
+                try { hideSystemUi(); } catch (Throwable ignored) { }
+            }
+            overlay.requestLayout();
+            overlay.invalidate();
+            if (fsControlsView != null && expectFullscreen) {
+                fsControlsView.requestLayout();
+                fsControlsView.invalidate();
+            }
+            mainHandler.post(() -> refreshSurfaceWhenReady(
+                    generation, expectFullscreen, expectedOrientation, 0, -1, -1));
+        });
+    }
+
+    private void refreshSurfaceWhenReady(int generation, boolean expectFullscreen,
+                                         int expectedOrientation, int attempt,
+                                         int previousWidth, int previousHeight) {
+        if (generation != surfaceRefreshGeneration || fullscreen != expectFullscreen
+                || overlay == null || engine == null || overlay.getParent() == null) return;
+
+        final int width = overlay.getWidth();
+        final int height = overlay.getHeight();
+        final boolean hasSize = width > 1 && height > 1;
+        final boolean orientationReady = expectedOrientation == Configuration.ORIENTATION_UNDEFINED
+                || (expectedOrientation == Configuration.ORIENTATION_LANDSCAPE && width > height)
+                || (expectedOrientation == Configuration.ORIENTATION_PORTRAIT && height >= width);
+        final boolean stable = width == previousWidth && height == previousHeight;
+
+        boolean targetSizeReady = hasSize;
+        if (hasSize && expectFullscreen) {
+            View decor = getActivity().getWindow().getDecorView();
+            int decorWidth = decor.getWidth();
+            int decorHeight = decor.getHeight();
+            targetSizeReady = decorWidth > 1 && decorHeight > 1
+                    && Math.abs(width - decorWidth) <= 2
+                    && Math.abs(height - decorHeight) <= 2;
+        } else if (hasSize && !expectFullscreen && lastRect != null) {
+            targetSizeReady = Math.abs(width - lastRect.width) <= 2
+                    && Math.abs(height - lastRect.height) <= 2;
+        }
+
+        if (hasSize && orientationReady && targetSizeReady && stable) {
+            completeSurfaceRefresh(expectFullscreen, width, height);
+            return;
+        }
+
+        if (attempt >= SURFACE_REFRESH_MAX_ATTEMPTS) {
+            // Last-resort resize is still non-destructive. This handles vendor
+            // window managers whose decor differs by a persistent one-off
+            // inset while avoiding the old detach/rebind black-screen path.
+            if (hasSize) completeSurfaceRefresh(expectFullscreen, width, height);
+            return;
+        }
+
+        long delayMs = Math.min(180L, 60L + (attempt * 20L));
+        mainHandler.postDelayed(() -> refreshSurfaceWhenReady(
+                generation, expectFullscreen, expectedOrientation, attempt + 1,
+                width, height), delayMs);
+    }
+
+    private void completeSurfaceRefresh(boolean expectFullscreen, int width, int height) {
+        if (overlay == null || engine == null || fullscreen != expectFullscreen) return;
+        try {
+            overlay.setVisible(true);
+            if (engine.isExoActive()) overlay.showExo();
+            else overlay.showVlc();
+            overlay.requestLayout();
+            overlay.invalidate();
+            if (fsControlsView != null && expectFullscreen) {
+                fsControlsView.requestLayout();
+                fsControlsView.invalidate();
+            }
+            if (expectFullscreen) hideSystemUi();
+            engine.refreshSurface(width, height);
+        } catch (Throwable t) {
+            Log.w(TAG, "Could not refresh rotated video surface", t);
+        }
+    }
+
     private RoomPlayerOverlayView overlay;
     private ChanPlayerEngine engine;
     private FrameLayout.LayoutParams lastRect;   // px
@@ -756,15 +851,6 @@ public class VideoPlayerPlugin extends Plugin {
                         } catch (Exception ignored) { }
                     });
                 }
-                // The overlay just grew to MATCH_PARENT; the engine surface
-                // (ExoPlayer texture view / libVLC vout) needs one re-fit at
-                // the NEW dimensions or the video stays black/letterboxed at
-                // the old small-box size. Entering fullscreen is a discrete
-                // user action (not racing a rotation animation), so a short
-                // settle delay is safe.
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                    if (fullscreen && engine != null) engine.refreshSurface();
-                }, 250);
             } else {
                 // Restore the embedded stage rect (re-anchors the surface back
                 // into the room bounds, NOT just a boolean flip), restore the
@@ -784,13 +870,13 @@ public class VideoPlayerPlugin extends Plugin {
                 // Hide the fullscreen controls layer.
                 fsPushHandler.removeCallbacks(fsPushRunnable);
                 if (fsControlsView != null) fsControlsView.setVisibility(View.GONE);
-                // Re-fit the engine surface back to the small video box once
-                // the overlay has laid out at lastRect.
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                    if (!fullscreen && engine != null) engine.refreshSurface();
-                }, 250);
             }
             overlay.setFullscreenUi(fullscreen);
+            // Do not detach either player surface here. Wait for MATCH_PARENT
+            // (or lastRect) to settle, then perform a non-destructive resize.
+            scheduleSurfaceRefresh(
+                    fullscreen,
+                    getActivity().getResources().getConfiguration().orientation);
             // Keep JS in sync both directions
             JSObject evt = new JSObject().put("type", "fullscreenchange").put("fullscreen", fullscreen);
             try { notifyListeners("controlsEvent", evt); } catch (Exception ignored) { }
@@ -945,6 +1031,9 @@ public class VideoPlayerPlugin extends Plugin {
     }
 
     private void teardown() {
+        // Cancel pending orientation/layout retries for the surface being
+        // removed. Generation-based cancellation leaves unrelated callbacks.
+        surfaceRefreshGeneration += 1;
         try { fsPushHandler.removeCallbacks(fsPushRunnable); } catch (Exception ignored) { }
         if (fsControlsView != null) {
             try {
@@ -1056,18 +1145,30 @@ public class VideoPlayerPlugin extends Plugin {
     @Override
     public void handleOnConfigurationChanged(Configuration newConfig) {
         super.handleOnConfigurationChanged(newConfig);
-        // JS re-measures the stage on orientation change and calls setRect.
-        // In fullscreen the overlay is already MATCH_PARENT for both
-        // orientations; only the ENGINE's video output needs re-fitting after
-        // a rotate (libVLC's vout does not re-size on its own). Do it after
-        // the rotation settles — NO layout-param or orientation changes here,
-        // which is what previously left the whole app stuck rotated. Leaving
-        // fullscreen already returns the app to portrait in setFullscreenUi.
-        if (fullscreen && engine != null) {
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                if (fullscreen && engine != null) engine.refreshSurface();
-            }, 400);
-        }
+        runOnMainThread(() -> {
+            if (overlay == null || engine == null || overlay.getParent() == null) return;
+
+            // MainActivity handles orientation as a config change, so the same
+            // overlay survives the rotation. Reassert MATCH_PARENT immediately,
+            // but do not touch the decoder/surface until the decor reports the
+            // new orientation dimensions.
+            if (fullscreen) {
+                overlay.setLayoutParams(new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT));
+                overlay.setVisible(true);
+                overlay.setInteractive(false);
+                overlay.requestLayout();
+                if (fsControlsView != null) {
+                    fsControlsView.setLayoutParams(new FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT));
+                    fsControlsView.requestLayout();
+                }
+            }
+
+            scheduleSurfaceRefresh(fullscreen, newConfig.orientation);
+        });
     }
 
     private boolean isInPip() {
