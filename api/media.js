@@ -144,8 +144,13 @@ async function searchYouTube(query, limit = 20) {
     safeSearch: 'none',
   })
 
+  // Referer presented to the YouTube Data API. If the key is
+  // HTTP-referrer-restricted, this value must be on its allowlist.
+  // Override with YOUTUBE_API_REFERER; RENDER_EXTERNAL_URL is provided
+  // automatically by Render. The retired Vercel default is gone — a key
+  // restricted to that host would start failing once it is disconnected.
   const referer = process.env.YOUTUBE_API_REFERER
-    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}/` : 'https://chan-yz3p.vercel.app/')
+    || (process.env.RENDER_EXTERNAL_URL ? `${String(process.env.RENDER_EXTERNAL_URL).replace(/\/+$/, '')}/` : 'https://chan-aunk.onrender.com/')
 
   const res = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`, {
     headers: { Referer: referer, 'User-Agent': 'ChanServer/1.0' },
