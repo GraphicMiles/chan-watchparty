@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { collection, doc, getDoc, onSnapshot, query as fbQuery, where } from 'firebase/firestore'
+import { collection, doc, getDoc, limit, onSnapshot, query as fbQuery, where } from 'firebase/firestore'
 import { Search, LogOut, Hash, Monitor, History, Play, Users, X } from 'lucide-react'
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
@@ -108,7 +108,16 @@ export default function HomePage() {
   useEffect(() => {
     if (!user) { setRoomsLoading(false); return undefined }
     const unsub = onSnapshot(
-      fbQuery(collection(db, 'rooms'), where('status', '==', 'live'), where('isPrivate', '==', false)),
+      // The limit is required, not cosmetic: the Firestore rules only permit
+      // a bounded lobby query, so that an unfiltered scan of the whole rooms
+      // collection (which would expose private rooms and their invite codes)
+      // is impossible. It also caps how much the lobby can ever download.
+      fbQuery(
+        collection(db, 'rooms'),
+        where('status', '==', 'live'),
+        where('isPrivate', '==', false),
+        limit(100)
+      ),
       (snap) => {
         setRooms(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
         setRoomsLoading(false)

@@ -83,10 +83,40 @@ service cloud.firestore {
     // home page listing keeps working; private rooms are limited to people who
     // already hold a seat. Joining a private room by code goes through
     // /api/room (Admin SDK), so no client read is required first.
+    //
+    // MUST use resource.data, NOT get(/rooms/$(roomId)). On a collection query
+    // ('list') a get() against the very documents being listed resolves to
+    // null and denies the whole query — which silently emptied the home page
+    // lobby. resource.data is the candidate document itself and is valid for
+    // both 'get' and 'list'. It is also far cheaper: no extra document read
+    // per candidate, so the listing cannot blow the rules' get() budget.
+    //
+    // Order matters: the public check is first so that for the home page query
+    // (which filters isPrivate == false) the participant exists() lookup is
+    // short-circuited away and never runs during a list.
     function canReadRoom(roomId) {
       return isAuthed()
-        && (roomData(roomId).get('isPrivate', false) == false
+        && (resource.data.get('isPrivate', false) == false
             || isRoomParticipant(roomId));
+    }
+
+    // Single-document reads only. Splitting 'get' from 'list' is deliberate:
+    // during a list, exists()/get() lookups against the candidate documents
+    // are not evaluable, and an unfiltered list of the whole collection was
+    // therefore returning private rooms (invite codes included) to any
+    // signed-in user. Restricting 'list' to a query that provably cannot
+    // match a private room closes that hole, while private rooms remain
+    // readable one-by-one to their own participants via 'get'.
+    // The QUERY itself must be constrained to public rooms. Checking
+    // resource.data here is not enough: on an unfiltered list the candidate
+    // documents include private rooms, and the evaluation returned them
+    // (invite codes and all). Pinning request.query.limit and requiring the
+    // caller to have filtered isPrivate == false is the only way to make a
+    // whole-collection scan impossible.
+    function canListRooms() {
+      return isAuthed()
+        && request.query.limit <= 100
+        && resource.data.get('isPrivate', false) == false;
     }
 
     // Fields the client is allowed to change on the room document. Anything
@@ -162,7 +192,11 @@ service cloud.firestore {
       // are readable only by people already seated in them. Previously any
       // signed-in user could read every room document and harvest the invite
       // code of every private room.
-      allow read: if canReadRoom(roomId);
+      // 'get' = one specific room (participants may read their private room).
+      // 'list' = the lobby query; only public rooms are ever returned, so an
+      // unfiltered listing cannot be used to harvest invite codes.
+      allow get: if canReadRoom(roomId);
+      allow list: if canListRooms();
 
       allow create: if isAuthed()
         && request.resource.data.hostId == request.auth.uid
