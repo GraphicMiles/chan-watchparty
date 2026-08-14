@@ -258,3 +258,76 @@
   justify-content: flex-end;
   margin-top: 4px;
 }
+
+/* ── Banned users list (host only) ─────────────────────────────────── */
+.bannedSection {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(234, 51, 35, 0.25);
+  border-radius: 10px;
+  background: rgba(234, 51, 35, 0.06);
+}
+
+.bannedTitle {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #EA3323;
+}
+
+.bannedRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.bannedUid {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--room-text-secondary, #A6A6B0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unbanBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--room-text, #F5F5F7);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.unbanBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Ban confirmation modal ────────────────────────────────────────── */
+.banConfirmBody p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.banConfirmHint {
+  color: var(--room-text-secondary, #A6A6B0);
+  font-size: 12.5px;
+}
+
+.banConfirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}

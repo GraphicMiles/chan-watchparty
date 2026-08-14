@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, getDocs, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, getDocs, serverTimestamp, writeBatch } from 'firebase/firestore'
 import { beforeAll, afterAll, beforeEach, describe, it } from 'vitest'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -147,7 +147,11 @@ describe('room privacy', () => {
 
 describe('chat', () => {
   it('participant can post', async () => {
-    await assertSucceeds(addDoc(collection(as(VIEWER), 'rooms', ROOM, 'messages'), msg(VIEWER)))
+    const db = as(VIEWER)
+    const batch = writeBatch(db)
+    batch.set(doc(collection(db, 'rooms', ROOM, 'messages')), msg(VIEWER))
+    batch.set(doc(db, 'rooms', ROOM, 'chatMeta', VIEWER), { lastMessageAt: serverTimestamp() })
+    await assertSucceeds(batch.commit())
   })
 
   it('non-participant cannot post', async () => {
@@ -188,6 +192,70 @@ describe('chat', () => {
 
   it('messages are immutable (no post-hoc editing)', async () => {
     await assertFails(updateDoc(doc(as(VIEWER), 'rooms', ROOM, 'messages', 'm1'), { text: 'edited' }))
+  })
+})
+
+describe('chat flood control', () => {
+  // A compliant send: message + cooldown stamp in one atomic batch.
+  const send = (db, uid, text = 'hi') => {
+    const batch = writeBatch(db)
+    batch.set(doc(collection(db, 'rooms', ROOM, 'messages')), {
+      uid, displayName: 'Name', text, createdAt: serverTimestamp(),
+    })
+    batch.set(doc(db, 'rooms', ROOM, 'chatMeta', uid), { lastMessageAt: serverTimestamp() })
+    return batch.commit()
+  }
+
+  it('allows a compliant send (message + stamp in one batch)', async () => {
+    await assertSucceeds(send(as(VIEWER), VIEWER))
+  })
+
+  it('BLOCKS a message that skips the cooldown stamp', async () => {
+    // This is the bypass that matters: if the stamp were optional, a client
+    // could simply never write it and flood freely.
+    await assertFails(addDoc(collection(as(VIEWER), 'rooms', ROOM, 'messages'), msg(VIEWER)))
+  })
+
+  it('BLOCKS a second message inside the cooldown window', async () => {
+    await assertSucceeds(send(as(VIEWER), VIEWER, 'first'))
+    await assertFails(send(as(VIEWER), VIEWER, 'flood'))
+  })
+
+  it('allows the next message once the cooldown has elapsed', async () => {
+    await assertSucceeds(send(as(VIEWER), VIEWER, 'first'))
+    await new Promise((r) => setTimeout(r, 1400))
+    await assertSucceeds(send(as(VIEWER), VIEWER, 'second'))
+  })
+
+  it('cooldown is per-user, not global', async () => {
+    await assertSucceeds(send(as(VIEWER), VIEWER, 'viewer msg'))
+    // A different user must not be throttled by someone else's stamp.
+    await assertSucceeds(send(as(HOST), HOST, 'host msg'))
+  })
+
+  it('cannot backdate the stamp to defeat the cooldown', async () => {
+    // Single db handle: doc refs must come from the same Firestore instance.
+    const db = as(VIEWER)
+    const batch = writeBatch(db)
+    batch.set(doc(collection(db, 'rooms', ROOM, 'messages')), {
+      uid: VIEWER, displayName: 'Name', text: 'sneaky', createdAt: serverTimestamp(),
+    })
+    batch.set(doc(db, 'rooms', ROOM, 'chatMeta', VIEWER), {
+      lastMessageAt: new Date(2000, 0, 1),
+    })
+    await assertFails(batch.commit())
+  })
+
+  it('cannot write another user’s cooldown stamp', async () => {
+    await assertFails(setDoc(doc(as(VIEWER), 'rooms', ROOM, 'chatMeta', HOST), {
+      lastMessageAt: serverTimestamp(),
+    }))
+  })
+
+  it('cannot smuggle extra fields into the stamp document', async () => {
+    await assertFails(setDoc(doc(as(VIEWER), 'rooms', ROOM, 'chatMeta', VIEWER), {
+      lastMessageAt: serverTimestamp(), role: 'host',
+    }))
   })
 })
 

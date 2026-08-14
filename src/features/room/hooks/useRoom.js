@@ -7,12 +7,12 @@ import {
   query,
   orderBy,
   limit,
-  addDoc,
   serverTimestamp,
   updateDoc,
   getDoc,
   setDoc,
   deleteDoc,
+  writeBatch,
 } from 'firebase/firestore'
 import { db } from '../../../shared/lib/firebase.js'
 import { useAuth } from '../../../shared/auth/hooks/useAuth.jsx'
@@ -198,7 +198,28 @@ export function useRoom(roomId, inviteCode = null) {
       createdAt: serverTimestamp(),
     }
     if (replyTo) payload.replyTo = replyTo
-    const ref = await addDoc(collection(db, 'rooms', roomId, 'messages'), payload)
+
+    // The message and the sender's cooldown stamp MUST be committed together.
+    // The rules use getAfter() to require the stamp write, so a client that
+    // skips it (to dodge flood control) has its message rejected as well.
+    const ref = doc(collection(db, 'rooms', roomId, 'messages'))
+    const batch = writeBatch(db)
+    batch.set(ref, payload)
+    batch.set(doc(db, 'rooms', roomId, 'chatMeta', user.uid), {
+      lastMessageAt: serverTimestamp(),
+    })
+    try {
+      await batch.commit()
+    } catch (err) {
+      // permission-denied here is almost always the cooldown, not a real
+      // failure — surface it as a friendly "slow down" rather than an error.
+      if (err?.code === 'permission-denied') {
+        const e = new Error('You are sending messages too quickly — slow down a moment.')
+        e.code = 'chat/rate-limited'
+        throw e
+      }
+      throw err
+    }
     await deleteDoc(doc(db, 'rooms', roomId, 'typing', user.uid)).catch(() => {})
     return ref.id
   }, [user, roomId])
@@ -234,6 +255,14 @@ export function useRoom(roomId, inviteCode = null) {
   const muteParticipant = useCallback(async (uid, muted) => {
     if (!roomId) return
     await authFetch('/api/room', { action: 'mute', roomId, uid, muted })
+  }, [roomId, authFetch])
+
+  // Ban is distinct from kick: kick only frees the seat, so the user can
+  // re-join immediately. Ban records the uid on the room, which both the join
+  // endpoint and the Firestore rules reject. Host-only, enforced server-side.
+  const banParticipant = useCallback(async (uid, banned = true) => {
+    if (!roomId) return
+    await authFetch('/api/room', { action: banned ? 'ban' : 'unban', roomId, uid })
   }, [roomId, authFetch])
 
   // Room listener
@@ -343,6 +372,25 @@ export function useRoom(roomId, inviteCode = null) {
     }, 60000)
     return () => clearInterval(interval)
   }, [user, roomId, room?.hostId])
+
+  // Per-participant liveness heartbeat.
+  //
+  // Seats were only removed by an explicit `leave`, which does not fire when
+  // the app is killed, the network drops or the phone locks. A single orphaned
+  // seat kept a room alive forever, because cleanup treats "has participants"
+  // as proof of life and REFRESHES the room heartbeat instead of reclaiming
+  // it. Stamping lastSeenAt lets the sweep tell a live viewer from a ghost.
+  useEffect(() => {
+    if (!user || !roomId || !joined) return undefined
+    const beat = () => {
+      // Server-managed field: written through the API so the participants
+      // subcollection stays closed to direct client writes.
+      authFetch('/api/room', { action: 'heartbeat', roomId, uid: user.uid }).catch(() => {})
+    }
+    beat()
+    const interval = setInterval(beat, 60000)
+    return () => clearInterval(interval)
+  }, [user, roomId, joined, authFetch])
 
   // Auto-leave (NOT end) only when the tab/window is actually going away.
   // Freeze player position first so rejoin continues from the same timestamp.
@@ -458,6 +506,7 @@ export function useRoom(roomId, inviteCode = null) {
     kickParticipant,
     promoteParticipant,
     muteParticipant,
+    banParticipant,
     reportPlayerPosition,
   }
 }
