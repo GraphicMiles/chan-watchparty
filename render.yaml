@@ -20,6 +20,27 @@ services:
         sync: false
       - key: CRON_SECRET
         sync: false
+      # CORS allowlist (JSON array). MUST be set — when unset, cors.js falls
+      # back to Access-Control-Allow-Origin: * and any site can call the API.
+      # Localhost and capacitor:// origins are always permitted, so setting
+      # this does not break local dev or the Android build.
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Proxy hostname allowlist (JSON array). MUST be set — when unset,
+      # /api/proxy will fetch any public domain, i.e. it is an open proxy
+      # running on your bandwidth.
+      - key: PROXY_ALLOWED_DOMAINS
+        sync: false
+      # Optional: persistent rate limiting. Without these the limiter is
+      # in-memory and resets on every deploy and free-tier spin-down.
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      # Optional: stale-room sweep interval in ms (default 600000). Set to 0
+      # to disable the in-process scheduler.
+      - key: ROOM_CLEANUP_INTERVAL_MS
+        sync: false
       - key: VITE_FIREBASE_API_KEY
         sync: false
       - key: VITE_FIREBASE_AUTH_DOMAIN
