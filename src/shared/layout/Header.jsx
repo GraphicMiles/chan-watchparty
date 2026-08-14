@@ -25,18 +25,38 @@ export function Header({ user, actions, className }) {
   const built = buildInfo?.builtAt
     ? buildInfo.builtAt.replace('T', ' ').replace(/:\d{2}(?:\.\d+)?Z$/, 'Z')
     : ''
-  const buildLabel = buildInfo?.version
-    ? `v${buildInfo.version}${buildInfo.commit ? ` · ${buildInfo.commit}` : ''}${built ? ` · ${built}` : ''}`
+  const fullBuildLabel = buildInfo?.version
+    ? `Version: ${buildInfo.version}\nCommit: ${buildInfo.commit || 'unknown'}\nBuilt: ${built || 'unknown'}`
     : ''
+  const compactVersion = buildInfo?.version?.replace(/-debug$/, '') || ''
+  const compactBuildLabel = compactVersion
+    ? `v${compactVersion}${buildInfo?.commit ? ` · ${buildInfo.commit.slice(0, 7)}` : ''}`
+    : ''
+
+  const showBuildIdentity = () => {
+    if (fullBuildLabel) window.alert(fullBuildLabel)
+  }
 
   return (
     <header className={cn(styles.header, className)}>
       <nav className={styles.nav}>
-        <Link to="/" className={styles.logo}>
-          <span className={styles.logoDots} />
-          Chan
-          {buildLabel ? <span className={styles.version}>{buildLabel}</span> : null}
-        </Link>
+        <div className={styles.brand}>
+          <Link to="/" className={styles.logo}>
+            <span className={styles.logoDots} />
+            Chan
+          </Link>
+          {compactBuildLabel ? (
+            <button
+              type="button"
+              className={styles.version}
+              title={fullBuildLabel.replaceAll('\n', ' · ')}
+              aria-label={`Show build identity. ${fullBuildLabel.replaceAll('\n', '. ')}`}
+              onClick={showBuildIdentity}
+            >
+              {compactBuildLabel}
+            </button>
+          ) : null}
+        </div>
         <div className={styles.right}>
           {user && (
             <div className={styles.user}>

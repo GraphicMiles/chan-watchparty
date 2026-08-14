@@ -21,6 +21,15 @@
   gap: var(--s-2);
 }
 
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .logo {
   display: flex;
   align-items: center;
@@ -120,12 +129,35 @@
 }
 
 .version {
-  margin-left: 6px;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--room-text-secondary, #888);
-  letter-spacing: 0.03em;
+  min-width: 0;
+  max-width: 126px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  margin: 0;
+  padding: 2px 6px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 999px;
-  padding: 1px 6px;
+  background: transparent;
+  color: var(--room-text-secondary, #888);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .version {
+    max-width: 92px;
+    padding-inline: 4px;
+    font-size: 8px;
+  }
+}
+
+@media (max-width: 380px) {
+  .version {
+    max-width: 68px;
+  }
 }
