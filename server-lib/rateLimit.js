@@ -138,12 +138,29 @@ function checkMemoryRateLimit(key, { limit, windowMs }) {
   return { allowed, remaining: Math.max(0, limit - record.count) }
 }
 
-/** Derive a client key from the request (IP or forwarded-for). */
+/**
+ * Derive a client key from the request.
+ *
+ * Prefers Express's `req.ip`, which is only derived from X-Forwarded-For when
+ * `app.set('trust proxy', ...)` is configured — Express then walks the header
+ * from the right and skips the hops it is told to trust. Reading the raw
+ * header directly (the previous behaviour) let any client send
+ * `X-Forwarded-For: <random>` and mint a brand-new rate-limit bucket on every
+ * request, which defeated the limiter entirely.
+ *
+ * The raw-header fallback is kept only for non-Express callers (the handlers
+ * are also mounted as bare serverless functions), and takes the LAST entry —
+ * the hop appended by the closest proxy — rather than the first, which is
+ * fully client-controlled.
+ */
 export function clientKey(req) {
-  return (
-    req.headers?.['x-forwarded-for']?.split(',')[0]?.trim()
-    || req.headers?.['x-real-ip']
-    || req.socket?.remoteAddress
-    || 'unknown'
-  )
+  if (req?.ip) return req.ip
+
+  const forwarded = req.headers?.['x-forwarded-for']
+  if (forwarded) {
+    const hops = String(forwarded).split(',').map((h) => h.trim()).filter(Boolean)
+    if (hops.length) return hops[hops.length - 1]
+  }
+
+  return req.headers?.['x-real-ip'] || req.socket?.remoteAddress || 'unknown'
 }
