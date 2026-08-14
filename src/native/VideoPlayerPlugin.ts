@@ -28,6 +28,10 @@ export interface PlayerPosition {
   positionMs: number
   durationMs: number
   isPlaying: boolean
+  /** False only when no native engine is attached yet. */
+  ready?: boolean
+  ended?: boolean
+  engine?: 'exo' | 'vlc' | 'none'
 }
 
 export interface CloseResult {
