@@ -50,7 +50,7 @@
     "@babel/eslint-parser": "^7.29.7",
     "@babel/preset-react": "^7.29.7",
     "@capacitor/cli": "^8.4.2",
-    "@firebase/rules-unit-testing": "^5.0.1",
+    "@firebase/rules-unit-testing": "^3.0.4",
     "@sparticuz/chromium": "^147.0.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
