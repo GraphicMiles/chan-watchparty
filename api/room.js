@@ -8,7 +8,7 @@ import { getDb, FieldValue, verifyIdToken } from '../server-lib/firebaseAdmin.js
 import { preflight, ok, fail, statusForError, JSON_HEADERS } from '../server-lib/http.js'
 import { sendResponse } from '../server-lib/response.js'
 import { deleteRoomAndSubcollections, runCleanupStaleRooms } from '../server-lib/roomCleanup.js'
-import { kickParticipant, promoteParticipant, muteParticipant } from '../server-lib/moderateHelper.js'
+import { kickParticipant, promoteParticipant, muteParticipant, banParticipant } from '../server-lib/moderateHelper.js'
 import { generateLiveKitToken } from '../server-lib/livekitHelper.js'
 import { generateAiSummary, generateSmartCatchup, generateRoomQuiz, voteRoomQuiz, generateAiSubtitles } from '../server-lib/aiHelper.js'
 import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
@@ -16,7 +16,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { sanitizeAction, sanitizeRoomId, sanitizeUid, sanitizeText } from '../server-lib/sanitize.js'
 
 const ALLOWED_ROOM_ACTIONS = [
-  'join', 'leave', 'end', 'kick', 'promote', 'mute', 'freeze',
+  'join', 'leave', 'end', 'kick', 'promote', 'mute', 'ban', 'unban', 'freeze',
   'livekit', 'createlivekittoken',
   'ai', 'summary', 'catchup', 'quiz', 'generatequiz', 'votequiz',
   'subtitles', 'captions',
@@ -97,6 +97,12 @@ async function joinRoom(db, body) {
       // Re-join / refresh: keep seat, just refresh heartbeat.
       t.update(roomRef, { lastHeartbeat: FieldValue.serverTimestamp() })
       return
+    }
+
+    // A ban must survive re-join, otherwise kicking is purely cosmetic: the
+    // kicked user simply calls join again and gets a fresh seat.
+    if (Array.isArray(room.bannedUids) && room.bannedUids.includes(uid)) {
+      throw new Error('You have been removed from this room by the host')
     }
 
     if (room.locked === true && room.hostId !== uid) {
@@ -311,6 +317,12 @@ export default async function handler(req, res) {
     } else if (action === 'mute') {
       const decoded = await requireUser(req)
       result = await muteParticipant(db, decoded.uid, body)
+    } else if (action === 'ban' || action === 'unban') {
+      const decoded = await requireUser(req)
+      result = await banParticipant(db, decoded.uid, {
+        ...body,
+        banned: action === 'ban' ? body.banned !== false : false,
+      })
     } else if (action === 'livekit' || action === 'createlivekittoken') {
       await requireUser(req, body.uid)
       result = await generateLiveKitToken(db, body)

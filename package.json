@@ -13,7 +13,8 @@
     "android:open": "npx cap open android",
     "android:run": "npm run android:build && npx cap run android",
     "android:studio": "npx cap open android",
-    "lint": "eslint . --ext .js,.jsx,.ts,.tsx"
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "test:rules": "firebase emulators:exec --only firestore --project chan-rules-test \"vitest run --config vitest.rules.config.mjs\""
   },
   "dependencies": {
     "@capacitor/android": "^8.4.2",
@@ -49,6 +50,7 @@
     "@babel/eslint-parser": "^7.29.7",
     "@babel/preset-react": "^7.29.7",
     "@capacitor/cli": "^8.4.2",
+    "@firebase/rules-unit-testing": "^5.0.1",
     "@sparticuz/chromium": "^147.0.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
@@ -57,10 +59,12 @@
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "firebase-tools": "^15.27.0",
     "puppeteer": "^24.43.1",
     "puppeteer-core": "^24.43.1",
     "sass": "^1.69.0",
-    "vite": "^5.0.0"
+    "vite": "^5.0.0",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=22.0.0"
