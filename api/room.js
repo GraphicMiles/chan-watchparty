@@ -16,7 +16,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { sanitizeAction, sanitizeRoomId, sanitizeUid, sanitizeText } from '../server-lib/sanitize.js'
 
 const ALLOWED_ROOM_ACTIONS = [
-  'join', 'leave', 'end', 'kick', 'promote', 'mute', 'ban', 'unban', 'freeze',
+  'join', 'leave', 'end', 'kick', 'promote', 'mute', 'ban', 'unban', 'freeze', 'heartbeat',
   'livekit', 'createlivekittoken',
   'ai', 'summary', 'catchup', 'quiz', 'generatequiz', 'votequiz',
   'subtitles', 'captions',
@@ -94,7 +94,8 @@ async function joinRoom(db, body) {
 
     const participantSnap = await t.get(participantRef)
     if (participantSnap.exists) {
-      // Re-join / refresh: keep seat, just refresh heartbeat.
+      // Re-join / refresh: keep seat, just refresh heartbeats.
+      t.update(participantRef, { lastSeenAt: FieldValue.serverTimestamp() })
       t.update(roomRef, { lastHeartbeat: FieldValue.serverTimestamp() })
       return
     }
@@ -128,6 +129,9 @@ async function joinRoom(db, body) {
       role: room.hostId === uid ? 'host' : 'viewer',
       muted: false,
       joinedAt: FieldValue.serverTimestamp(),
+      // Liveness stamp — refreshed by the heartbeat action and used by
+      // cleanup to reap seats whose client vanished without leaving.
+      lastSeenAt: FieldValue.serverTimestamp(),
     })
     // Absolute count from real docs so a create-time seed of 1 doesn't
     // become 2 when the host's first join lands.
@@ -247,6 +251,25 @@ async function endRoom(db, body) {
   return { success: true }
 }
 
+/**
+ * Per-participant liveness stamp.
+ *
+ * Seats are otherwise only removed by an explicit `leave`, which never fires
+ * when the app is killed or the connection drops. Cleanup uses lastSeenAt to
+ * distinguish a live viewer from an orphaned seat.
+ */
+async function heartbeatParticipant(db, body) {
+  const { roomId, uid } = body || {}
+  if (!roomId || !uid) throw new Error('Missing roomId or uid')
+  const participantRef = db.collection('rooms').doc(roomId).collection('participants').doc(uid)
+  const snap = await participantRef.get()
+  // Do not resurrect a seat that was kicked/banned/reaped while the client
+  // was offline — the client should re-join through the normal path.
+  if (!snap.exists) return { success: false, seated: false }
+  await participantRef.update({ lastSeenAt: FieldValue.serverTimestamp() })
+  return { success: true, seated: true }
+}
+
 export default async function handler(req, res) {
   try {
     // --- Rate limiting (per IP) ---
@@ -302,6 +325,9 @@ export default async function handler(req, res) {
     } else if (action === 'leave') {
       await requireUser(req, body.uid)
       result = await leaveRoom(db, body)
+    } else if (action === 'heartbeat') {
+      await requireUser(req, body.uid)
+      result = await heartbeatParticipant(db, body)
     } else if (action === 'freeze') {
       await requireUser(req, body.uid)
       result = await freezeRoom(db, body)

@@ -9,6 +9,13 @@ const ZERO_PARTICIPANT_GRACE_MINUTES = 30
 // Protects the create-room flow: setDoc → set playerState → join can leave a
 // brief window where count is still 0 while the host is mid-join.
 const MIN_ROOM_AGE_MINUTES = 5
+// A seat whose client has not heartbeat within this window is a ghost and is
+// removed. Clients beat every 60s, so this tolerates several missed beats
+// (backgrounded tab, tunnel, brief signal loss) before reaping.
+const PARTICIPANT_STALE_MINUTES = 5
+// Hard ceiling on room lifetime. Without this a room with a permanently
+// active host tab could live indefinitely.
+const MAX_ROOM_AGE_HOURS = 24
 
 export async function deleteRoomAndSubcollections(db, roomRef) {
   const subcollections = [
@@ -22,6 +29,7 @@ export async function deleteRoomAndSubcollections(db, roomRef) {
     'soundEffects',
     'stagePins',
     'quiz',
+    'chatMeta',
   ]
 
   for (const subName of subcollections) {
@@ -29,6 +37,19 @@ export async function deleteRoomAndSubcollections(db, roomRef) {
     while (true) {
       const snap = await subCol.limit(400).get()
       if (snap.empty) break
+      // messages/{id}/reactions is a sub-subcollection: deleting the parent
+      // document in Firestore does NOT remove it, so those docs were being
+      // orphaned in the database forever.
+      if (subName === 'messages') {
+        for (const d of snap.docs) {
+          const reactions = await d.ref.collection('reactions').limit(400).get().catch(() => null)
+          if (reactions && !reactions.empty) {
+            const rb = db.batch()
+            reactions.docs.forEach((r) => rb.delete(r.ref))
+            await rb.commit().catch(() => {})
+          }
+        }
+      }
       const batch = db.batch()
       snap.docs.forEach((d) => {
         batch.delete(d.ref)
@@ -42,18 +63,52 @@ export async function deleteRoomAndSubcollections(db, roomRef) {
 }
 
 /**
- * Recompute participantCount from the participants subcollection and fix drift.
- * Returns the true count.
+ * Reap participant seats whose client has stopped heartbeating, then
+ * recompute participantCount from what actually remains.
+ *
+ * This is the fix for rooms that never expired. `leave` only fires on a clean
+ * exit, so a killed app / dropped connection / locked phone left the seat
+ * behind forever. Cleanup then saw participantCount > 0, treated the room as
+ * alive, and REFRESHED its heartbeat — so a single ghost seat made the room
+ * immortal and the zero-participant grace period could never be reached.
+ *
+ * Seats without a lastSeenAt (written before this field existed, or by an
+ * older client) fall back to joinedAt, and are only reaped once they are
+ * older than the grace period — so a legacy seat is never killed instantly.
+ *
+ * Returns the number of live seats remaining.
  */
 async function reconcileParticipantCount(db, roomRef, data) {
   try {
     const participantsSnap = await roomRef.collection('participants').limit(200).get()
-    const trueCount = participantsSnap.size
-    const stored = typeof data.participantCount === 'number' ? data.participantCount : 0
-    if (trueCount !== stored) {
-      await roomRef.update({ participantCount: trueCount }).catch(() => {})
+    const nowMs = Date.now()
+    const cutoffMs = PARTICIPANT_STALE_MINUTES * 60 * 1000
+
+    const ghosts = []
+    let liveCount = 0
+    for (const p of participantsSnap.docs) {
+      const pd = p.data() || {}
+      const seenMs = pd.lastSeenAt?.toMillis?.() || 0
+      const joinedMs = pd.joinedAt?.toMillis?.() || 0
+      const referenceMs = seenMs || joinedMs
+      // No usable timestamp at all: keep the seat rather than risk evicting a
+      // live viewer; the room-level grace period still applies.
+      if (!referenceMs) { liveCount += 1; continue }
+      if (nowMs - referenceMs > cutoffMs) ghosts.push(p.ref)
+      else liveCount += 1
     }
-    return trueCount
+
+    if (ghosts.length) {
+      const batch = db.batch()
+      ghosts.forEach((ref) => batch.delete(ref))
+      await batch.commit().catch(() => {})
+    }
+
+    const stored = typeof data.participantCount === 'number' ? data.participantCount : 0
+    if (liveCount !== stored) {
+      await roomRef.update({ participantCount: liveCount }).catch(() => {})
+    }
+    return liveCount
   } catch {
     return typeof data.participantCount === 'number' ? data.participantCount : 0
   }
@@ -105,16 +160,29 @@ export async function runCleanupStaleRooms(db) {
     // Always verify against the subcollection so ghost counts don't stick.
     trueCount = await reconcileParticipantCount(db, doc.ref, data)
 
-    // If participants actually exist, refresh heartbeat and keep the room.
-    // Stale lastHeartbeat with live seats usually means the host tab slept;
-    // deleting would kick everyone mid-watch.
+    // Absolute lifetime ceiling — applies even to a room that still looks
+    // busy, so nothing can live forever.
+    if (createdMs > 0 && (nowMs - createdMs) > MAX_ROOM_AGE_HOURS * 3600 * 1000) {
+      allStaleRefs.set(doc.id, doc.ref)
+      continue
+    }
+
+    // Genuinely live seats remain (ghosts were already reaped above), so the
+    // room stays. The heartbeat is only refreshed when a HOST seat is still
+    // present: previously any surviving seat refreshed it, which is what let
+    // one orphaned participant keep a dead room alive indefinitely.
     if (trueCount > 0) {
       const heartbeatMs = data.lastHeartbeat?.toMillis?.() || 0
       if (!heartbeatMs || (nowMs - heartbeatMs) > STALE_MINUTES * 60 * 1000) {
+        let hostSeated = false
+        try {
+          const hostSnap = await doc.ref.collection('participants').doc(String(data.hostId || '')).get()
+          hostSeated = hostSnap.exists
+        } catch { /* treat as not seated */ }
         try {
           await doc.ref.update({
-            lastHeartbeat: Timestamp.fromDate(new Date()),
             participantCount: trueCount,
+            ...(hostSeated ? { lastHeartbeat: Timestamp.fromDate(new Date()) } : {}),
           })
         } catch {
           /* non-critical */
@@ -162,13 +230,26 @@ export async function runCleanupStaleRooms(db) {
         allStaleRefs.delete(id)
         continue
       }
+      // Past the absolute ceiling the room goes regardless of who is seated,
+      // so do not let the live-seat check below rescue it.
+      if (createdMs > 0 && (nowMs - createdMs) > MAX_ROOM_AGE_HOURS * 3600 * 1000) {
+        continue
+      }
+      // Reaps ghost seats first, so this reflects genuinely live viewers.
       const trueCount = await reconcileParticipantCount(db, roomRef, data)
       if (trueCount > 0) {
         allStaleRefs.delete(id)
         try {
+          // Only a seated host renews the room clock (see the note in the
+          // main pass) — otherwise a lone stale viewer keeps it alive forever.
+          let hostSeated = false
+          try {
+            const hostSnap = await roomRef.collection('participants').doc(String(data.hostId || '')).get()
+            hostSeated = hostSnap.exists
+          } catch { /* treat as not seated */ }
           await roomRef.update({
-            lastHeartbeat: Timestamp.fromDate(new Date()),
             participantCount: trueCount,
+            ...(hostSeated ? { lastHeartbeat: Timestamp.fromDate(new Date()) } : {}),
           })
         } catch {
           /* non-critical */

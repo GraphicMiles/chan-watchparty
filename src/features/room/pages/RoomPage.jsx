@@ -139,6 +139,7 @@ export default function RoomPage() {
     kickParticipant,
     promoteParticipant,
     muteParticipant,
+    banParticipant,
     reportPlayerPosition,
   } = useRoom(roomId, inviteCode)
 
@@ -856,6 +857,7 @@ export default function RoomPage() {
                   participants={participants}
                   hostId={room.hostId}
                   coHosts={room.coHosts}
+                  bannedUids={room.bannedUids || []}
                   currentUserId={user?.uid}
                   isHost={isHost}
                   canControl={canControl}
@@ -881,6 +883,14 @@ export default function RoomPage() {
                       toast(muted ? 'Muted' : 'Unmuted', { variant: 'success' })
                     } catch (err) {
                       toast(err.message || 'Mute failed', { variant: 'error' })
+                    }
+                  }}
+                  onBan={async (uid, banned) => {
+                    try {
+                      await banParticipant(uid, banned)
+                      toast(banned ? 'Participant banned' : 'Ban lifted', { variant: 'success' })
+                    } catch (err) {
+                      toast(err.message || (banned ? 'Ban failed' : 'Unban failed'), { variant: 'error' })
                     }
                   }}
                 />

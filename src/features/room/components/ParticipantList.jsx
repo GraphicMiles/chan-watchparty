@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MoreVertical, Shield, UserX, Mic, MicOff, Award, Clock } from 'lucide-react'
+import { MoreVertical, Shield, UserX, Mic, MicOff, Award, Clock, Ban, RotateCcw } from 'lucide-react'
 import { Avatar, Badge, Modal, Button } from '../../../shared/ui/index.js'
 import styles from './ParticipantList.module.css'
 
@@ -20,14 +20,19 @@ export default function ParticipantList({
   participants,
   hostId,
   coHosts = [],
+  bannedUids = [],
   currentUserId,
   isHost,
   onKick,
   onPromote,
   onMute,
+  onBan,
 }) {
   const [menuOpenFor, setMenuOpenFor] = useState(null)
   const [selectedPassportUser, setSelectedPassportUser] = useState(null)
+  // Banning is not self-reversible for the banned user, so it gets an
+  // explicit confirmation step rather than firing straight from the menu.
+  const [banTarget, setBanTarget] = useState(null)
 
   const handleAction = (uid, action) => {
     setMenuOpenFor(null)
@@ -36,6 +41,15 @@ export default function ParticipantList({
     else if (action === 'demote-viewer') onPromote(uid, 'viewer')
     else if (action === 'mute') onMute(uid, true)
     else if (action === 'unmute') onMute(uid, false)
+    else if (action === 'ban') {
+      setBanTarget(participants.find((p) => p.id === uid) || { id: uid })
+    } else if (action === 'unban') onBan?.(uid, false)
+  }
+
+  const confirmBan = () => {
+    const target = banTarget
+    setBanTarget(null)
+    if (target) onBan?.(target.id, true)
   }
 
   const hostParticipant = participants.find((p) => p.id === hostId)
@@ -120,6 +134,10 @@ export default function ParticipantList({
                         <button type="button" className={styles.dangerItem} onClick={() => handleAction(p.id, 'kick')}>
                           <UserX size={14} /> Remove from Room
                         </button>
+
+                        <button type="button" className={styles.dangerItem} onClick={() => handleAction(p.id, 'ban')}>
+                          <Ban size={14} /> Ban from Room
+                        </button>
                       </div>
                     )}
                   </div>
@@ -129,6 +147,49 @@ export default function ParticipantList({
           )
         })}
       </div>
+
+      {/* Banned users — visible so a ban can be undone. Without this the
+          host has no way to find or reverse a ban they applied earlier. */}
+      {isHost && bannedUids.length > 0 && (
+        <div className={styles.bannedSection}>
+          <h4 className={styles.bannedTitle}>Banned ({bannedUids.length})</h4>
+          {bannedUids.map((uid) => (
+            <div key={uid} className={styles.bannedRow}>
+              <span className={styles.bannedUid} title={uid}>{uid}</span>
+              <button
+                type="button"
+                className={styles.unbanBtn}
+                onClick={() => handleAction(uid, 'unban')}
+              >
+                <RotateCcw size={13} /> Unban
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Modal
+        open={Boolean(banTarget)}
+        title="Ban participant?"
+        icon={Ban}
+        onClose={() => setBanTarget(null)}
+      >
+        <div className={styles.banConfirmBody}>
+          <p>
+            <strong>{banTarget?.displayName || 'This user'}</strong> will be removed
+            from the room and blocked from rejoining, sending messages, or adding
+            to the queue.
+          </p>
+          <p className={styles.banConfirmHint}>
+            Unlike “Remove from Room”, a ban is not reversible by the user. You can
+            undo it from the Banned list.
+          </p>
+          <div className={styles.banConfirmActions}>
+            <Button variant="secondary" onClick={() => setBanTarget(null)}>Cancel</Button>
+            <Button variant="danger" onClick={confirmBan}>Ban participant</Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Chan Passport Modal (#13) */}
       <Modal

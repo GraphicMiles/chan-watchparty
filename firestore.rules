@@ -40,6 +40,32 @@ service cloud.firestore {
         && participantData(roomId).get('muted', false) == true;
     }
 
+    // ── Chat flood control ───────────────────────────────────────────────
+    // Chat is written client → Firestore directly, so the API rate limiter
+    // never sees it and a user could flood messages as fast as the network
+    // allowed. Rules cannot count events over a window, but they CAN require
+    // that every message is committed in the same atomic batch as an update
+    // to the sender's own cooldown stamp, and that the previous stamp is old
+    // enough. getAfter() sees the post-commit state, so the stamp write cannot
+    // be skipped: omitting it fails the message write too.
+    //
+    // The stamp must equal request.time (server-evaluated), so a client cannot
+    // backdate it to bypass the cooldown.
+    function chatStampPath(roomId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/chatMeta/$(request.auth.uid);
+    }
+
+    function chatStampWrittenNow(roomId) {
+      return getAfter(chatStampPath(roomId)).data.lastMessageAt == request.time;
+    }
+
+    function chatCooldownElapsed(roomId) {
+      return !exists(chatStampPath(roomId))
+        || get(chatStampPath(roomId)).data.get('lastMessageAt', request.time) == null
+        || request.time > get(chatStampPath(roomId)).data.lastMessageAt
+             + duration.value(1200, 'ms');
+    }
+
     // Banned users keep no seat, but a ban must also survive a re-join
     // attempt and block every write surface. kick alone was reversible: the
     // kicked user simply joined again.
@@ -249,7 +275,10 @@ service cloud.firestore {
           && request.resource.data.text.size() <= 500
           && request.resource.data.displayName is string
           && request.resource.data.displayName.size() <= 50
-          && !isMuted(roomId);
+          && !isMuted(roomId)
+          // Flood control: enforces a per-user cooldown between messages.
+          && chatCooldownElapsed(roomId)
+          && chatStampWrittenNow(roomId);
 
         // Messages are immutable — no silent post-hoc editing.
         allow update: if false;
@@ -269,6 +298,18 @@ service cloud.firestore {
             && request.resource.data.emoji.size() <= 16;
           allow delete: if isOwner(uid);
         }
+      }
+
+      // Per-user chat cooldown stamps. Each user may only write their own,
+      // the document may contain nothing but the stamp, and the stamp must be
+      // request.time — so it cannot be backdated to defeat the cooldown.
+      match /chatMeta/{uid} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && isActiveParticipant(roomId)
+          && request.resource.data.keys().hasOnly(['lastMessageAt'])
+          && request.resource.data.lastMessageAt == request.time;
+        allow delete: if false;
       }
 
       match /typing/{uid} {
