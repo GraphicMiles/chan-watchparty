@@ -72,6 +72,7 @@ export default function NativeEmbeddedPlayer({
   onApi = null, // exposes the native adapter for the app's control bar
   onControlsTap = null, // native surface tapped -> app toggles its control bar
   onFullscreenChange = null, // native fullscreen entered/exited (syncs JS state)
+  fullscreen = false, // suspend room-rect visibility updates while native owns the viewport
   visible = true, // false when room panels must render above the video
   clipBottomPx = 0, // CSS px clipped off the viewport bottom (mobile sheet) —
                     // the native surface never covers the panel area, so the
@@ -113,10 +114,24 @@ export default function NativeEmbeddedPlayer({
   }, [controlsHeight])
 
   const visibleRef = useRef(visible)
+  const fullscreenRef = useRef(fullscreen)
   useEffect(() => {
     visibleRef.current = visible
-    VideoPlayerPlugin.setVisible({ visible }).catch(() => {})
+    // Fullscreen is native-owned. The normal room placeholder can move
+    // offscreen during rotation, but it must never hide the fullscreen video.
+    if (!fullscreenRef.current) {
+      VideoPlayerPlugin.setVisible({ visible }).catch(() => {})
+    }
   }, [visible])
+
+  useEffect(() => {
+    fullscreenRef.current = fullscreen
+    // On exit, immediately restore the room/panel visibility preference; the
+    // measurement loop then re-anchors the exact inline rectangle.
+    if (!fullscreen) {
+      VideoPlayerPlugin.setVisible({ visible: visibleRef.current }).catch(() => {})
+    }
+  }, [fullscreen])
 
   const [errorMsg, setErrorMsg] = useState(null)
   const [errorDetail, setErrorDetail] = useState('') // structured JSON from the native engine
@@ -182,8 +197,14 @@ export default function NativeEmbeddedPlayer({
     },
     isLive: () => Boolean(isLive),
     loadVideoById: () => {},
-    playVideo: () => { VideoPlayerPlugin.play().catch(() => {}) },
-    pauseVideo: () => { VideoPlayerPlugin.pause().catch(() => {}) },
+    playVideo: () => {
+      stateRef.current.playing = true
+      VideoPlayerPlugin.play().catch(() => {})
+    },
+    pauseVideo: () => {
+      stateRef.current.playing = false
+      VideoPlayerPlugin.pause().catch(() => {})
+    },
     seekTo: (value, type = 'seconds') => {
       const dur = stateRef.current.durSec || 0
       const targetSec = type === 'fraction' ? (value * (dur || 0)) : Number(value) || 0
@@ -399,6 +420,16 @@ export default function NativeEmbeddedPlayer({
     switch (e.state) {
       case 'ready':
         setErrorMsg(null)
+        if (typeof e.desiredPlaying === 'boolean') {
+          stateRef.current.playing = e.desiredPlaying
+          propsRef.current.onProgress?.({
+            currentSec: stateRef.current.posSec,
+            durationSec: stateRef.current.durSec,
+            playing: e.desiredPlaying,
+            buffering: e.actualState === 'buffering',
+            percent: 0,
+          })
+        }
         if (!readySentRef.current) {
           readySentRef.current = true
           callbacksRef.current.onReady?.(adapter)
@@ -414,29 +445,37 @@ export default function NativeEmbeddedPlayer({
           percent: Math.max(1, Math.min(99, e.percent || 0)),
         })
         break
-      case 'playing':
-        stateRef.current.playing = true
+      case 'playing': {
+        const desired = typeof e.desiredPlaying === 'boolean'
+          ? e.desiredPlaying
+          : stateRef.current.playing
+        stateRef.current.playing = desired
         setErrorMsg(null)
-        callbacksRef.current.onPlayerEvent?.({ isPlaying: true, currentTime: stateRef.current.posSec })
+        callbacksRef.current.onPlayerEvent?.({ isPlaying: desired, currentTime: stateRef.current.posSec })
         propsRef.current.onProgress?.({
           currentSec: stateRef.current.posSec,
           durationSec: stateRef.current.durSec,
-          playing: true,
+          playing: desired,
           buffering: false,
           percent: 0,
         })
         break
-      case 'paused':
-        stateRef.current.playing = false
-        callbacksRef.current.onPlayerEvent?.({ isPlaying: false, currentTime: stateRef.current.posSec })
+      }
+      case 'paused': {
+        const desired = typeof e.desiredPlaying === 'boolean'
+          ? e.desiredPlaying
+          : false
+        stateRef.current.playing = desired
+        callbacksRef.current.onPlayerEvent?.({ isPlaying: desired, currentTime: stateRef.current.posSec })
         propsRef.current.onProgress?.({
           currentSec: stateRef.current.posSec,
           durationSec: stateRef.current.durSec,
-          playing: false,
+          playing: desired,
           buffering: false,
           percent: 0,
         })
         break
+      }
       case 'ended':
         stateRef.current.ended = true
         stateRef.current.playing = false
@@ -478,8 +517,14 @@ export default function NativeEmbeddedPlayer({
       },
       isLive: () => Boolean(isLive),
       loadVideoById: () => {},
-      playVideo: () => { VideoPlayerPlugin.play().catch(() => {}) },
-      pauseVideo: () => { VideoPlayerPlugin.pause().catch(() => {}) },
+      playVideo: () => {
+        stateRef.current.playing = true
+        VideoPlayerPlugin.play().catch(() => {})
+      },
+      pauseVideo: () => {
+        stateRef.current.playing = false
+        VideoPlayerPlugin.pause().catch(() => {})
+      },
       seekTo: (value, type = 'seconds') => {
         const dur = stateRef.current.durSec || 0
         const targetSec = type === 'fraction' ? (value * (dur || 0)) : Number(value) || 0
@@ -496,12 +541,9 @@ export default function NativeEmbeddedPlayer({
   // ── Position poll — the SINGLE source of truth for the control bar.
   // Runs UNCONDITIONALLY on mount (independent of the listener/show() setup
   // below, so a stalled showEmbedded() promise can't freeze the bar), and
-  // reads position + duration + play-state DIRECTLY from the engine via
-  // getPosition(). Play-state therefore cannot depend on the 'playing'/
-  // 'paused' event channel firing — the button reflects the engine within 1s
-  // no matter what. (The events still fire onPlayerEvent for room sync, but
-  // they agree with getPosition() since both read the same engine, so there
-  // is exactly one authoritative source — no flapping.)
+  // reads position + duration + desired playback intent from the engine via
+  // getPosition(). Renderer activity is reported separately as actualState,
+  // so buffering/rotation cannot turn a requested play into a room pause.
   useEffect(() => {
     const poll = setInterval(async () => {
       if (!sessionActiveRef.current) return
@@ -515,7 +557,7 @@ export default function NativeEmbeddedPlayer({
           currentSec: stateRef.current.posSec,
           durationSec: stateRef.current.durSec,
           playing: stateRef.current.playing,
-          buffering: false,
+          buffering: p?.actualState === 'buffering',
           percent: 0,
         })
       } catch { /* poll best-effort */ }
@@ -530,6 +572,14 @@ export default function NativeEmbeddedPlayer({
     let listenerHandle = null
 
     const measureAndSetRect = () => {
+      // Once fullscreen starts, the native plugin exclusively owns visibility
+      // and MATCH_PARENT layout. Continuing to measure the inline DOM box is
+      // what hid the native surface after a rotation while audio kept playing.
+      if (fullscreenRef.current) {
+        if (!cancelled) raf = requestAnimationFrame(measureAndSetRect)
+        return
+      }
+
       const el = surfaceRef.current
       if (el && sessionActiveRef.current) {
         try {

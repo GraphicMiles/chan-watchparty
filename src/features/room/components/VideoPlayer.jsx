@@ -152,6 +152,9 @@ export default function VideoPlayer({
   const hlsErrorCountRef = useRef(0)
   const retryTimeoutRef = useRef(null)
   const playingRef = useRef(Boolean(playing))
+  // Stable room/user intent for native controls. Actual rendering may pause
+  // briefly for buffering or surface rotation without changing this value.
+  const desiredPlayingRef = useRef(Boolean(playing))
   const onReadyRef = useRef(onReady)
   const onPlayerEventRef = useRef(onPlayerEvent)
   const onEndedRef = useRef(onEnded)
@@ -394,8 +397,10 @@ export default function VideoPlayer({
 
   useEffect(() => {
     if (playing !== undefined) {
-      playingRef.current = Boolean(playing)
-      setIsPlayingState(Boolean(playing))
+      const desired = Boolean(playing)
+      playingRef.current = desired
+      desiredPlayingRef.current = desired
+      setIsPlayingState(desired)
     }
   }, [playing])
 
@@ -516,6 +521,7 @@ export default function VideoPlayer({
     getPlayerState: () => nativeApiRef.current?.getPlayerState?.() ?? playerState(),
     playVideo: () => {
       if (nativeApiRef.current) {
+        desiredPlayingRef.current = true
         nativeApiRef.current.playVideo?.()
         playingRef.current = true
         setIsPlayingState(true)
@@ -560,6 +566,7 @@ export default function VideoPlayer({
     },
     pauseVideo: () => {
       if (nativeApiRef.current) {
+        desiredPlayingRef.current = false
         nativeApiRef.current.pauseVideo?.()
         playingRef.current = false
         setIsPlayingState(false)
@@ -991,9 +998,13 @@ export default function VideoPlayer({
     if (typeof cs === 'number' && Number.isFinite(cs)) setCurrentSec(cs)
     if (typeof ds === 'number' && Number.isFinite(ds) && ds > 0) setDurationSec(ds)
     if (typeof pl === 'boolean') {
+      // Native `playing` is the stable desired state, not transient renderer
+      // activity. Buffering/surface-wait must not turn a requested play into
+      // a room pause.
+      desiredPlayingRef.current = pl
       playingRef.current = pl
       setIsPlayingState(pl)
-      setIsBuffering(false)
+      if (pl) setIsBuffering(false)
     }
     if (typeof bf === 'boolean') {
       setNativeBuffering(bf)
@@ -1171,12 +1182,19 @@ export default function VideoPlayer({
   const togglePlayPause = useCallback((e) => {
     e?.stopPropagation()
     if (!canControl) return
-    if (playingRef.current) {
-      adapter.pauseVideo()
-      setIsBuffering(false)
-    } else {
+    // Send one explicit command from the locally committed desired state.
+    // Never infer the command from transient native isPlaying(), polling, or
+    // a Firestore heartbeat that may lag this tap.
+    const nextDesired = !desiredPlayingRef.current
+    desiredPlayingRef.current = nextDesired
+    playingRef.current = nextDesired
+    setIsPlayingState(nextDesired)
+    if (nextDesired) {
       setIsBuffering(true)
       adapter.playVideo()
+    } else {
+      adapter.pauseVideo()
+      setIsBuffering(false)
     }
   }, [canControl, adapter])
 
@@ -1218,10 +1236,9 @@ export default function VideoPlayer({
         setIsFullscreen(!next)
         return
       }
-      try {
-        if (next) await window.screen?.orientation?.lock?.('landscape')?.catch?.(() => {})
-        else window.screen?.orientation?.unlock?.()
-      } catch { /* orientation unsupported */ }
+      // Native fullscreen owns orientation in VideoPlayerPlugin. Do not also
+      // issue a browser Screen Orientation request here: two owners caused
+      // overlapping configuration changes and stale surface/viewport state.
       // Exiting fullscreen: the plugin re-applies lastRect immediately, but
       // the layout may still be settling (system bars returning, orientation
       // unlock). Force a re-measure + re-anchor of the surface to the room's
@@ -1279,6 +1296,9 @@ export default function VideoPlayer({
   // Toggle device orientation landscape ⇄ portrait while in fullscreen.
   const rotateOrientation = useCallback(async (e) => {
     e?.stopPropagation()
+    // Native fullscreen rotation is owned exclusively by VideoPlayerPlugin's
+    // ChanNative bridge. This browser path is web/YouTube only.
+    if (isNativeEmbedded) return
     try {
       const isLandscape = window.screen?.orientation?.type?.startsWith('landscape')
       if (isLandscape) {
@@ -1290,7 +1310,7 @@ export default function VideoPlayer({
     } catch {
       try { await window.screen?.orientation?.unlock?.() } catch { /* ignore */ }
     }
-  }, [])
+  }, [isNativeEmbedded])
 
   const togglePiP = useCallback((e) => {
     e.stopPropagation()
@@ -1466,6 +1486,7 @@ export default function VideoPlayer({
             onApi={handleNativeApi}
             onControlsTap={handleNativeTap}
             onFullscreenChange={(v) => { setIsFullscreen(Boolean(v)) }}
+            fullscreen={isFullscreen}
             visible={!surfaceHidden}
             clipBottomPx={surfaceClipBottom}
           />

@@ -84,7 +84,32 @@ jobs:
 
       - name: Build Debug APK (compiles ChanPlayerEngine / RoomPlayerOverlayView / VideoPlayerPlugin)
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace -PversionCode=${{ github.run_number }} -PversionName=1.0.${{ github.run_number }}
+        run: |
+          BUILD_TIMESTAMP_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          ./gradlew assembleDebug --no-daemon --stacktrace \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=1.0.${{ github.run_number }} \
+            -PgitCommitSha=${{ github.sha }} \
+            -PbuildTimestampUtc="$BUILD_TIMESTAMP_UTC"
+          printf 'Commit: %s\nVersion: %s\nBuilt: %s\n' \
+            "${GITHUB_SHA:0:12}" \
+            "1.0.${{ github.run_number }}-debug" \
+            "$BUILD_TIMESTAMP_UTC" \
+            > app/build/outputs/apk/debug/build-identity.txt
+
+      - name: Verify APK embeds checkout identity
+        working-directory: android
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          IDENTITY="app/build/outputs/apk/debug/build-identity.txt"
+          SHORT_SHA="${GITHUB_SHA:0:12}"
+          test -f "$APK"
+          test -f "$IDENTITY"
+          grep -F "Commit: $SHORT_SHA" "$IDENTITY"
+          grep -F "Version: 1.0.${{ github.run_number }}-debug" "$IDENTITY"
+          unzip -p "$APK" 'classes*.dex' | strings | grep -F "$SHORT_SHA"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" \
+            | grep -F "versionName='1.0.${{ github.run_number }}-debug'"
 
       - name: Show generated APK files
         if: success()
@@ -97,7 +122,9 @@ jobs:
         if: success() && github.event_name != 'pull_request'
         with:
           name: chan-android-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/debug/build-identity.txt
           retention-days: 30
           if-no-files-found: error
 

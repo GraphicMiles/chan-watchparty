@@ -80,13 +80,21 @@ public class ChanPlayerEngine {
     private long pendingSeekMs = -1;
     private final Runnable effectsDebounce = new Runnable() { public void run() { applyEffectsNow(); } };
     private boolean effectsQueued = false;
+    private int effectsRequestGeneration = 0;
+    private int vlcApplyingEffectsGeneration = 0;
+    private int vlcAppliedEffectsGeneration = 0;
+    private boolean vlcEffectsRebuildInFlight = false;
+    private long vlcEffectsRebuildStartedMs = 0L;
+    // Surface rotation/recovery and brightness must never reconfigure output
+    // concurrently. Effect commits wait until this monotonic deadline.
+    private long surfaceTransitionUntilMs = 0L;
     // REAL brightness: a per-frame 4x4 RGB multiply matrix (0..2 scale, 1 = no
     // change). Media3's Brightness effect is ADDITIVE (adds a constant to RGB),
     // which washed the picture to white at >100% — the wrong semantics. This
     // matrix multiplies the actual pixels, matching libVLC's :adjust-brightness
     // (0..2). Installed only while brightness != 100% so neutral playback never
     // carries an effect graph.
-    private final LiveBrightnessRgbMatrix liveBrightness = new LiveBrightnessRgbMatrix();
+    private LiveBrightnessRgbMatrix liveBrightness = new LiveBrightnessRgbMatrix();
     private boolean exoEffectInstalled = false;
 
     private ExoPlayer exoPlayer;
@@ -97,6 +105,17 @@ public class ChanPlayerEngine {
 
     private boolean vlcStarted = false;
     private boolean ended = false;
+    // User/room intent is distinct from isPlaying(). ExoPlayer reports
+    // isPlaying=false while buffering or while a video surface is rotating;
+    // treating that transient as a user pause made the normal control flap and
+    // could write a false pause back to Firestore.
+    private boolean desiredPlaying = false;
+    // playing | buffering | surface-wait | paused | ended
+    private String actualState = "paused";
+    private volatile long lastVideoFrameRealtimeMs = 0L;
+    private volatile boolean awaitingFirstFrame = false;
+    private int surfaceHealthGeneration = 0;
+    private long lastTargetedSurfaceRecoveryMs = 0L;
     private boolean disposed = false;
 
     /**
@@ -136,6 +155,8 @@ public class ChanPlayerEngine {
         // prepare() belongs to the old stream and must be ignored.
         generation += 1;
         ended = false;
+        desiredPlaying = true;
+        actualState = "buffering";
         // Video change (queue play-now): cancel any in-flight VLC rebuild so
         // it cannot touch a player we are about to tear down.
         try { mainHandler.removeCallbacks(effectsDebounce); } catch (Exception ignored) { }
@@ -162,6 +183,8 @@ public class ChanPlayerEngine {
 
     public void play() {
         if (disposed) return;
+        desiredPlaying = true;
+        if (!"playing".equals(actualState)) actualState = "surface-wait";
         if (exoPlayer != null) {
             try { exoPlayer.play(); } catch (Exception ignored) { }
         }
@@ -172,6 +195,8 @@ public class ChanPlayerEngine {
 
     public void pause() {
         if (disposed) return;
+        desiredPlaying = false;
+        actualState = "paused";
         if (exoPlayer != null) {
             try { exoPlayer.pause(); } catch (Exception ignored) { }
         }
@@ -223,6 +248,11 @@ public class ChanPlayerEngine {
         return false;
     }
 
+    /** The room/user's requested play state, stable through buffering/rotation. */
+    public boolean isPlaybackDesired() { return desiredPlaying && !ended && !disposed; }
+
+    public String getActualState() { return actualState; }
+
     public boolean isEnded() { return ended; }
 
     /**
@@ -243,32 +273,30 @@ public class ChanPlayerEngine {
                     && Math.abs(contrast - 1f) < 0.01f
                     && Math.abs(saturation - 1f) < 0.01f
                     && Math.abs(hueDeg) < 0.5f;
+            effectsRequestGeneration += 1;
 
-            // ExoPlayer: multiply matrix. Install on first non-neutral change,
-            // remove when back to neutral.
+            // Live Exo matrix updates keep slider feedback responsive after the
+            // graph exists. The debounced commit below explicitly resubmits the
+            // effect so 125/150/200% never depend only on mutable-object caching.
             if (exoPlayer != null) {
-                try {
-                    liveBrightness.setBrightness(lastBrightness);
-                    if (!effectsNeutral && !exoEffectInstalled) {
-                        exoPlayer.setVideoEffects(java.util.Collections.singletonList((androidx.media3.common.Effect) liveBrightness));
+                liveBrightness.setBrightness(lastBrightness);
+                if (!effectsNeutral && !exoEffectInstalled) {
+                    try {
+                        exoPlayer.setVideoEffects(java.util.Collections.singletonList(
+                                (androidx.media3.common.Effect) liveBrightness));
                         exoEffectInstalled = true;
-                    } else if (effectsNeutral && exoEffectInstalled) {
-                        exoPlayer.setVideoEffects(java.util.Collections.emptyList());
-                        exoEffectInstalled = false;
+                    } catch (Throwable e) {
+                        Log.e(TAG, "Exo initial brightness effect failed", e);
                     }
-                } catch (Throwable e) {
-                    Log.e(TAG, "Exo setVideoEffects failed", e);
                 }
             }
 
-            // VLC: debounced re-prepare with the adjust filter, resuming at the
-            // same position.
-            if (vlcPlayer != null) {
-                if (!effectsQueued) {
-                    effectsQueued = true;
-                    mainHandler.postDelayed(effectsDebounce, 300);
-                }
-            }
+            // True debounce: every slider movement replaces the prior commit.
+            // VLC therefore rebuilds at most once after interaction settles,
+            // never once per intermediate value.
+            effectsQueued = true;
+            mainHandler.removeCallbacks(effectsDebounce);
+            mainHandler.postDelayed(effectsDebounce, 350L);
         });
     }
 
@@ -287,15 +315,89 @@ public class ChanPlayerEngine {
     private static native boolean nativeSetAdjustVlcBrightness(long mediaPlayerPtr, float brightness);
 
     private void applyEffectsNow() {
-        // Debounced VLC brightness change: stop, rebuild the media WITH the
-        // adjust filter, resume at the same position (pendingSeekMs applied on
-        // the next Playing event).
+        if (disposed) {
+            effectsQueued = false;
+            return;
+        }
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now < surfaceTransitionUntilMs) {
+            // Serialize against rotation and targeted surface recovery.
+            mainHandler.removeCallbacks(effectsDebounce);
+            mainHandler.postDelayed(effectsDebounce,
+                    Math.max(100L, surfaceTransitionUntilMs - now + 100L));
+            effectsQueued = true;
+            return;
+        }
+
+        final int requestedGeneration = effectsRequestGeneration;
+
+        // Explicitly commit the current Exo configuration. This avoids relying
+        // solely on mutation of a matrix object the frame processor may cache.
+        if (exoPlayer != null) {
+            final int effectHealthGeneration = ++surfaceHealthGeneration;
+            final long positionBeforeEffect = getPositionMs();
+            final long frameBeforeEffect = lastVideoFrameRealtimeMs;
+            if (desiredPlaying) {
+                awaitingFirstFrame = true;
+                actualState = "surface-wait";
+                surfaceTransitionUntilMs = Math.max(surfaceTransitionUntilMs, now + 1800L);
+            }
+            try {
+                if (effectsNeutral) {
+                    liveBrightness.setBrightness(1f);
+                    if (exoEffectInstalled) exoPlayer.setVideoEffects(java.util.Collections.emptyList());
+                    exoEffectInstalled = false;
+                } else {
+                    // New effect identity forces Media3 to consume the final
+                    // committed matrix instead of treating the same mutable
+                    // object/list as unchanged.
+                    LiveBrightnessRgbMatrix committedMatrix = new LiveBrightnessRgbMatrix();
+                    committedMatrix.setBrightness(lastBrightness);
+                    liveBrightness = committedMatrix;
+                    exoPlayer.setVideoEffects(java.util.Collections.singletonList(
+                            (androidx.media3.common.Effect) committedMatrix));
+                    exoEffectInstalled = true;
+                }
+            } catch (Throwable e) {
+                Log.e(TAG, "Exo brightness commit failed", e);
+            }
+            if (desiredPlaying) {
+                mainHandler.postDelayed(() -> verifyExoFramesAfterSurfaceChange(
+                        effectHealthGeneration, positionBeforeEffect, frameBeforeEffect), 1600L);
+            }
+        }
+
+        if (vlcPlayer != null) {
+            if (vlcEffectsRebuildInFlight) {
+                // The current rebuild will finish with its captured generation;
+                // then the Playing event schedules the newer request.
+                effectsQueued = true;
+                return;
+            }
+            if (vlcAppliedEffectsGeneration != requestedGeneration) {
+                vlcEffectsRebuildInFlight = true;
+                vlcEffectsRebuildStartedMs = android.os.SystemClock.elapsedRealtime();
+                vlcApplyingEffectsGeneration = requestedGeneration;
+                long pos = vlcPlayer.getTime();
+                pendingSeekMs = Math.max(0, pos);
+                try { vlcPlayer.stop(); } catch (Exception ignored) { }
+                rebuildVlcMedia();
+                if (!desiredPlaying) finishVlcEffectsRebuild();
+            }
+        }
         effectsQueued = false;
-        if (vlcPlayer == null || disposed) return;
-        long pos = vlcPlayer.getTime();
-        pendingSeekMs = Math.max(0, pos);
-        try { vlcPlayer.stop(); } catch (Exception ignored) { }
-        rebuildVlcMedia();
+    }
+
+    private void finishVlcEffectsRebuild() {
+        if (!vlcEffectsRebuildInFlight) return;
+        vlcEffectsRebuildInFlight = false;
+        vlcEffectsRebuildStartedMs = 0L;
+        vlcAppliedEffectsGeneration = vlcApplyingEffectsGeneration;
+        if (vlcAppliedEffectsGeneration != effectsRequestGeneration) {
+            effectsQueued = true;
+            mainHandler.removeCallbacks(effectsDebounce);
+            mainHandler.postDelayed(effectsDebounce, 200L);
+        }
     }
 
     /** Rebuild the VLC media (after effect changes) applying the adjust filter. */
@@ -313,11 +415,13 @@ public class ChanPlayerEngine {
             addAdjustOptions(media);
             vlcPlayer.setMedia(media);
             media.release();
-            vlcPlayer.play();
-            // Resume applied in the Playing event (pendingSeekMs) — the media
-            // must be open before setTime is reliable.
+            if (desiredPlaying) vlcPlayer.play();
+            // Resume is applied in the Playing event (pendingSeekMs) — the
+            // media must be open before setTime is reliable. If intentionally
+            // paused, the rebuilt media stays paused until requestPlay().
         } catch (Exception e) {
             Log.e(TAG, "rebuildVlcMedia failed", e);
+            finishVlcEffectsRebuild();
         }
     }
 
@@ -586,6 +690,8 @@ public class ChanPlayerEngine {
     }
 
     public void release() {
+        desiredPlaying = false;
+        actualState = "paused";
         disposed = true;
         releaseExo();
         releaseVlc();
@@ -670,6 +776,17 @@ public class ChanPlayerEngine {
                     .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory))
                     .setTrackSelector(trackSelector)
                     .build();
+            lastVideoFrameRealtimeMs = 0L;
+            awaitingFirstFrame = true;
+            surfaceHealthGeneration += 1;
+            // Per-frame evidence lets rotation recovery distinguish a healthy
+            // advancing decoder from audio/time progressing into a stale video
+            // output surface.
+            exoPlayer.setVideoFrameMetadataListener(
+                    (presentationTimeUs, releaseTimeNs, format, mediaFormat) -> {
+                        lastVideoFrameRealtimeMs = android.os.SystemClock.elapsedRealtime();
+                        awaitingFirstFrame = false;
+                    });
 
             // Capture the session generation so events from a superseded media
             // (a rapid change-video / queue play-now) are dropped, never routed
@@ -699,11 +816,17 @@ public class ChanPlayerEngine {
                 public void onPlaybackStateChanged(int state) {
                     if (disposed || gen != generation) return;
                     if (state == Player.STATE_READY) {
+                        actualState = desiredPlaying
+                                ? (exoPlayer != null && exoPlayer.isPlaying() ? "playing" : "surface-wait")
+                                : "paused";
                         if (listener != null) listener.onReady();
                     } else if (state == Player.STATE_BUFFERING) {
+                        actualState = "buffering";
                         if (listener != null) listener.onBuffering(0);
                     } else if (state == Player.STATE_ENDED) {
                         ended = true;
+                        desiredPlaying = false;
+                        actualState = "ended";
                         if (listener != null) listener.onEnded();
                     }
                 }
@@ -711,10 +834,26 @@ public class ChanPlayerEngine {
                 @Override
                 public void onIsPlayingChanged(boolean playing) {
                     if (disposed || gen != generation) return;
-                    if (listener != null) {
-                        if (playing) listener.onPlaying();
-                        else listener.onPaused();
+                    if (playing) {
+                        actualState = "playing";
+                        if (listener != null) listener.onPlaying();
+                    } else if (!desiredPlaying) {
+                        actualState = ended ? "ended" : "paused";
+                        // Only an explicit room/user pause changes control
+                        // intent. Buffering and surface rotation also make
+                        // Exo isPlaying=false, but are not pauses.
+                        if (listener != null) listener.onPaused();
+                    } else if (!"buffering".equals(actualState)) {
+                        actualState = "surface-wait";
                     }
+                }
+
+                @Override
+                public void onRenderedFirstFrame() {
+                    if (disposed || gen != generation) return;
+                    lastVideoFrameRealtimeMs = android.os.SystemClock.elapsedRealtime();
+                    awaitingFirstFrame = false;
+                    if (desiredPlaying) actualState = "playing";
                 }
 
                 @Override
@@ -789,24 +928,35 @@ public class ChanPlayerEngine {
             vlcPlayer.setEventListener(event -> mainHandler.post(() -> {
                 if (disposed || gen != generation) return;
                 if (event.type == MediaPlayer.Event.Buffering) {
-                    if (event.getBuffering() < 100f && listener != null) {
-                        listener.onBuffering(Math.round(event.getBuffering()));
+                    if (event.getBuffering() < 100f) {
+                        actualState = "buffering";
+                        if (listener != null) listener.onBuffering(Math.round(event.getBuffering()));
                     }
                 } else if (event.type == MediaPlayer.Event.Playing) {
-                    if (pendingSeekMs > 0) {
+                    actualState = "playing";
+                    if (pendingSeekMs >= 0) {
                         try { vlcPlayer.setTime(pendingSeekMs); } catch (Exception ignored) { }
                         pendingSeekMs = -1;
                     }
+                    finishVlcEffectsRebuild();
                     if (listener != null) {
                         listener.onReady();
                         listener.onPlaying();
                     }
                 } else if (event.type == MediaPlayer.Event.Paused) {
-                    if (listener != null) listener.onPaused();
+                    if (!desiredPlaying) {
+                        actualState = "paused";
+                        if (listener != null) listener.onPaused();
+                    } else {
+                        actualState = "surface-wait";
+                    }
                 } else if (event.type == MediaPlayer.Event.EndReached) {
                     ended = true;
+                    desiredPlaying = false;
+                    actualState = "ended";
                     if (listener != null) listener.onEnded();
                 } else if (event.type == MediaPlayer.Event.EncounteredError) {
+                    finishVlcEffectsRebuild();
                     if (listener != null) {
                         String d = buildErrorDetail("vlc", "", 0, "VLC EncounteredError — no HTTP/codec detail available from libVLC");
                         if (lastFallbackExoDetail != null) d += " | exoFallback=" + lastFallbackExoDetail;
@@ -827,6 +977,9 @@ public class ChanPlayerEngine {
 
             vlcPlayer.setMedia(media);
             media.release();
+            vlcAppliedEffectsGeneration = effectsRequestGeneration;
+            vlcEffectsRebuildInFlight = false;
+            vlcEffectsRebuildStartedMs = 0L;
             vlcPlayer.play();
             if (startMs > 0) vlcPlayer.setTime(startMs);
 
@@ -894,6 +1047,9 @@ public class ChanPlayerEngine {
     }
 
     private void releaseExo() {
+        surfaceHealthGeneration += 1;
+        awaitingFirstFrame = false;
+        lastVideoFrameRealtimeMs = 0L;
         try {
             if (exoView != null) exoView.setPlayer(null);
         } catch (Exception ignored) { }
@@ -921,6 +1077,9 @@ public class ChanPlayerEngine {
             libVLC = null;
         }
         vlcStarted = false;
+        vlcEffectsRebuildInFlight = false;
+        vlcEffectsRebuildStartedMs = 0L;
+        vlcApplyingEffectsGeneration = 0;
     }
 
     /** Attach the VLC surface (called by the overlay view before prepare). */
@@ -968,6 +1127,34 @@ public class ChanPlayerEngine {
         final int targetHeight = Math.max(0, height);
         mainHandler.post(() -> {
             if (disposed) return;
+            if (vlcEffectsRebuildInFlight) {
+                // Complete the one in-flight committed brightness rebuild
+                // before touching VLC's output surface. The inverse ordering is
+                // enforced in applyEffectsNow via surfaceTransitionUntilMs.
+                long age = android.os.SystemClock.elapsedRealtime() - vlcEffectsRebuildStartedMs;
+                if (age < 1500L) {
+                    mainHandler.postDelayed(() -> refreshSurface(targetWidth, targetHeight), 250L);
+                    return;
+                }
+                // Do not let a slow/dead media-open permanently block rotation.
+                vlcEffectsRebuildInFlight = false;
+                vlcEffectsRebuildStartedMs = 0L;
+            }
+
+            long transitionNow = android.os.SystemClock.elapsedRealtime();
+            surfaceTransitionUntilMs = Math.max(surfaceTransitionUntilMs, transitionNow + 2200L);
+            if (effectsQueued) {
+                mainHandler.removeCallbacks(effectsDebounce);
+                mainHandler.postDelayed(effectsDebounce, 2300L);
+            }
+
+            final int healthGeneration = ++surfaceHealthGeneration;
+            final long positionAtRefresh = getPositionMs();
+            final long frameAtRefresh = lastVideoFrameRealtimeMs;
+            if (exoPlayer != null && desiredPlaying) {
+                awaitingFirstFrame = true;
+                actualState = "surface-wait";
+            }
 
             if (exoPlayer != null && exoView != null) {
                 try {
@@ -1004,6 +1191,91 @@ public class ChanPlayerEngine {
                     Log.w(TAG, "refreshSurface (VLC resize) failed", t);
                 }
             }
+
+            if (exoPlayer != null && desiredPlaying) {
+                mainHandler.postDelayed(() -> verifyExoFramesAfterSurfaceChange(
+                        healthGeneration, positionAtRefresh, frameAtRefresh), 1600L);
+            } else if (vlcPlayer != null && desiredPlaying) {
+                // VLC exposes surface attachment but no reliable per-frame
+                // callback. Re-run its supported resize once after layout
+                // settles; this does not stop/rebuild media or seek.
+                mainHandler.postDelayed(() -> {
+                    if (disposed || healthGeneration != surfaceHealthGeneration
+                            || vlcPlayer == null || !desiredPlaying) return;
+                    try {
+                        if (targetWidth > 0 && targetHeight > 0) {
+                            vlcPlayer.getVLCVout().setWindowSize(targetWidth, targetHeight);
+                        }
+                        vlcPlayer.updateVideoSurfaces();
+                        actualState = vlcPlayer.isPlaying() ? "playing" : "surface-wait";
+                    } catch (Throwable t) {
+                        Log.w(TAG, "VLC post-rotation surface check failed", t);
+                    }
+                }, 500L);
+            }
         });
+    }
+
+    private void verifyExoFramesAfterSurfaceChange(int healthGeneration,
+                                                    long positionAtRefresh,
+                                                    long frameAtRefresh) {
+        if (disposed || healthGeneration != surfaceHealthGeneration
+                || exoPlayer == null || !desiredPlaying || ended) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        long positionNow = getPositionMs();
+        boolean timelineAdvanced = positionNow - positionAtRefresh >= 500L;
+        boolean frameAdvanced = lastVideoFrameRealtimeMs > frameAtRefresh
+                && now - lastVideoFrameRealtimeMs < 1400L;
+        if (!timelineAdvanced || frameAdvanced || !awaitingFirstFrame) {
+            if (frameAdvanced) actualState = "playing";
+            return;
+        }
+
+        // One targeted surface recovery, only after proving that the timeline
+        // advanced without video frames. Ordinary rotations never detach.
+        if (now - lastTargetedSurfaceRecoveryMs < 3000L) return;
+        lastTargetedSurfaceRecoveryMs = now;
+        surfaceTransitionUntilMs = Math.max(surfaceTransitionUntilMs, now + 1800L);
+        if (effectsQueued) {
+            mainHandler.removeCallbacks(effectsDebounce);
+            mainHandler.postDelayed(effectsDebounce, 1900L);
+        }
+        actualState = "surface-wait";
+        final long recoveryFrameMarker = lastVideoFrameRealtimeMs;
+        try {
+            if (exoView != null) {
+                exoView.setPlayer(null);
+                exoView.setPlayer(exoPlayer);
+                exoView.requestLayout();
+                android.view.View surface = exoView.getVideoSurfaceView();
+                if (surface != null) {
+                    surface.requestLayout();
+                    surface.invalidate();
+                }
+            }
+            if (desiredPlaying) exoPlayer.play();
+        } catch (Throwable t) {
+            Log.w(TAG, "Targeted Exo surface recovery failed", t);
+        }
+
+        // A same-position seek is the final, one-shot fallback because device
+        // testing showed it flushes a decoder still targeting the old surface.
+        mainHandler.postDelayed(() -> {
+            if (disposed || healthGeneration != surfaceHealthGeneration
+                    || exoPlayer == null || !desiredPlaying || ended) return;
+            long checkNow = android.os.SystemClock.elapsedRealtime();
+            boolean recovered = lastVideoFrameRealtimeMs > recoveryFrameMarker
+                    && checkNow - lastVideoFrameRealtimeMs < 900L;
+            if (recovered || !awaitingFirstFrame) {
+                actualState = "playing";
+                return;
+            }
+            try {
+                exoPlayer.seekTo(Math.max(0L, getPositionMs()));
+                exoPlayer.play();
+            } catch (Throwable t) {
+                Log.w(TAG, "Final Exo same-position recovery failed", t);
+            }
+        }, 1000L);
     }
 }

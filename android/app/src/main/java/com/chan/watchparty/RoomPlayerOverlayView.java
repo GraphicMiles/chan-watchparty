@@ -275,7 +275,7 @@ public class RoomPlayerOverlayView extends FrameLayout {
         btnPlayPause.setContentDescription("Play");
         btnPlayPause.setOnClickListener(v -> {
             if (engine == null) return;
-            if (engine.isPlaying()) engine.pause();
+            if (engine.isPlaybackDesired()) engine.pause();
             else engine.play();
             updateProgress();
             resetControlsTimer();
@@ -392,7 +392,7 @@ public class RoomPlayerOverlayView extends FrameLayout {
             timeCurrent.setText(formatTime(pos));
         }
         timeTotal.setText(formatTime(dur));
-        boolean playing = engine.isPlaying();
+        boolean playing = engine.isPlaybackDesired();
         btnPlayPause.setImageResource(playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
         btnPlayPause.setContentDescription(playing ? "Pause" : "Play");
 

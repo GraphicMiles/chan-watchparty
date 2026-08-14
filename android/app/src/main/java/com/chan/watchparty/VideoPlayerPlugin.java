@@ -168,6 +168,8 @@ public class VideoPlayerPlugin extends Plugin {
     private ChanPlayerEngine engine;
     private FrameLayout.LayoutParams lastRect;   // px
     private boolean fullscreen = false;
+    private int orientationBeforeFullscreen = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+    private boolean ownsFullscreenOrientation = false;
     private boolean attached = false;
     private boolean wasPlayingBeforePip = false;
     private boolean chromeEnabled = true; // from showEmbedded controls flag
@@ -192,7 +194,9 @@ public class VideoPlayerPlugin extends Plugin {
             if (!fullscreen || fsControlsView == null || !fsControlsLoaded || engine == null) return;
             try {
                 org.json.JSONObject o = new org.json.JSONObject();
-                o.put("playing", engine.isPlaying());
+                o.put("playing", engine.isPlaybackDesired());
+                o.put("actuallyPlaying", engine.isPlaying());
+                o.put("actualState", engine.getActualState());
                 o.put("positionMs", engine.getPositionMs());
                 o.put("durationMs", engine.getDurationMs());
                 o.put("title", lastTitle == null ? "Chan Video" : lastTitle);
@@ -208,10 +212,19 @@ public class VideoPlayerPlugin extends Plugin {
         }
     };
 
-    private void ensureFsControls() {
-        if (fsControlsView != null) return;
-        fsControlsView = new android.webkit.WebView(getActivity());
+    private void keepFullscreenControlsTransparent() {
+        if (fsControlsView == null) return;
         fsControlsView.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        fsControlsView.setBackgroundResource(android.R.color.transparent);
+    }
+
+    private void ensureFsControls() {
+        if (fsControlsView != null) {
+            keepFullscreenControlsTransparent();
+            return;
+        }
+        fsControlsView = new android.webkit.WebView(getActivity());
+        keepFullscreenControlsTransparent();
         fsControlsView.setVerticalScrollBarEnabled(false);
         fsControlsView.setHorizontalScrollBarEnabled(false);
         fsControlsView.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
@@ -224,6 +237,7 @@ public class VideoPlayerPlugin extends Plugin {
         fsControlsView.setWebViewClient(new android.webkit.WebViewClient() {
             @Override
             public void onPageFinished(android.webkit.WebView view, String url) {
+                keepFullscreenControlsTransparent();
                 fsControlsLoaded = true;
                 if (fullscreen) {
                     view.setVisibility(android.view.View.VISIBLE);
@@ -279,7 +293,7 @@ public class VideoPlayerPlugin extends Plugin {
                 if (engine == null) return;
                 try {
                     switch (action) {
-                        case "toggle": if (engine.isPlaying()) engine.pause(); else engine.play(); break;
+                        case "toggle": if (engine.isPlaybackDesired()) engine.pause(); else engine.play(); break;
                         case "play": engine.play(); break;
                         case "pause": engine.pause(); break;
                         case "seek": engine.seekTo((long) value); break;
@@ -438,15 +452,53 @@ public class VideoPlayerPlugin extends Plugin {
         });
     }
 
+    private void takeFullscreenOrientationOwnership() {
+        if (!ownsFullscreenOrientation) {
+            try {
+                orientationBeforeFullscreen = getActivity().getRequestedOrientation();
+            } catch (Throwable ignored) {
+                orientationBeforeFullscreen = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+            }
+            ownsFullscreenOrientation = true;
+        }
+        try {
+            getActivity().setRequestedOrientation(
+                    android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        } catch (Throwable t) {
+            Log.w(TAG, "Could not request fullscreen landscape", t);
+        }
+    }
+
+    private void restoreOrientationAfterFullscreen() {
+        if (!ownsFullscreenOrientation) return;
+        int restore = orientationBeforeFullscreen;
+        // The app intentionally starts portrait-locked. If Android reported
+        // UNSPECIFIED while bootstrapping, restore portrait rather than leaving
+        // the room stranded in the last fullscreen orientation.
+        if (restore == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                || restore == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR
+                || restore == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR) {
+            restore = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+        }
+        try {
+            getActivity().setRequestedOrientation(restore);
+        } catch (Throwable t) {
+            Log.w(TAG, "Could not restore app orientation", t);
+        }
+        ownsFullscreenOrientation = false;
+        orientationBeforeFullscreen = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+    }
+
     private void rotateOrientation() {
         try {
             int cur = getActivity().getResources().getConfiguration().orientation;
-            if (cur == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-                getActivity().setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-            } else {
-                getActivity().setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-            }
-        } catch (Exception ignored) { }
+            getActivity().setRequestedOrientation(
+                    cur == Configuration.ORIENTATION_LANDSCAPE
+                            ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                            : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        } catch (Throwable t) {
+            Log.w(TAG, "Could not rotate fullscreen player", t);
+        }
     }
 
     private BroadcastReceiver piPReceiver;
@@ -541,6 +593,10 @@ public class VideoPlayerPlugin extends Plugin {
 
     private void emitPlaybackState(String state, JSObject extra) {
         JSObject data = new JSObject().put("state", state);
+        if (engine != null) {
+            data.put("desiredPlaying", engine.isPlaybackDesired());
+            data.put("actualState", engine.getActualState());
+        }
         if (extra != null) {
             java.util.Iterator<String> keys = extra.keys();
             while (keys.hasNext()) {
@@ -557,6 +613,16 @@ public class VideoPlayerPlugin extends Plugin {
     }
 
     // ── Plugin methods ───────────────────────────────────────────────────
+
+    /** Exact identity of the installed APK, generated by Gradle/CI. */
+    @PluginMethod
+    public void getBuildInfo(PluginCall call) {
+        JSObject result = new JSObject()
+                .put("commit", BuildConfig.GIT_COMMIT_SHA)
+                .put("version", BuildConfig.VERSION_NAME)
+                .put("builtAt", BuildConfig.BUILD_TIMESTAMP_UTC);
+        call.resolve(result);
+    }
 
     @PluginMethod
     public void showEmbedded(PluginCall call) {
@@ -786,7 +852,11 @@ public class VideoPlayerPlugin extends Plugin {
                 if (engine != null) {
                     result.put("positionMs", engine.getPositionMs());
                     result.put("durationMs", engine.getDurationMs());
-                    result.put("isPlaying", engine.isPlaying());
+                    // Stable user/room intent drives the control icon. Actual
+                    // rendering may temporarily stop for buffering/rotation.
+                    result.put("isPlaying", engine.isPlaybackDesired());
+                    result.put("isActuallyPlaying", engine.isPlaying());
+                    result.put("actualState", engine.getActualState());
                     result.put("ended", engine.isEnded());
                     result.put("ready", true);
                     result.put("engine", engine.isExoActive() ? "exo" : "vlc");
@@ -794,6 +864,8 @@ public class VideoPlayerPlugin extends Plugin {
                     result.put("positionMs", 0);
                     result.put("durationMs", 0);
                     result.put("isPlaying", false);
+                    result.put("isActuallyPlaying", false);
+                    result.put("actualState", "paused");
                     result.put("ended", false);
                     result.put("ready", false);
                     result.put("engine", "none");
@@ -822,10 +894,12 @@ public class VideoPlayerPlugin extends Plugin {
 
     private void setFullscreenUi(boolean value) {
         if (overlay == null || overlay.getParent() == null) return;
+        final boolean wasFullscreen = fullscreen;
         fullscreen = value;
         getActivity().runOnUiThread(() -> {
             ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
             if (fullscreen) {
+                if (!wasFullscreen) takeFullscreenOrientationOwnership();
                 FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT
@@ -864,9 +938,7 @@ public class VideoPlayerPlugin extends Plugin {
                 }
                 overlay.setInteractive(chromeEnabled);
                 showSystemUi();
-                try {
-                    getActivity().setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-                } catch (Exception ignored) { }
+                if (wasFullscreen) restoreOrientationAfterFullscreen();
                 // Hide the fullscreen controls layer.
                 fsPushHandler.removeCallbacks(fsPushRunnable);
                 if (fsControlsView != null) fsControlsView.setVisibility(View.GONE);
@@ -982,7 +1054,13 @@ public class VideoPlayerPlugin extends Plugin {
         Boolean visible = call.getBoolean("visible", true);
         runOnMainThread(() -> {
             try {
-                if (overlay != null) overlay.setVisible(visible == null || visible);
+                if (overlay != null) {
+                    // Fullscreen visibility is a native invariant. The WebView
+                    // continues measuring its inline placeholder during some
+                    // transitions and may report it offscreen; that must not
+                    // hide the MATCH_PARENT video while audio keeps playing.
+                    overlay.setVisible(fullscreen || visible == null || visible);
+                }
                 call.resolve();
             } catch (Throwable t) {
                 Log.e(TAG, "setVisible failed", t);
@@ -1016,7 +1094,7 @@ public class VideoPlayerPlugin extends Plugin {
                     result.put("positionMs", engine.getPositionMs());
                     result.put("durationMs", engine.getDurationMs());
                     result.put("ended", engine.isEnded());
-                    result.put("wasPlaying", engine.isPlaying());
+                    result.put("wasPlaying", engine.isPlaybackDesired());
                 }
                 teardown();
                 call.resolve(result);
@@ -1054,6 +1132,7 @@ public class VideoPlayerPlugin extends Plugin {
         }
         brightnessPopupWired = false; // next showBrightnessPopup re-wires listeners
         volumePopupWired = false; // next showVolumePopup re-wires listeners
+        if (fullscreen || ownsFullscreenOrientation) restoreOrientationAfterFullscreen();
         fullscreen = false;
         try { showSystemUi(); } catch (Exception ignored) { }
     }
@@ -1065,7 +1144,7 @@ public class VideoPlayerPlugin extends Plugin {
         try {
             WebView webView = getBridge().getWebView();
             if (webView != null) webView.setVisibility(View.INVISIBLE);
-            wasPlayingBeforePip = engine != null && engine.isPlaying();
+            wasPlayingBeforePip = engine != null && engine.isPlaybackDesired();
             PictureInPictureParams.Builder builder = new PictureInPictureParams.Builder()
                     .setAspectRatio(new Rational(16, 9))
                     .setActions(java.util.Collections.singletonList(buildTogglePlayRemoteAction()));
@@ -1079,7 +1158,7 @@ public class VideoPlayerPlugin extends Plugin {
     }
 
     private RemoteAction buildTogglePlayRemoteAction() {
-        boolean playing = engine != null && engine.isPlaying();
+        boolean playing = engine != null && engine.isPlaybackDesired();
         Intent intent = new Intent(ACTION_TOGGLE_PLAY);
         PendingIntent pi = PendingIntent.getBroadcast(
                 getActivity(), 1, intent,
@@ -1099,7 +1178,7 @@ public class VideoPlayerPlugin extends Plugin {
             public void onReceive(Context context, Intent intent) {
                 if (ACTION_TOGGLE_PLAY.equals(intent.getAction()) && engine != null) {
                     getActivity().runOnUiThread(() -> {
-                        if (engine.isPlaying()) engine.pause();
+                        if (engine.isPlaybackDesired()) engine.pause();
                         else engine.play();
                     });
                 }
@@ -1160,6 +1239,7 @@ public class VideoPlayerPlugin extends Plugin {
                 overlay.setInteractive(false);
                 overlay.requestLayout();
                 if (fsControlsView != null) {
+                    keepFullscreenControlsTransparent();
                     fsControlsView.setLayoutParams(new FrameLayout.LayoutParams(
                             FrameLayout.LayoutParams.MATCH_PARENT,
                             FrameLayout.LayoutParams.MATCH_PARENT));
