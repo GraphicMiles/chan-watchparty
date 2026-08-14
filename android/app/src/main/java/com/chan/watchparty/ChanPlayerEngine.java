@@ -112,6 +112,12 @@ public class ChanPlayerEngine {
      */
     private static volatile boolean glEffectsDisabledForDevice = false;
     private boolean exoEffectProbePending = false;
+    // When the previous ExoPlayer was released. Media3 frees the video effect
+    // graph's EGL context asynchronously, so a new effect pipeline created
+    // immediately afterwards can collide with it (EGL_BAD_ALLOC). The next
+    // install waits out this window.
+    private long lastExoReleaseMs = 0L;
+    private static final long EGL_TEARDOWN_GUARD_MS = 350L;
 
     private ExoPlayer exoPlayer;
     private androidx.media3.ui.PlayerView exoView; // attached by the overlay
@@ -787,6 +793,19 @@ public class ChanPlayerEngine {
             // whole session, so later changes are a pure uniform update.
             exoEffectInstalled = false;
             exoEffectProbePending = false;
+            // Give the previous player's GL teardown time to finish. Without
+            // this, change-video builds a second EGL context while the old one
+            // is still being destroyed and the GPU rejects it (EGL_BAD_ALLOC),
+            // leaving the last frame frozen with audio playing. Pressing retry
+            // "fixed" it precisely because by then the teardown had completed.
+            long sinceRelease = android.os.SystemClock.elapsedRealtime() - lastExoReleaseMs;
+            if (lastExoReleaseMs > 0L && sinceRelease < EGL_TEARDOWN_GUARD_MS) {
+                try {
+                    Thread.sleep(EGL_TEARDOWN_GUARD_MS - sinceRelease);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             if (!glEffectsDisabledForDevice) {
                 try {
                     liveBrightness.setBrightness(lastBrightness);
@@ -849,6 +868,29 @@ public class ChanPlayerEngine {
                 @Override
                 public void onPlayerError(PlaybackException error) {
                     if (disposed || gen != generation) return;
+
+                    // A video-effects/GL failure is NOT a bad stream. Without
+                    // this it fell through classifyExoError() to "other" and
+                    // the room showed "unavailable or expired", which is both
+                    // wrong and unactionable — the link is fine, the GPU
+                    // rejected the effect pipeline. Recover by dropping
+                    // effects process-wide and replaying the same media from
+                    // the current position; brightness degrades to the
+                    // dim-overlay behaviour rather than the video dying.
+                    String errCode = String.valueOf(error.getErrorCodeName());
+                    if (errCode.contains("VIDEO_FRAME_PROCESSING")
+                            || errCode.contains("GL_")) {
+                        Log.w(TAG, "Video effect pipeline failed — disabling GL effects", error);
+                        glEffectsDisabledForDevice = true;
+                        exoEffectProbePending = false;
+                        long resumeAt = Math.max(0L, getPositionMs());
+                        mainHandler.post(() -> {
+                            if (disposed || gen != generation || lastUrl == null) return;
+                            startExoPlayer(lastUrl, lastTitle, lastReferer, resumeAt);
+                        });
+                        return;
+                    }
+
                     String kind = classifyExoError(error);
                     int status = httpStatusFromCause(error.getCause());
                     String cause = error.getCause() != null ? String.valueOf(error.getCause().getMessage()) : "";
@@ -904,8 +946,16 @@ public class ChanPlayerEngine {
         if (!exoEffectProbePending || exoPlayer == null) return;
         exoEffectProbePending = false;
         if (glEffectsDisabledForDevice) return;
-        // A frame was rendered → the pipeline is healthy, nothing to do.
-        if (lastVideoFrameRealtimeMs > 0L) return;
+        // A frame was rendered recently → the pipeline is healthy.
+        // NOTE: checking only "was a frame EVER rendered" was too weak. On
+        // change-video the previous media had rendered frames, so this probe
+        // returned early and never noticed that the NEW media's pipeline was
+        // dead (frozen last frame, audio only). Require a frame from this
+        // session, recently.
+        long sinceFrame = lastVideoFrameRealtimeMs > 0L
+                ? android.os.SystemClock.elapsedRealtime() - lastVideoFrameRealtimeMs
+                : Long.MAX_VALUE;
+        if (sinceFrame < 3000L) return;
         // No frame yet. Only act if playback is genuinely progressing; a
         // stalled network / still-buffering stream is not an effects problem.
         long pos = getPositionMs();
@@ -1084,16 +1134,39 @@ public class ChanPlayerEngine {
         surfaceHealthGeneration += 1;
         awaitingFirstFrame = false;
         lastVideoFrameRealtimeMs = 0L;
+        if (exoPlayer != null) {
+            try { exoPlayer.pause(); } catch (Throwable ignored) { }
+            try { exoPlayer.stop(); } catch (Throwable ignored) { }
+            // Drop the video effect graph BEFORE releasing the player, and
+            // before detaching the view. Media3 tears the VideoFrameProcessor
+            // down on its own GL thread, so releasing while effects are still
+            // installed left the old EGL context alive briefly. Building the
+            // next player's effect pipeline then raced it and the GPU refused
+            // the allocation:
+            //   GlUtil$GlException: Error creating a new EGL surface,
+            //   error code: 0x3003  (EGL_BAD_ALLOC)
+            // which is the frozen-last-frame + audio-only symptom on
+            // change-video. Clearing first releases those GL resources.
+            if (exoEffectInstalled) {
+                try {
+                    exoPlayer.setVideoEffects(java.util.Collections.emptyList());
+                } catch (Throwable t) {
+                    Log.w(TAG, "Could not clear video effects before release", t);
+                }
+                exoEffectInstalled = false;
+            }
+        }
         try {
             if (exoView != null) exoView.setPlayer(null);
         } catch (Exception ignored) { }
         if (exoPlayer != null) {
-            try { exoPlayer.pause(); } catch (Throwable ignored) { }
-            try { exoPlayer.stop(); } catch (Throwable ignored) { }
             try { exoPlayer.release(); } catch (Throwable t) { Log.w(TAG, "exo release failed", t); }
             exoPlayer = null;
         }
         exoEffectInstalled = false;
+        // The GL teardown is asynchronous. Record when it started so the next
+        // startExoPlayer() can let it drain instead of allocating on top of it.
+        lastExoReleaseMs = android.os.SystemClock.elapsedRealtime();
     }
 
     private void releaseVlc() {

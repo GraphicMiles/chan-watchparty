@@ -12,8 +12,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, getDocs, serverTimestamp, writeBatch } from 'firebase/firestore'
-import { beforeAll, afterAll, beforeEach, describe, it } from 'vitest'
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, getDocs, query, where, limit, serverTimestamp, writeBatch } from 'firebase/firestore'
+import { beforeAll, afterAll, beforeEach, describe, it, expect } from 'vitest'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ID = 'chan-rules-test'
@@ -128,6 +128,70 @@ describe('room document', () => {
     await assertFails(setDoc(doc(as(VIEWER), 'rooms', 'room2'), {
       hostId: OUTSIDER, title: 'x', status: 'live', capacity: 4, participantCount: 0,
     }))
+  })
+})
+
+describe('home page lobby listing (collection query)', () => {
+  // Regression guard. canReadRoom() originally used get(/rooms/$(roomId)),
+  // which is null during a 'list' evaluation — Firestore evaluates rules
+  // BEFORE fetching documents, so the whole query was denied and the home
+  // page rendered an empty lobby for every user. The suite only tested
+  // single-document getDoc() reads, so it missed this entirely.
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore()
+      await setDoc(doc(db, 'rooms', 'public1'), {
+        hostId: 'other', status: 'live', isPrivate: false, title: 'Public one',
+        coHosts: [], bannedUids: [], capacity: 12, participantCount: 1,
+      })
+      await setDoc(doc(db, 'rooms', 'public2'), {
+        hostId: 'other', status: 'live', isPrivate: false, title: 'Public two',
+        coHosts: [], bannedUids: [], capacity: 12, participantCount: 2,
+      })
+    })
+  })
+
+  it('a user in NO room can list public live rooms (the real home page query)', async () => {
+    const q = query(
+      collection(as(OUTSIDER), 'rooms'),
+      where('status', '==', 'live'),
+      where('isPrivate', '==', false),
+      limit(100)
+    )
+    const snap = await assertSucceeds(getDocs(q))
+    expect(snap.size).toBe(2)
+  })
+
+  it('the lobby query never exposes a private room', async () => {
+    const q = query(
+      collection(as(OUTSIDER), 'rooms'),
+      where('status', '==', 'live'),
+      where('isPrivate', '==', false),
+      limit(100)
+    )
+    const snap = await assertSucceeds(getDocs(q))
+    expect(snap.docs.map((d) => d.id).includes(ROOM)).toBe(false)
+  })
+
+  it('an unfiltered listing of ALL rooms is still denied', async () => {
+    // Without the isPrivate filter the query could surface private rooms, so
+    // the rules must reject it rather than leak invite codes.
+    await assertFails(getDocs(collection(as(OUTSIDER), 'rooms')))
+  })
+
+  it('anonymous users cannot list rooms', async () => {
+    const q = query(collection(anon(), 'rooms'), where('isPrivate', '==', false), limit(100))
+    await assertFails(getDocs(q))
+  })
+
+  it('an over-large lobby query is denied', async () => {
+    // Keeps the listing bounded so it cannot be turned into a bulk export.
+    const q = query(
+      collection(as(OUTSIDER), 'rooms'),
+      where('isPrivate', '==', false),
+      limit(5000)
+    )
+    await assertFails(getDocs(q))
   })
 })
 
