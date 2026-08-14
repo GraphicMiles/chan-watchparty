@@ -92,10 +92,26 @@ public class ChanPlayerEngine {
     // change). Media3's Brightness effect is ADDITIVE (adds a constant to RGB),
     // which washed the picture to white at >100% — the wrong semantics. This
     // matrix multiplies the actual pixels, matching libVLC's :adjust-brightness
-    // (0..2). Installed only while brightness != 100% so neutral playback never
-    // carries an effect graph.
-    private LiveBrightnessRgbMatrix liveBrightness = new LiveBrightnessRgbMatrix();
+    // (0..2). Installed once before prepare() and kept in the graph for the
+    // whole session (identity at 1.0), because Media3 cannot add an effect
+    // pipeline after prepare() — see glEffectsDisabledForDevice below.
+    private final LiveBrightnessRgbMatrix liveBrightness = new LiveBrightnessRgbMatrix();
     private boolean exoEffectInstalled = false;
+    /**
+     * Media3 requires setVideoEffects() to run at least once BEFORE prepare()
+     * to build the GL effect pipeline; a first call made afterwards is a no-op,
+     * which is why brightness above 100% never did anything. We therefore
+     * install the matrix at prepare time on every playback.
+     *
+     * The cost is that the GL frame processor is now in the graph for ALL
+     * playback, and a minority of devices/decoders render black through it.
+     * This flag is the escape hatch: if the effect pipeline is proven to
+     * produce no frames, it is disabled process-wide and playback is restarted
+     * effect-free (brightness then degrades to the dim-overlay-only behaviour
+     * that shipped before, rather than a black screen).
+     */
+    private static volatile boolean glEffectsDisabledForDevice = false;
+    private boolean exoEffectProbePending = false;
 
     private ExoPlayer exoPlayer;
     private androidx.media3.ui.PlayerView exoView; // attached by the overlay
@@ -258,8 +274,9 @@ public class ChanPlayerEngine {
     /**
      * REAL video brightness via the engines' native pipelines (0..2 = 0%..200%,
      * 1 = neutral) — a true pixel multiply, never an additive white blend:
-     *  - ExoPlayer: the LiveBrightnessRgbMatrix (4x4 RGB scale) installed only
-     *    while non-neutral.
+     *  - ExoPlayer: the LiveBrightnessRgbMatrix (4x4 RGB scale), already in the
+     *    graph since prepare(); this only updates its uniform, so there is no
+     *    reconfiguration and playback is never interrupted.
      *  - LibVLC:   :video-filter=adjust with :adjust-brightness (0..2 multiply),
      *    applied by a debounced re-prepare that resumes at the same position.
      */
@@ -275,28 +292,21 @@ public class ChanPlayerEngine {
                     && Math.abs(hueDeg) < 0.5f;
             effectsRequestGeneration += 1;
 
-            // Live Exo matrix updates keep slider feedback responsive after the
-            // graph exists. The debounced commit below explicitly resubmits the
-            // effect so 125/150/200% never depend only on mutable-object caching.
-            if (exoPlayer != null) {
-                liveBrightness.setBrightness(lastBrightness);
-                if (!effectsNeutral && !exoEffectInstalled) {
-                    try {
-                        exoPlayer.setVideoEffects(java.util.Collections.singletonList(
-                                (androidx.media3.common.Effect) liveBrightness));
-                        exoEffectInstalled = true;
-                    } catch (Throwable e) {
-                        Log.e(TAG, "Exo initial brightness effect failed", e);
-                    }
-                }
-            }
+            // ExoPlayer: the matrix instance already lives in the graph from
+            // prepare(), so mutating it is the WHOLE update. No resubmission,
+            // no new effect identity, no surface transition — the frame
+            // processor samples getMatrix() per frame. Resubmitting here was
+            // what made brightness rebuffer and could trip surface recovery.
+            liveBrightness.setBrightness(lastBrightness);
 
-            // True debounce: every slider movement replaces the prior commit.
-            // VLC therefore rebuilds at most once after interaction settles,
-            // never once per intermediate value.
-            effectsQueued = true;
-            mainHandler.removeCallbacks(effectsDebounce);
-            mainHandler.postDelayed(effectsDebounce, 350L);
+            // Only LibVLC needs a deferred commit (it applies the adjust filter
+            // through media options, so it must re-prepare). Skip the debounce
+            // entirely on the Exo path — nothing left for it to do.
+            if (vlcPlayer != null) {
+                effectsQueued = true;
+                mainHandler.removeCallbacks(effectsDebounce);
+                mainHandler.postDelayed(effectsDebounce, 350L);
+            }
         });
     }
 
@@ -331,41 +341,12 @@ public class ChanPlayerEngine {
 
         final int requestedGeneration = effectsRequestGeneration;
 
-        // Explicitly commit the current Exo configuration. This avoids relying
-        // solely on mutation of a matrix object the frame processor may cache.
-        if (exoPlayer != null) {
-            final int effectHealthGeneration = ++surfaceHealthGeneration;
-            final long positionBeforeEffect = getPositionMs();
-            final long frameBeforeEffect = lastVideoFrameRealtimeMs;
-            if (desiredPlaying) {
-                awaitingFirstFrame = true;
-                actualState = "surface-wait";
-                surfaceTransitionUntilMs = Math.max(surfaceTransitionUntilMs, now + 1800L);
-            }
-            try {
-                if (effectsNeutral) {
-                    liveBrightness.setBrightness(1f);
-                    if (exoEffectInstalled) exoPlayer.setVideoEffects(java.util.Collections.emptyList());
-                    exoEffectInstalled = false;
-                } else {
-                    // New effect identity forces Media3 to consume the final
-                    // committed matrix instead of treating the same mutable
-                    // object/list as unchanged.
-                    LiveBrightnessRgbMatrix committedMatrix = new LiveBrightnessRgbMatrix();
-                    committedMatrix.setBrightness(lastBrightness);
-                    liveBrightness = committedMatrix;
-                    exoPlayer.setVideoEffects(java.util.Collections.singletonList(
-                            (androidx.media3.common.Effect) committedMatrix));
-                    exoEffectInstalled = true;
-                }
-            } catch (Throwable e) {
-                Log.e(TAG, "Exo brightness commit failed", e);
-            }
-            if (desiredPlaying) {
-                mainHandler.postDelayed(() -> verifyExoFramesAfterSurfaceChange(
-                        effectHealthGeneration, positionBeforeEffect, frameBeforeEffect), 1600L);
-            }
-        }
+        // ExoPlayer intentionally does nothing here. The live matrix installed
+        // before prepare() is mutated directly in setVideoEffects(), so there
+        // is no commit to make. The previous implementation swapped in a new
+        // effect identity and re-submitted the list, which forced a video
+        // graph reconfiguration (surface-wait + possible surface recovery +
+        // rebuffer) on every settled slider interaction.
 
         if (vlcPlayer != null) {
             if (vlcEffectsRebuildInFlight) {
@@ -798,16 +779,25 @@ public class ChanPlayerEngine {
             if (exoView != null) {
                 exoView.setPlayer(exoPlayer);
             }
-            // Re-apply a non-neutral brightness on the fresh player (e.g. after
-            // a video change). Neutral stays effect-free.
+            // Install the brightness matrix BEFORE prepare(). Media3 only sets
+            // up the effect pipeline if setVideoEffects() ran at least once
+            // pre-prepare; calling it for the first time later silently does
+            // nothing, which is exactly why >100% brightness never applied.
+            // The matrix is identity at 1.0 and stays in the graph for the
+            // whole session, so later changes are a pure uniform update.
             exoEffectInstalled = false;
-            if (!effectsNeutral) {
+            exoEffectProbePending = false;
+            if (!glEffectsDisabledForDevice) {
                 try {
                     liveBrightness.setBrightness(lastBrightness);
-                    exoPlayer.setVideoEffects(java.util.Collections.singletonList((androidx.media3.common.Effect) liveBrightness));
+                    exoPlayer.setVideoEffects(java.util.Collections.singletonList(
+                            (androidx.media3.common.Effect) liveBrightness));
                     exoEffectInstalled = true;
+                    // Verify the GL path actually renders on this device.
+                    exoEffectProbePending = true;
                 } catch (Throwable t) {
                     Log.e(TAG, "Could not install live brightness matrix", t);
+                    glEffectsDisabledForDevice = true;
                 }
             }
 
@@ -886,9 +876,53 @@ public class ChanPlayerEngine {
             exoPlayer.prepare();
             if (startMs > 0) exoPlayer.seekTo(startMs);
             exoPlayer.play();
+
+            // Black-screen guard for the always-on GL effect pipeline. Some
+            // devices/decoders render nothing through the frame processor. If
+            // the timeline advances with zero video frames, drop effects for
+            // the rest of the process and restart this media effect-free.
+            if (exoEffectProbePending) {
+                final long probeGen = generation;
+                mainHandler.postDelayed(() -> verifyGlEffectPipeline(probeGen), 4000L);
+            }
         } catch (Exception e) {
             Log.e(TAG, "Could not start ExoPlayer; falling back to LibVLC", e);
             if (!disposed) startVlcPlayer("Switching engines…", url, title, referer, startMs);
+        }
+    }
+
+    /**
+     * One-shot check that the always-on GL effect pipeline actually produces
+     * frames on this device. Runs ~4s after prepare(). If audio/timeline moved
+     * but no video frame was ever rendered, the effect graph is the prime
+     * suspect (a known Media3 failure mode on some hardware) — disable it
+     * process-wide and restart the SAME media at the SAME position without
+     * effects. Brightness then falls back to dim-overlay-only behaviour.
+     */
+    private void verifyGlEffectPipeline(long probeGeneration) {
+        if (disposed || probeGeneration != generation) return;
+        if (!exoEffectProbePending || exoPlayer == null) return;
+        exoEffectProbePending = false;
+        if (glEffectsDisabledForDevice) return;
+        // A frame was rendered → the pipeline is healthy, nothing to do.
+        if (lastVideoFrameRealtimeMs > 0L) return;
+        // No frame yet. Only act if playback is genuinely progressing; a
+        // stalled network / still-buffering stream is not an effects problem.
+        long pos = getPositionMs();
+        if (!desiredPlaying || pos < 1000L) return;
+
+        Log.w(TAG, "No video frame with GL effects after 4s — disabling effects for this device");
+        glEffectsDisabledForDevice = true;
+        try {
+            exoPlayer.setVideoEffects(java.util.Collections.emptyList());
+            exoEffectInstalled = false;
+        } catch (Throwable t) {
+            Log.w(TAG, "Could not clear video effects", t);
+        }
+        // Removing effects post-prepare does not reliably rebuild the graph,
+        // so restart the media effect-free from the current position.
+        if (lastUrl != null) {
+            startExoPlayer(lastUrl, lastTitle, lastReferer, Math.max(0L, pos));
         }
     }
 
@@ -1137,8 +1171,12 @@ public class ChanPlayerEngine {
                     return;
                 }
                 // Do not let a slow/dead media-open permanently block rotation.
-                vlcEffectsRebuildInFlight = false;
-                vlcEffectsRebuildStartedMs = 0L;
+                // Reconcile through finishVlcEffectsRebuild() rather than just
+                // clearing the flag: the bare clear left vlcAppliedEffects-
+                // Generation permanently behind the requested generation, so
+                // the abandoned brightness value was never re-applied (a real
+                // lost update — the slider kept its value, the video did not).
+                finishVlcEffectsRebuild();
             }
 
             long transitionNow = android.os.SystemClock.elapsedRealtime();

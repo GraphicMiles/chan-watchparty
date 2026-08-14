@@ -339,15 +339,10 @@ public class VideoPlayerPlugin extends Plugin {
             // the engine's actual Brightness effect (Exo effect / VLC adjust
             // filter). Never a fake white wash — the video pixels themselves
             // brighten/darken.
-            if (overlay != null) {
-                if (b <= 1f) {
-                    overlay.setBrightnessDim(b);
-                    if (engine != null) engine.setVideoEffects(1f, 1f, 1f, 0f); // neutral
-                } else {
-                    overlay.setBrightnessDim(1f); // no dim
-                    if (engine != null) engine.setVideoEffects(b, 1f, 1f, 0f);
-                }
-            }
+            // The engine call must NOT be nested inside the overlay null-check:
+            // a null overlay would silently swallow every brightness change.
+            if (overlay != null) overlay.setBrightnessDim(b <= 1f ? b : 1f);
+            if (engine != null) engine.setVideoEffects(b <= 1f ? 1f : b, 1f, 1f, 0f);
         } catch (Throwable t) {
             Log.e(TAG, "applyBrightness failed", t);
         }
