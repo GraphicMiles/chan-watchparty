@@ -148,12 +148,22 @@
   });
   // Brightness slider (50%..200%). The native plugin handles dim (<=100%,
   // pure overlay, no engine) vs brighten (>100%, engine Brightness effect).
+  // NOTE: `parseInt(...) || 100` was a zero-swallowing bug — parseInt("0") is
+  // 0, which is falsy, so dragging to 0% sent brightness 1.0 (100%) to the
+  // engine while the slider thumb stayed at 0. Read the value explicitly and
+  // only fall back to 100 when it is genuinely not a number.
+  function readBrightPct(el) {
+    var raw = parseInt(el && el.value, 10);
+    if (!isFinite(raw)) return 100;
+    return Math.max(0, Math.min(200, raw));
+  }
   $('btnBright').addEventListener('click', function(){
-    var val = parseInt($('brightSlider').value, 10) || 100;
+    var val = readBrightPct($('brightSlider'));
+    $('brightVal').textContent = val + '%';
     cmd('brightness', val / 100);
   });
   $('brightSlider').addEventListener('input', function(){
-    var val = parseInt(this.value, 10) || 100;
+    var val = readBrightPct(this);
     $('brightVal').textContent = val + '%';
     cmd('brightness', val / 100);
   });
