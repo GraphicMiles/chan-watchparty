@@ -1,13 +1,9 @@
-// YouTube Data API v3 configuration (optional - only needed for search)
+// YouTube URL/ID helpers and playback URL normalisation.
 import { apiPath } from './api.js'
 
-const YOUTUBE_API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY || ''
-const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
-// Referer sent only when there is no browser window (SSR/native contexts).
-// This was hardcoded to the retired Vercel host; if the API key is
-// HTTP-referrer-restricted, that host must stay on the key's allowlist or the
-// request is rejected. Points at the live Render deployment instead.
-const FALLBACK_REFERER = 'https://chan-aunk.onrender.com/'
+// This module is URL/ID helpers only — it deliberately holds no API key.
+// YouTube Data API calls are made server-side in api/media.js so the key is
+// never shipped to the browser.
 
 const VIDEO_ID_RE =
   /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|youtube\.com\/shorts\/)([^"&?/ ]{11})/
@@ -302,85 +298,14 @@ export async function checkEmbeddable(videoId) {
   }
 }
 
-// YouTube Data API v3 functions (requires API key)
-
-export async function searchYouTube(query, maxResults = 10) {
-  if (!YOUTUBE_API_KEY) {
-    throw new Error('YouTube API key not configured. Add VITE_YOUTUBE_API_KEY to your .env file.')
-  }
-  
-  const params = new URLSearchParams({
-    part: 'snippet',
-    q: query,
-    type: 'video',
-    maxResults: String(maxResults),
-    key: YOUTUBE_API_KEY,
-  })
-  
-  const res = await fetch(`${YOUTUBE_API_BASE}/search?${params}`, {
-    headers: {
-      Referer: typeof window !== 'undefined' ? window.location.href : FALLBACK_REFERER,
-    },
-  })
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({}))
-    throw new Error(error.error?.message || 'YouTube search failed')
-  }
-  
-  const data = await res.json()
-  return data.items.map(item => ({
-    id: item.id.videoId,
-    title: item.snippet.title,
-    description: item.snippet.description,
-    thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-    channelTitle: item.snippet.channelTitle,
-    publishedAt: item.snippet.publishedAt,
-  }))
-}
-
-export async function getVideoDetails(videoId) {
-  if (!YOUTUBE_API_KEY) {
-    throw new Error('YouTube API key not configured')
-  }
-  
-  const params = new URLSearchParams({
-    part: 'snippet,contentDetails,statistics',
-    id: videoId,
-    key: YOUTUBE_API_KEY,
-  })
-  
-  const res = await fetch(`${YOUTUBE_API_BASE}/videos?${params}`, {
-    headers: {
-      Referer: typeof window !== 'undefined' ? window.location.href : FALLBACK_REFERER,
-    },
-  })
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({}))
-    throw new Error(error.error?.message || 'Failed to get video details')
-  }
-  
-  const data = await res.json()
-  if (!data.items || data.items.length === 0) {
-    return null
-  }
-  
-  const item = data.items[0]
-  return {
-    id: item.id,
-    title: item.snippet.title,
-    description: item.snippet.description,
-    thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url,
-    duration: item.contentDetails.duration,
-    viewCount: item.statistics.viewCount,
-    likeCount: item.statistics.likeCount,
-    channelTitle: item.snippet.channelTitle,
-  }
-}
-
-// Check if API key is configured
-export function hasYouTubeApiKey() {
-  return !!YOUTUBE_API_KEY
-}
+// NOTE: searchYouTube() / getVideoDetails() / hasYouTubeApiKey() used to live
+// here, calling the YouTube Data API directly from the browser with
+// VITE_YOUTUBE_API_KEY. They had no callers anywhere in the app — all YouTube
+// search goes through /api/media, which uses the server-side YOUTUBE_API_KEY.
+//
+// They were removed rather than left dormant because a VITE_ variable is
+// inlined into the client bundle, so wiring them up would have published the
+// API key to every visitor. Do the lookup server-side in api/media.js instead.
 
 export function getThumbnail(videoId) {
   if (!videoId) return null
