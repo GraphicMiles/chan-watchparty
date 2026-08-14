@@ -27,7 +27,11 @@ export interface Rect {
 export interface PlayerPosition {
   positionMs: number
   durationMs: number
+  /** Stable room/user intent; does not flap during buffering or rotation. */
   isPlaying: boolean
+  /** Whether frames/audio are actively advancing at this instant. */
+  isActuallyPlaying?: boolean
+  actualState?: 'playing' | 'buffering' | 'surface-wait' | 'paused' | 'ended'
   /** False only when no native engine is attached yet. */
   ready?: boolean
   ended?: boolean
@@ -51,7 +55,7 @@ export interface ProbeResult {
   error?: string
 }
 
-export type PlaybackStateEvent =
+export type PlaybackStateEvent = (
   | { state: 'ready' }
   | { state: 'buffering'; percent: number }
   | { state: 'playing' }
@@ -59,6 +63,10 @@ export type PlaybackStateEvent =
   | { state: 'ended' }
   | { state: 'error'; message: string; kind: ErrorKind; detail?: string }
   | { state: 'engine'; engine: string }
+) & {
+  desiredPlaying?: boolean
+  actualState?: 'playing' | 'buffering' | 'surface-wait' | 'paused' | 'ended'
+}
 
 export type ControlsEvent = { type: 'tap'; x?: number; y?: number }
 
@@ -80,6 +88,8 @@ export interface VideoEffects {
 }
 
 export interface VideoPlayerPlugin {
+  /** Exact Gradle/CI identity of the installed APK. */
+  getBuildInfo(): Promise<{ commit: string; version: string; builtAt: string }>
   /** Show the embedded native player over the room stage. */
   showEmbedded(options: ShowEmbeddedOptions): Promise<void>
   /** Apply brightness/contrast/saturation/hue to the active native engine. */

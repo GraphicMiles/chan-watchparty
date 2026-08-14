@@ -4,6 +4,21 @@ apply plugin: 'com.android.application'
 def ciVersionCode = project.hasProperty('versionCode') ? project.property('versionCode') as int : 20260813
 def ciVersionName = project.hasProperty('versionName') ? project.property('versionName') : '1.0.218'
 
+// Build identity must come from the checkout/build environment. GitHub Actions
+// passes explicit values; local builds fall back to the checked-out revision
+// and the actual UTC build time.
+def gitCommitSha = project.findProperty('gitCommitSha') ?: System.getenv('GITHUB_SHA')
+if (!gitCommitSha) {
+    try {
+        gitCommitSha = ['git', 'rev-parse', 'HEAD'].execute(null, rootDir).text.trim()
+    } catch (Exception ignored) {
+        gitCommitSha = 'unknown'
+    }
+}
+gitCommitSha = gitCommitSha.toString().take(12)
+def buildTimestampUtc = project.findProperty('buildTimestampUtc') ?: System.getenv('BUILD_TIMESTAMP_UTC')
+if (!buildTimestampUtc) buildTimestampUtc = java.time.Instant.now().toString()
+
 android {
     namespace "com.chan.watchparty"
     compileSdk rootProject.ext.compileSdkVersion
@@ -21,6 +36,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode ciVersionCode
         versionName ciVersionName
+        buildConfigField "String", "GIT_COMMIT_SHA", "\"${gitCommitSha}\""
+        buildConfigField "String", "BUILD_TIMESTAMP_UTC", "\"${buildTimestampUtc}\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         // Keep LibVLC APK size reasonable for MVP. Most current Android devices
