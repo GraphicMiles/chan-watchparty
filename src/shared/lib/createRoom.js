@@ -98,6 +98,9 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
     isPrivate,
     inviteCode,
     coHosts: [],
+    // Seeded so the field always exists; bans are applied server-side via
+    // /api/room (action: 'ban') and read by the Firestore rules.
+    bannedUids: [],
     locked: false,
     capacity: Math.min(Math.max(Number(capacity) || 12, 1), 12),
     participantCount: 0,

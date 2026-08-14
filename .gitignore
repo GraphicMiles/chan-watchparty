@@ -20,3 +20,7 @@ android/build/
 # OS files
 Thumbs.db
 desktop.ini
+
+# Firebase emulator logs
+firebase-debug.log
+firestore-debug.log

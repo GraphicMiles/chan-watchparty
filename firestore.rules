@@ -40,6 +40,71 @@ service cloud.firestore {
         && participantData(roomId).get('muted', false) == true;
     }
 
+    // Banned users keep no seat, but a ban must also survive a re-join
+    // attempt and block every write surface. kick alone was reversible: the
+    // kicked user simply joined again.
+    function isBanned(roomId) {
+      return isAuthed()
+        && roomData(roomId).get('bannedUids', []).hasAny([request.auth.uid]);
+    }
+
+    // A participant in good standing: seated, not banned.
+    function isActiveParticipant(roomId) {
+      return isRoomParticipant(roomId) && !isBanned(roomId);
+    }
+
+    // May this user see the room at all? Public rooms stay discoverable so the
+    // home page listing keeps working; private rooms are limited to people who
+    // already hold a seat. Joining a private room by code goes through
+    // /api/room (Admin SDK), so no client read is required first.
+    function canReadRoom(roomId) {
+      return isAuthed()
+        && (roomData(roomId).get('isPrivate', false) == false
+            || isRoomParticipant(roomId));
+    }
+
+    // Fields the client is allowed to change on the room document. Anything
+    // outside this set (hostId, bannedUids, inviteCode, isPrivate,
+    // participantCount, status, createdAt, ...) is server-managed.
+    // 'coHosts' is included because the HOST manages co-hosts from the room
+    // UI; co-hosts themselves are blocked from touching it by
+    // coHostListChangeAllowed() below.
+    function onlyContentFieldsChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly([
+          'title', 'synopsis', 'synopsisSource',
+          'videoId', 'videoUrl', 'videoType', 'activityType',
+          'isLive', 'media', 'sourceUrl', 'thumbnail',
+          'locked', 'capacity', 'lastHeartbeat', 'coHosts'
+        ]);
+    }
+
+    // Only the host may change the co-host list. A co-host editing it could
+    // add accomplices or strip the other co-hosts.
+    function coHostListChangeAllowed(roomId) {
+      return request.resource.data.get('coHosts', []) == resource.data.get('coHosts', [])
+        || isRoomHost(roomId);
+    }
+
+    // Immutable identity/authority fields. Spelled out rather than relying on
+    // the allowlist alone so a takeover attempt fails even if the allowlist is
+    // later widened by mistake.
+    function authorityFieldsUnchanged() {
+      return request.resource.data.hostId == resource.data.hostId
+        && request.resource.data.get('bannedUids', []) == resource.data.get('bannedUids', [])
+        && request.resource.data.get('inviteCode', '') == resource.data.get('inviteCode', '')
+        && request.resource.data.get('isPrivate', false) == resource.data.get('isPrivate', false)
+        && request.resource.data.get('participantCount', 0) == resource.data.get('participantCount', 0)
+        && request.resource.data.get('status', '') == resource.data.get('status', '');
+    }
+
+    function capacityWithinBounds() {
+      return !('capacity' in request.resource.data.diff(resource.data).affectedKeys())
+        || (request.resource.data.capacity is int
+            && request.resource.data.capacity >= 1
+            && request.resource.data.capacity <= 12);
+    }
+
     match /users/{uid} {
       allow read: if isAuthed();
       allow create: if isOwner(uid);
@@ -67,71 +132,117 @@ service cloud.firestore {
     }
 
     match /rooms/{roomId} {
-      allow read: if isAuthed();
+      // Public rooms are discoverable; private rooms (which carry inviteCode)
+      // are readable only by people already seated in them. Previously any
+      // signed-in user could read every room document and harvest the invite
+      // code of every private room.
+      allow read: if canReadRoom(roomId);
 
       allow create: if isAuthed()
-        && request.resource.data.hostId == request.auth.uid;
+        && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.get('coHosts', []).size() == 0
+        && request.resource.data.get('bannedUids', []).size() == 0
+        && request.resource.data.get('capacity', 12) is int
+        && request.resource.data.get('capacity', 12) >= 1
+        && request.resource.data.get('capacity', 12) <= 12;
 
-      // Only host/co-host can update room properties
-      // (participantCount sync from client is a nice-to-have; server manages it via transactions)
-      allow update: if isRoomHostOrCoHost(roomId);
+      // Host and co-hosts may edit room CONTENT only. hostId, coHosts,
+      // bannedUids, inviteCode, isPrivate, participantCount and status are
+      // never client-writable here: a co-host could otherwise write
+      // hostId to themselves and take the room from its owner.
+      // Membership/ban/role changes go through /api/room (Admin SDK).
+      allow update: if isRoomHostOrCoHost(roomId)
+        && !isBanned(roomId)
+        && onlyContentFieldsChanged()
+        && authorityFieldsUnchanged()
+        && coHostListChangeAllowed(roomId)
+        && capacityWithinBounds();
+
+      // Deleting a room is a server operation (it must cascade to
+      // subcollections, which a client delete would orphan).
+      allow delete: if false;
 
       match /playerState/{docId} {
-        allow read: if isAuthed() && docId == 'current';
-        allow write: if isRoomHostOrCoHost(roomId) && docId == 'current';
+        allow read: if isRoomParticipant(roomId) && docId == 'current';
+        allow write: if isRoomHostOrCoHost(roomId)
+          && !isBanned(roomId)
+          && docId == 'current';
       }
 
       match /queue/{itemId} {
-        allow read: if isAuthed();
-        allow create: if isAuthed()
+        allow read: if isRoomParticipant(roomId);
+        allow create: if isActiveParticipant(roomId)
+          && !isMuted(roomId)
           && request.resource.data.addedByUid == request.auth.uid
           && request.resource.data.title is string
+          && request.resource.data.title.size() > 0
           && request.resource.data.title.size() <= 150;
-        allow delete: if isRoomHostOrCoHost(roomId) || (isAuthed() && resource.data.addedByUid == request.auth.uid);
+        allow update: if isRoomHostOrCoHost(roomId) && !isBanned(roomId);
+        allow delete: if (isRoomHostOrCoHost(roomId) && !isBanned(roomId))
+          || (isAuthed() && resource.data.addedByUid == request.auth.uid);
       }
 
       match /floatingReactions/{reactionId} {
-        allow read: if isAuthed();
-        allow create: if isAuthed()
+        allow read: if isRoomParticipant(roomId);
+        // Muted users could previously still spam reactions, sound effects,
+        // pins and queue items — mute only silenced chat.
+        allow create: if isActiveParticipant(roomId)
+          && !isMuted(roomId)
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.emoji is string
+          && request.resource.data.emoji.size() > 0
           && request.resource.data.emoji.size() <= 16;
+        allow update: if false;
+        allow delete: if isRoomHostOrCoHost(roomId) && !isBanned(roomId);
       }
 
       match /soundEffects/{fxId} {
-        allow read: if isAuthed();
-        allow create: if isAuthed()
+        allow read: if isRoomParticipant(roomId);
+        allow create: if isActiveParticipant(roomId)
+          && !isMuted(roomId)
           && request.resource.data.uid == request.auth.uid
-          && request.resource.data.soundKey is string;
+          && request.resource.data.soundKey is string
+          && request.resource.data.soundKey.size() <= 40;
+        allow update: if false;
+        allow delete: if isRoomHostOrCoHost(roomId) && !isBanned(roomId);
       }
 
       match /stagePins/{pinId} {
-        allow read: if isAuthed();
-        allow create: if isAuthed() && request.resource.data.uid == request.auth.uid;
-        allow delete: if isRoomHostOrCoHost(roomId) || (isAuthed() && resource.data.uid == request.auth.uid);
+        allow read: if isRoomParticipant(roomId);
+        allow create: if isActiveParticipant(roomId)
+          && !isMuted(roomId)
+          && request.resource.data.uid == request.auth.uid;
+        allow update: if false;
+        allow delete: if (isRoomHostOrCoHost(roomId) && !isBanned(roomId))
+          || (isAuthed() && resource.data.uid == request.auth.uid);
       }
 
       match /quiz/{docId} {
-        allow read: if isAuthed();
-        // Only host/co-host can create/overwrite quiz; any authed user can vote (update)
-        allow create: if isRoomHostOrCoHost(roomId);
-        allow update: if isAuthed();
+        allow read: if isRoomParticipant(roomId);
+        allow create: if isRoomHostOrCoHost(roomId) && !isBanned(roomId);
+        // Voting is an update, but it was open to ANY signed-in user, who
+        // could overwrite the whole quiz document. Restrict to seated,
+        // non-banned participants.
+        allow update: if isActiveParticipant(roomId);
+        allow delete: if isRoomHostOrCoHost(roomId) && !isBanned(roomId);
       }
 
       match /aiState/{docId} {
-        allow read: if isAuthed();
-        allow write: if isRoomHostOrCoHost(roomId);
+        allow read: if isRoomParticipant(roomId);
+        allow write: if isRoomHostOrCoHost(roomId) && !isBanned(roomId);
       }
 
       match /participants/{uid} {
-        allow read: if isAuthed();
+        // Seats are server-managed; the list is visible to the room only.
+        allow read: if isRoomParticipant(roomId);
         allow write: if false;
       }
 
       match /messages/{messageId} {
-        allow read: if isAuthed();
-        allow create: if isAuthed()
-          && isRoomParticipant(roomId)
+        // Chat history was readable by ANY signed-in user without joining.
+        allow read: if isRoomParticipant(roomId);
+
+        allow create: if isActiveParticipant(roomId)
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
@@ -140,10 +251,19 @@ service cloud.firestore {
           && request.resource.data.displayName.size() <= 50
           && !isMuted(roomId);
 
+        // Messages are immutable — no silent post-hoc editing.
+        allow update: if false;
+        // Moderation: hosts/co-hosts can remove any message; authors can
+        // remove their own. Previously nobody could delete anything, so there
+        // was no way to take down abusive content.
+        allow delete: if (isRoomHostOrCoHost(roomId) && !isBanned(roomId))
+          || (isAuthed() && resource.data.uid == request.auth.uid);
+
         match /reactions/{uid} {
-          allow read: if isAuthed();
+          allow read: if isRoomParticipant(roomId);
           allow create, update: if isOwner(uid)
-            && isRoomParticipant(roomId)
+            && isActiveParticipant(roomId)
+            && !isMuted(roomId)
             && request.resource.data.emoji is string
             && request.resource.data.emoji.size() > 0
             && request.resource.data.emoji.size() <= 16;
@@ -152,8 +272,10 @@ service cloud.firestore {
       }
 
       match /typing/{uid} {
-        allow read: if isAuthed();
-        allow create, update: if isOwner(uid) && isRoomParticipant(roomId);
+        allow read: if isRoomParticipant(roomId);
+        allow create, update: if isOwner(uid)
+          && isActiveParticipant(roomId)
+          && !isMuted(roomId);
         allow delete: if isOwner(uid);
       }
     }

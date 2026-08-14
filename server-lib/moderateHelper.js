@@ -28,6 +28,54 @@ export async function kickParticipant(db, requesterUid, body) {
   return { success: true }
 }
 
+/**
+ * Ban (or unban) a user.
+ *
+ * kickParticipant only removes the seat, so a kicked user can immediately
+ * re-join. Banning records the uid on the room so both joinRoom() and the
+ * Firestore rules reject them, and removes any seat they currently hold.
+ */
+export async function banParticipant(db, requesterUid, body) {
+  const { roomId, uid, banned = true } = body || {}
+  if (!roomId || !uid) throw new Error('Missing roomId or uid')
+  if (typeof banned !== 'boolean') throw new Error('banned must be a boolean')
+
+  await db.runTransaction(async (t) => {
+    const roomRef = db.collection('rooms').doc(roomId)
+    const roomSnap = await t.get(roomRef)
+    if (!roomSnap.exists) throw new Error('Room not found')
+    const room = roomSnap.data()
+
+    // Bans are a host-only power. Co-hosts can mute, but must not be able to
+    // permanently exclude people (including each other).
+    if (room.hostId !== requesterUid) throw new Error('Only the host can ban participants')
+    if (uid === requesterUid) throw new Error('You cannot ban yourself')
+    if (uid === room.hostId) throw new Error('You cannot ban the host')
+
+    const update = {
+      bannedUids: banned ? FieldValue.arrayUnion(uid) : FieldValue.arrayRemove(uid),
+    }
+
+    if (banned) {
+      // Drop the seat as part of the same transaction so the ban and the
+      // removal cannot diverge.
+      const participantRef = roomRef.collection('participants').doc(uid)
+      const participantSnap = await t.get(participantRef)
+      if (participantSnap.exists) {
+        t.delete(participantRef)
+        update.participantCount = Math.max(0, (room.participantCount || 1) - 1)
+      }
+      if (Array.isArray(room.coHosts) && room.coHosts.includes(uid)) {
+        update.coHosts = FieldValue.arrayRemove(uid)
+      }
+    }
+
+    t.update(roomRef, update)
+  })
+
+  return { success: true, banned }
+}
+
 export async function promoteParticipant(db, requesterUid, body) {
   const { roomId, uid, role } = body || {}
   if (!roomId || !uid || !role) throw new Error('Missing roomId, uid, or role')
