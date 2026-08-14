@@ -9,6 +9,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Configuration;
+import android.os.Handler;
+import android.os.Looper;
 import androidx.core.graphics.drawable.IconCompat;
 import android.util.Log;
 import android.util.Rational;
@@ -48,6 +50,24 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 public class VideoPlayerPlugin extends Plugin {
     private static final String TAG = "VideoPlayer";
     private static final String ACTION_TOGGLE_PLAY = "com.chan.watchparty.TOGGLE_PLAY";
+
+    /**
+     * Capacitor invokes @PluginMethod calls on its "CapacitorPlugins" worker
+     * thread. Both native players are created by showEmbedded() on Android's
+     * main thread, so every player access and every View mutation must be
+     * marshalled back to that same thread. Fullscreen already did this; the
+     * embedded controls did not, which made commands silently no-op and made
+     * getPosition() report zero when ExoPlayer rejected wrong-thread access.
+     */
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    private void runOnMainThread(Runnable action) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            action.run();
+        } else {
+            mainHandler.post(action);
+        }
+    }
 
     private RoomPlayerOverlayView overlay;
     private ChanPlayerEngine engine;
@@ -227,8 +247,16 @@ public class VideoPlayerPlugin extends Plugin {
     @PluginMethod
     public void setBrightnessDim(PluginCall call) {
         Double value = call.getDouble("brightness", 1.0);
-        applyBrightness(value == null ? 1f : value.floatValue());
-        call.resolve();
+        final float brightness = value == null ? 1f : value.floatValue();
+        runOnMainThread(() -> {
+            try {
+                applyBrightness(brightness);
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "setBrightnessDim failed", t);
+                call.reject("Could not change brightness: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     private boolean brightnessPopupWired = false;
@@ -236,17 +264,24 @@ public class VideoPlayerPlugin extends Plugin {
     /** Show the native brightness popup OVER the video (video keeps playing). */
     @PluginMethod
     public void showBrightnessPopup(PluginCall call) {
-        try {
-            Boolean visible = call.getBoolean("visible", true);
-            Double brightness = call.getDouble("brightness", 1.0);
-            ensureOverlay();
-            overlay.showBrightnessPopup(visible == null || visible, brightness == null ? 1f : brightness.floatValue());
-            wireBrightnessPopupListener();
-            call.resolve();
-        } catch (Exception e) {
-            Log.e(TAG, "showBrightnessPopup failed", e);
-            try { call.reject("Brightness popup failed: " + e.getMessage()); } catch (Exception ignored) { }
-        }
+        Boolean visible = call.getBoolean("visible", true);
+        Double brightness = call.getDouble("brightness", 1.0);
+        final boolean shouldShow = visible == null || visible;
+        final float currentBrightness = brightness == null ? 1f : brightness.floatValue();
+        runOnMainThread(() -> {
+            try {
+                ensureOverlay();
+                // Listener and popup are both Android Views/native callbacks.
+                // Wire and mutate them on the UI thread; doing this directly
+                // on CapacitorPlugins was why tapping the button showed nothing.
+                wireBrightnessPopupListener();
+                overlay.showBrightnessPopup(shouldShow, currentBrightness);
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "showBrightnessPopup failed", t);
+                call.reject("Brightness popup failed: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     private void wireBrightnessPopupListener() {
@@ -270,20 +305,23 @@ public class VideoPlayerPlugin extends Plugin {
     /** Show the native volume popover OVER the video (video keeps playing). */
     @PluginMethod
     public void showVolumePopup(PluginCall call) {
-        try {
-            Boolean visible = call.getBoolean("visible", true);
-            Double volume = call.getDouble("volume", 1.0);
-            Boolean muted = call.getBoolean("muted", false);
-            ensureOverlay();
-            overlay.showVolumePopup(visible == null || visible,
-                    volume == null ? 1f : volume.floatValue(),
-                    Boolean.TRUE.equals(muted));
-            wireVolumePopupListener();
-            call.resolve();
-        } catch (Exception e) {
-            Log.e(TAG, "showVolumePopup failed", e);
-            try { call.reject("Volume popup failed: " + e.getMessage()); } catch (Exception ignored) { }
-        }
+        Boolean visible = call.getBoolean("visible", true);
+        Double volume = call.getDouble("volume", 1.0);
+        Boolean muted = call.getBoolean("muted", false);
+        final boolean shouldShow = visible == null || visible;
+        final float currentVolume = volume == null ? 1f : volume.floatValue();
+        final boolean isMuted = Boolean.TRUE.equals(muted);
+        runOnMainThread(() -> {
+            try {
+                ensureOverlay();
+                wireVolumePopupListener();
+                overlay.showVolumePopup(shouldShow, currentVolume, isMuted);
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "showVolumePopup failed", t);
+                call.reject("Volume popup failed: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     private void wireVolumePopupListener() {
@@ -499,8 +537,15 @@ public class VideoPlayerPlugin extends Plugin {
     @PluginMethod
     public void showStatus(PluginCall call) {
         String text = call.getString("text", "");
-        if (overlay != null && !text.isEmpty()) overlay.showStatus(text, false);
-        call.resolve();
+        runOnMainThread(() -> {
+            try {
+                if (overlay != null && !text.isEmpty()) overlay.showStatus(text, false);
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "showStatus failed", t);
+                call.reject("Could not update player status: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     /** Quick range probe of a media URL — lets JS classify failures precisely. */
@@ -545,85 +590,139 @@ public class VideoPlayerPlugin extends Plugin {
 
     @PluginMethod
     public void setRect(PluginCall call) {
-        try {
-            int x = call.getInt("x", 0);
-            int y = call.getInt("y", 0);
-            int w = call.getInt("w", 0);
-            int h = call.getInt("h", 0);
-            if (overlay == null) {
-                call.resolve();
-                return;
-            }
-            if (fullscreen) {
-                call.resolve();
-                return;
-            }
-            // Invalid / off-screen rect (video box collapsed or scrolled out):
-            // HIDE the overlay instead of leaving it at its previous size —
-            // a stale rect (or the 0x0 attach) must never cover app UI.
-            if (w <= 0 || h <= 0) {
-                getActivity().runOnUiThread(() -> overlay.setVisible(false));
-                call.resolve();
-                return;
-            }
-            lastRect = new FrameLayout.LayoutParams(w, h);
-            lastRect.leftMargin = x;
-            lastRect.topMargin = y;
-            getActivity().runOnUiThread(() -> {
+        final int x = call.getInt("x", 0);
+        final int y = call.getInt("y", 0);
+        final int w = call.getInt("w", 0);
+        final int h = call.getInt("h", 0);
+        runOnMainThread(() -> {
+            try {
+                if (overlay == null || fullscreen) {
+                    call.resolve();
+                    return;
+                }
+                // Invalid / off-screen rect (video box collapsed or scrolled out):
+                // HIDE the overlay instead of leaving it at its previous size —
+                // a stale rect (or the 0x0 attach) must never cover app UI.
+                if (w <= 0 || h <= 0) {
+                    overlay.setVisible(false);
+                    call.resolve();
+                    return;
+                }
+                lastRect = new FrameLayout.LayoutParams(w, h);
+                lastRect.leftMargin = x;
+                lastRect.topMargin = y;
                 ViewGroup decor = (ViewGroup) getActivity().getWindow().getDecorView();
                 if (attached && overlay.getParent() == decor) {
                     overlay.setLayoutParams(lastRect);
                     overlay.setVisible(true);
                 }
-            });
-            call.resolve();
-        } catch (Exception e) {
-            call.resolve(); // non-fatal
-        }
+                call.resolve();
+            } catch (Throwable t) {
+                // Rect updates are best-effort; a transient layout race must
+                // never interrupt playback or reject the animation-frame loop.
+                Log.w(TAG, "setRect ignored a transient layout failure", t);
+                call.resolve();
+            }
+        });
     }
 
     @PluginMethod
     public void play(PluginCall call) {
-        if (engine != null) engine.play();
-        call.resolve();
+        runOnMainThread(() -> {
+            try {
+                if (engine != null) engine.play();
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "play failed", t);
+                call.reject("Could not play video: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     @PluginMethod
     public void pause(PluginCall call) {
-        if (engine != null) engine.pause();
-        call.resolve();
+        runOnMainThread(() -> {
+            try {
+                if (engine != null) engine.pause();
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "pause failed", t);
+                call.reject("Could not pause video: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     @PluginMethod
     public void seekTo(PluginCall call) {
         Integer positionMs = call.getInt("positionMs");
-        if (positionMs != null && engine != null) engine.seekTo(positionMs);
-        call.resolve();
+        runOnMainThread(() -> {
+            try {
+                if (positionMs != null && engine != null) engine.seekTo(positionMs);
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "seekTo failed", t);
+                call.reject("Could not seek video: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     @PluginMethod
     public void setVolume(PluginCall call) {
         Double volume = call.getDouble("volume", 1.0);
-        if (engine != null) engine.setVolume(volume == null ? 1.0f : volume.floatValue());
-        call.resolve();
+        final float requestedVolume = volume == null ? 1.0f : volume.floatValue();
+        runOnMainThread(() -> {
+            try {
+                if (engine != null) engine.setVolume(requestedVolume);
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "setVolume failed", t);
+                call.reject("Could not change volume: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     @PluginMethod
     public void getPosition(PluginCall call) {
-        JSObject result = new JSObject();
-        if (engine != null) {
-            result.put("positionMs", engine.getPositionMs());
-            result.put("durationMs", engine.getDurationMs());
-            result.put("isPlaying", engine.isPlaying());
-        }
-        call.resolve(result);
+        // ExoPlayer state getters have the same thread requirement as commands.
+        // Build one coherent snapshot on the player thread, then resolve it.
+        runOnMainThread(() -> {
+            JSObject result = new JSObject();
+            try {
+                if (engine != null) {
+                    result.put("positionMs", engine.getPositionMs());
+                    result.put("durationMs", engine.getDurationMs());
+                    result.put("isPlaying", engine.isPlaying());
+                    result.put("ended", engine.isEnded());
+                    result.put("ready", true);
+                    result.put("engine", engine.isExoActive() ? "exo" : "vlc");
+                } else {
+                    result.put("positionMs", 0);
+                    result.put("durationMs", 0);
+                    result.put("isPlaying", false);
+                    result.put("ended", false);
+                    result.put("ready", false);
+                    result.put("engine", "none");
+                }
+                call.resolve(result);
+            } catch (Throwable t) {
+                Log.e(TAG, "getPosition failed", t);
+                call.reject("Could not read player state: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     @PluginMethod
     public void setFullscreen(PluginCall call) {
         Boolean value = call.getBoolean("fullscreen", false);
-        setFullscreenUi(Boolean.TRUE.equals(value));
-        call.resolve();
+        runOnMainThread(() -> {
+            try {
+                setFullscreenUi(Boolean.TRUE.equals(value));
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "setFullscreen failed", t);
+                call.reject("Could not change fullscreen mode: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     private void setFullscreenUi(boolean value) {
@@ -713,44 +812,65 @@ public class VideoPlayerPlugin extends Plugin {
         Double contrast = call.getDouble("contrast", 1.0);
         Double saturation = call.getDouble("saturation", 1.0);
         Double hue = call.getDouble("hue", 0.0);
-        if (engine != null) {
-            engine.setVideoEffects(
-                    brightness == null ? 1f : brightness.floatValue(),
-                    contrast == null ? 1f : contrast.floatValue(),
-                    saturation == null ? 1f : saturation.floatValue(),
-                    hue == null ? 0f : hue.floatValue());
-        }
-        call.resolve();
+        runOnMainThread(() -> {
+            try {
+                if (engine != null) {
+                    engine.setVideoEffects(
+                            brightness == null ? 1f : brightness.floatValue(),
+                            contrast == null ? 1f : contrast.floatValue(),
+                            saturation == null ? 1f : saturation.floatValue(),
+                            hue == null ? 0f : hue.floatValue());
+                }
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "setVideoEffects failed", t);
+                call.reject("Could not change video effects: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     @PluginMethod
     public void setSubtitles(PluginCall call) {
         String vttText = call.getString("vttText", "");
         lastVtt = vttText == null ? "" : vttText;
-        if (engine != null) engine.setSubtitles(vttText);
-        call.resolve();
+        runOnMainThread(() -> {
+            try {
+                if (engine != null) engine.setSubtitles(vttText);
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "setSubtitles failed", t);
+                call.reject("Could not update subtitles: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     @PluginMethod
     public void getVideoTracks(PluginCall call) {
-        JSObject result = new JSObject();
-        if (engine != null) {
-            java.util.List<java.util.Map<String, Object>> tracks = engine.getVideoTracks();
-            org.json.JSONArray arr = new org.json.JSONArray();
-            for (java.util.Map<String, Object> t : tracks) {
-                JSObject o = new JSObject();
-                o.put("id", t.get("id") == null ? -1 : ((Number) t.get("id")).intValue());
-                o.put("height", t.get("height") == null ? 0 : ((Number) t.get("height")).intValue());
-                o.put("width", t.get("width") == null ? 0 : ((Number) t.get("width")).intValue());
-                o.put("bitrate", t.get("bitrate") == null ? 0 : ((Number) t.get("bitrate")).intValue());
-                o.put("description", String.valueOf(t.get("description") == null ? "" : t.get("description")));
-                arr.put(o);
+        runOnMainThread(() -> {
+            JSObject result = new JSObject();
+            try {
+                if (engine != null) {
+                    java.util.List<java.util.Map<String, Object>> tracks = engine.getVideoTracks();
+                    org.json.JSONArray arr = new org.json.JSONArray();
+                    for (java.util.Map<String, Object> t : tracks) {
+                        JSObject o = new JSObject();
+                        o.put("id", t.get("id") == null ? -1 : ((Number) t.get("id")).intValue());
+                        o.put("height", t.get("height") == null ? 0 : ((Number) t.get("height")).intValue());
+                        o.put("width", t.get("width") == null ? 0 : ((Number) t.get("width")).intValue());
+                        o.put("bitrate", t.get("bitrate") == null ? 0 : ((Number) t.get("bitrate")).intValue());
+                        o.put("description", String.valueOf(t.get("description") == null ? "" : t.get("description")));
+                        arr.put(o);
+                    }
+                    result.put("tracks", arr);
+                } else {
+                    result.put("tracks", new org.json.JSONArray());
+                }
+                call.resolve(result);
+            } catch (Throwable t) {
+                Log.e(TAG, "getVideoTracks failed", t);
+                call.reject("Could not read video tracks: " + String.valueOf(t.getMessage()));
             }
-            result.put("tracks", arr);
-        } else {
-            result.put("tracks", new org.json.JSONArray());
-        }
-        call.resolve(result);
+        });
     }
 
     @PluginMethod
@@ -758,43 +878,70 @@ public class VideoPlayerPlugin extends Plugin {
         Boolean auto = call.getBoolean("auto", true);
         Integer trackId = call.getInt("trackId", -1);
         Integer height = call.getInt("height", 0);
-        if (engine != null) {
-            engine.setVideoQuality(auto == null || auto, trackId == null ? -1 : trackId, height == null ? 0 : height);
-        }
-        call.resolve();
+        runOnMainThread(() -> {
+            try {
+                if (engine != null) {
+                    engine.setVideoQuality(auto == null || auto, trackId == null ? -1 : trackId, height == null ? 0 : height);
+                }
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "setVideoQuality failed", t);
+                call.reject("Could not change video quality: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     @PluginMethod
     public void setVisible(PluginCall call) {
         Boolean visible = call.getBoolean("visible", true);
-        if (overlay != null) {
-            getActivity().runOnUiThread(() -> overlay.setVisible(visible == null || visible));
-        }
-        call.resolve();
+        runOnMainThread(() -> {
+            try {
+                if (overlay != null) overlay.setVisible(visible == null || visible);
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "setVisible failed", t);
+                call.reject("Could not change player visibility: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     @PluginMethod
     public void enterPip(PluginCall call) {
-        enterPip();
-        call.resolve();
+        runOnMainThread(() -> {
+            try {
+                enterPip();
+                call.resolve();
+            } catch (Throwable t) {
+                Log.e(TAG, "enterPip failed", t);
+                call.reject("Could not enter picture in picture: " + String.valueOf(t.getMessage()));
+            }
+        });
     }
 
     @PluginMethod
     public void closeEmbedded(PluginCall call) {
-        JSObject result = new JSObject();
-        try {
-            if (engine != null) {
-                result.put("positionMs", engine.getPositionMs());
-                result.put("durationMs", engine.getDurationMs());
-                result.put("ended", engine.isEnded());
-                result.put("wasPlaying", engine.isPlaying());
+        // Capture the final state, release both engines, and remove the native
+        // overlay on the same thread that owns them. The old worker-thread
+        // teardown could leave audio playing behind a stale black surface.
+        runOnMainThread(() -> {
+            JSObject result = new JSObject();
+            try {
+                if (engine != null) {
+                    result.put("positionMs", engine.getPositionMs());
+                    result.put("durationMs", engine.getDurationMs());
+                    result.put("ended", engine.isEnded());
+                    result.put("wasPlaying", engine.isPlaying());
+                }
+                teardown();
+                call.resolve(result);
+            } catch (Throwable t) {
+                Log.e(TAG, "closeEmbedded failed", t);
+                // Teardown is best-effort, but the caller must not hang during
+                // route exit even if a vendor player release throws.
+                try { teardown(); } catch (Throwable ignored) { }
+                call.resolve(result);
             }
-            teardown();
-        } catch (Throwable t) {
-            Log.e(TAG, "closeEmbedded failed", t);
-            // Never let a teardown exception take the app down.
-        }
-        call.resolve(result);
+        });
     }
 
     private void teardown() {
