@@ -3,28 +3,27 @@
   height: var(--input-height);
   padding: 0 var(--s-4);
   border-radius: var(--radius-pill);
-  border: 1px solid var(--border-hairline);
-  background: var(--surface-white);
+  border: none;
+  background: var(--surface-light);
   color: var(--text-black);
   font-size: 14px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: background var(--dur) var(--ease);
   font-family: var(--font-body);
   line-height: 1;
   outline: none;
 }
 
 .input:hover {
-  border-color: var(--border-strong);
+  background: var(--surface-light);
 }
 
 .input:focus {
-  border-color: var(--text-black);
-  box-shadow: none !important;
+  background: var(--surface-hover);
   outline: none !important;
 }
 
 .input::placeholder {
-  color: var(--text-muted-grey);
+  color: var(--placeholder);
 }
 
 .input:disabled {
@@ -42,8 +41,7 @@
 }
 
 .error {
-  border-color: var(--live-red);
-  box-shadow: none !important;
+  background: var(--danger-muted);
 }
 
 .errorText {
@@ -53,8 +51,7 @@
 
 /* Dark theme input */
 .room-theme .input {
-  background: var(--room-surface);
-  border-color: var(--room-divider);
+  background: var(--room-surface-raised);
   color: var(--room-text-primary);
 }
 
@@ -63,7 +60,6 @@
 }
 
 .room-theme .input:focus {
-  border-color: #fff;
-  box-shadow: none !important;
+  background: var(--surface-hover);
   outline: none !important;
 }

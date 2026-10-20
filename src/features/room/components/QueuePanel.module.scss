@@ -13,8 +13,11 @@
 .viewPills {
   flex-shrink: 0;
   display: flex;
-  gap: 8px;
-  padding: 10px 12px 0;
+  gap: 2px;
+  padding: 4px;
+  margin: 10px 12px 0;
+  background: var(--room-surface-raised);
+  border-radius: var(--radius-pill);
 }
 
 .viewPill {
@@ -23,15 +26,15 @@
   gap: 6px;
   flex: 1;
   justify-content: center;
-  background: var(--room-surface);
-  border: 1px solid var(--room-divider);
-  border-radius: 999px;
-  padding: 9px 12px;
-  font-size: 12px;
-  font-weight: 700;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 8px 12px;
+  font-size: 11.5px;
+  font-weight: 620;
   color: var(--room-text-secondary);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
   white-space: nowrap;
 }
 
@@ -43,17 +46,15 @@
 
 .viewPill:hover {
   color: var(--room-text-primary);
-  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .viewPillActive {
-  background: var(--accent-orange);
-  border-color: var(--accent-orange);
-  color: #0A0A0C;
+  background: var(--pill-black);
+  color: var(--pill-black-text);
 }
 
 .viewPillActive:hover {
-  color: #0A0A0C;
+  color: var(--pill-black-text);
 }
 
 .viewHint {
@@ -76,13 +77,13 @@
   align-items: center;
   gap: 8px;
   background: var(--room-surface-raised);
-  border-radius: 20px;
+  border-radius: var(--radius-pill);
   padding: 5px 6px;
-  border: 1px solid transparent;
+  transition: background var(--dur) var(--ease);
 }
 
 .composerBar:focus-within {
-  border-color: rgba(255, 255, 255, 0.25);
+  background: var(--surface-hover);
 }
 
 .sourceChip {
@@ -91,7 +92,7 @@
   gap: 5px;
   background: var(--room-surface);
   border: none;
-  border-radius: 14px;
+  border-radius: var(--radius-pill);
   padding: 8px 11px;
   font-size: 11px;
   font-weight: 700;
@@ -99,7 +100,7 @@
   flex-shrink: 0;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 
 .sourceChip:hover {
@@ -156,7 +157,6 @@
   flex-direction: column;
   gap: 8px;
   background: var(--room-surface);
-  border: 1px solid var(--room-divider);
   border-radius: var(--radius-card);
   padding: 12px;
 }
@@ -195,8 +195,7 @@
   padding: 8px;
   border-radius: var(--radius-sm);
   background: var(--room-surface-raised);
-  border: 1px solid var(--room-divider);
-  transition: background 0.15s ease;
+  transition: background var(--dur) var(--ease);
 }
 
 .resultCard:hover {
@@ -275,8 +274,7 @@
 }
 
 .addBtn:hover:not(:disabled) {
-  background: #e85e22;
-  color: #fff;
+  background: var(--pill-hover);
 }
 
 .disabledBtn {
@@ -299,19 +297,22 @@
   justify-content: center;
   width: 30px;
   height: 30px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--room-surface);
-  border: 1px solid var(--room-divider);
+  border: none;
   color: var(--room-text-primary);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), transform 0.06s;
   flex-shrink: 0;
 }
 
 .iconBtn:hover:not(:disabled) {
-  background: var(--accent-orange);
-  border-color: var(--accent-orange);
-  color: #0A0A0C;
+  background: var(--pill-black);
+  color: var(--pill-black-text);
+}
+
+.iconBtn:active:not(:disabled) {
+  transform: scale(0.94);
 }
 
 .iconBtn:disabled {
@@ -355,15 +356,15 @@
   gap: 10px;
   padding: 8px 10px;
   background: var(--room-surface);
-  border: 1px solid var(--room-divider);
   border-radius: var(--radius-card);
 }
 
 .queueNumber {
-  font-family: monospace;
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
   font-weight: 700;
-  color: var(--accent-orange);
+  color: var(--pill-black);
+  font-variant-numeric: tabular-nums;
   min-width: 22px;
 }
 
@@ -418,9 +419,9 @@
 .playNowBtn {
   width: 28px;
   height: 28px;
-  border-radius: 50%;
-  background: var(--brand-green);
-  color: #fff;
+  border-radius: var(--radius-pill);
+  background: var(--success-muted);
+  color: var(--brand-green);
   border: none;
   display: flex;
   align-items: center;
@@ -436,9 +437,9 @@
 .removeBtn {
   width: 28px;
   height: 28px;
-  border-radius: 50%;
-  background: rgba(234, 51, 35, 0.15);
-  color: var(--live-red);
+  border-radius: var(--radius-pill);
+  background: var(--danger-muted);
+  color: var(--danger-ink);
   border: none;
   display: flex;
   align-items: center;
@@ -448,7 +449,7 @@
 }
 
 .removeBtn:hover {
-  background: rgba(234, 51, 35, 0.3);
+  background: rgba(255, 92, 77, 0.24);
 }
 
 /* ── Episodes popup — modal, centered, portaled to <body> ──────────── */
@@ -458,7 +459,7 @@
   position: fixed;
   inset: 0;
   z-index: 500;
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -472,11 +473,9 @@
   width: min(94vw, 440px);
   max-height: min(80vh, 560px);
   background: var(--room-surface-raised);
-  border: 1px solid var(--room-divider);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   overflow: hidden;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
-  animation: epPop 0.18s ease;
+  animation: epPop 0.18s var(--ease);
 }
 
 .episodesHeader {
@@ -484,7 +483,6 @@
   align-items: flex-start;
   gap: 10px;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--room-divider);
   flex-shrink: 0;
 }
 
@@ -519,9 +517,9 @@
   flex-shrink: 0;
   width: 30px;
   height: 30px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--room-surface);
-  border: 1px solid var(--room-divider);
+  border: none;
   color: var(--room-text-secondary);
   display: flex;
   align-items: center;
@@ -561,15 +559,13 @@
   align-items: center;
   gap: 12px;
   background: var(--room-surface);
-  border: 1px solid var(--room-divider);
   border-radius: 14px;
   padding: 8px;
-  transition: border-color 0.15s, background 0.15s;
+  transition: background var(--dur) var(--ease);
 }
 
 .epRow:hover {
-  border-color: rgba(255, 255, 255, 0.25);
-  background: var(--room-surface);
+  background: var(--surface-light);
 }
 
 .epThumb {

@@ -128,14 +128,85 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: Rename APK for GitHub Release
-        if: success() && startsWith(github.ref, 'refs/tags/v')
+      # ── Signed release APK ─────────────────────────────────────────
+      # Keystore + passwords come from GitHub Actions secrets only; never
+      # committed or printed. Build/verify/upload FAIL the job when signing
+      # cannot succeed on non-PR events.
+
+      - name: Check signing secrets availability
+        id: signing
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk Chan-${{ github.ref_name }}-debug.apk
+          if [ -n "${{ secrets.CHAN_KEYSTORE_BASE64 }}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Signing required but secrets missing
+        if: github.event_name != 'pull_request' && steps.signing.outputs.available != 'true'
+        run: |
+          echo "CHAN_KEYSTORE_BASE64 (and KEY_ALIAS/KEY_*_PASSWORD) secrets are required to build the signed release APK."
+          exit 1
+
+      - name: Decode release keystore from secrets
+        if: steps.signing.outputs.available == 'true'
+        run: |
+          echo "${{ secrets.CHAN_KEYSTORE_BASE64 }}" | base64 -d > android/app/chan-release.keystore
+          test -s android/app/chan-release.keystore
+
+      - name: Build signed Release APK
+        if: steps.signing.outputs.available == 'true'
+        working-directory: android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          BUILD_TIMESTAMP_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          ./gradlew assembleRelease --no-daemon --stacktrace \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=1.0.${{ github.run_number }} \
+            -PgitCommitSha=${{ github.sha }} \
+            -PbuildTimestampUtc="$BUILD_TIMESTAMP_UTC"
+          unset KEYSTORE_PASSWORD KEY_PASSWORD
+          env | grep -i -E "keystore|key_" && exit 1 || true
+
+      - name: Verify release APK signature
+        if: steps.signing.outputs.available == 'true'
+        working-directory: android
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" \
+            | grep -F "versionName='1.0.${{ github.run_number }}'"
+          if unzip -l "$APK" | grep -qiE 'DEBUG|\.debug'; then
+            echo "FAIL: APK looks like a debug artifact"
+            exit 1
+          fi
+          echo "OK: release APK is signed and version-stamped"
+
+      - name: Delete keystore from workspace
+        if: always()
+        run: rm -f android/app/chan-release.keystore
+
+      - name: Upload signed Release APK artifact
+        uses: actions/upload-artifact@v4
+        if: success() && steps.signing.outputs.available == 'true' && github.event_name != 'pull_request'
+        with:
+          name: chan-android-release
+          path: android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Rename APK for GitHub Release
+        if: success() && startsWith(github.ref, 'refs/tags/v') && steps.signing.outputs.available == 'true'
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk Chan-${{ github.ref_name }}.apk
 
       - name: Create GitHub Release
-        if: success() && startsWith(github.ref, 'refs/tags/v')
+        if: success() && startsWith(github.ref, 'refs/tags/v') && steps.signing.outputs.available == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: Chan-${{ github.ref_name }}-debug.apk
+          files: Chan-${{ github.ref_name }}.apk
           generate_release_notes: true

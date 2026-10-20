@@ -30,9 +30,8 @@
   justify-content: space-between;
   padding: 8px 10px;
   background: var(--room-surface-raised);
-  border: 1px solid var(--room-divider);
   border-radius: var(--radius-card);
-  transition: background 0.15s ease;
+  transition: background var(--dur) var(--ease);
 }
 
 .row:hover {
@@ -126,11 +125,8 @@
   flex-direction: column;
   gap: 2px;
   padding: 6px;
-  background: #18191D;
-  backdrop-filter: none;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--surface-hover);
   border-radius: var(--radius-card);
-  box-shadow: none;
   z-index: 50;
   min-width: 170px;
 }
@@ -178,7 +174,6 @@
   padding: 12px;
   background: var(--room-surface-raised);
   border-radius: var(--radius-card);
-  border: 1px solid var(--room-divider);
 }
 
 .passportName {
@@ -208,9 +203,9 @@
   justify-content: center;
   padding: 12px;
   background: var(--room-surface-raised);
-  border: 1px solid var(--room-divider);
   border-radius: var(--radius-card);
   gap: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 .statIcon {
@@ -246,9 +241,8 @@
 .passportBadgeItem {
   padding: 6px 12px;
   border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1.5px solid #fff;
-  color: #fff;
+  background: var(--room-surface-raised);
+  color: var(--room-text-primary);
   font-size: 12px;
   font-weight: 600;
 }
@@ -263,9 +257,8 @@
 .bannedSection {
   margin-top: 14px;
   padding: 12px;
-  border: 1px solid rgba(234, 51, 35, 0.25);
-  border-radius: 10px;
-  background: rgba(234, 51, 35, 0.06);
+  border-radius: var(--radius-card);
+  background: var(--danger-muted);
 }
 
 .bannedTitle {
@@ -300,17 +293,18 @@
   gap: 5px;
   flex: 0 0 auto;
   padding: 5px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--room-text, #F5F5F7);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--surface-hover);
+  color: var(--room-text-primary, #F5F5F7);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .unbanBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--pill-black);
+  color: var(--pill-black-text);
 }
 
 /* ── Ban confirmation modal ────────────────────────────────────────── */

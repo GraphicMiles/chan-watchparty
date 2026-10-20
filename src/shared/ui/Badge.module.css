@@ -19,14 +19,12 @@
 }
 
 .accent {
-  background: var(--pill-black);
-  border: 1px solid var(--border-strong);
-  color: var(--pill-black-text);
+  background: var(--surface-light);
+  color: var(--text-black);
 }
 
 .muted {
-  background: var(--surface-white);
-  border: 1px solid var(--border-hairline);
+  background: var(--surface-light);
   color: var(--text-body-grey);
 }
 
@@ -37,7 +35,7 @@
 
 .warning {
   background: var(--warning-muted);
-  color: #8B6914;
+  color: var(--warning);
 }
 
 .icon {

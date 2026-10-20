@@ -9,11 +9,11 @@
   font-weight: 600;
   color: var(--warning);
   background: var(--warning-muted);
-  border-bottom: 1px solid rgba(255, 194, 75, 0.18);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--s-2);
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
 }
 
 .spin {

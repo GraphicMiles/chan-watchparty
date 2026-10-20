@@ -20,18 +20,21 @@
   --bg: #0A0A0C;
   --bg-light: #0A0A0C;
   --bg-grid-line: #17171A;
-  --surface-white: #141417;   /* base surface — cards, nav, inputs */
-  --surface-light: #1B1B1F;   /* raised surface */
-  --surface-hover: #232329;   /* hover surface */
+  --surface-white: #15151A;   /* base surface — cards, panels */
+  --surface-2: #1D1D24;        /* inset surface — fields, rows, soft pills */
+  --surface-3: #272730;        /* deeper inset — pressed, focus tint */
+  --surface-light: #1D1D24;   /* raised surface = surface-2 */
+  --surface-hover: #272730;   /* hover surface = surface-3 */
   --bg-base: #0A0A0C;
-  --bg-surface: #141417;
+  --bg-surface: #15151A;
 
   --text-black: #F5F5F7;      /* primary text = white */
   --text-body-grey: #A6A6B0;  /* secondary text */
-  --text-muted-grey: #6E6E78; /* muted text */
+  --text-muted-grey: #71717C; /* muted text */
+  --placeholder: #7E7E8A;     /* input placeholder (AA on surface-2) */
   --text-primary: #F5F5F7;
   --text-secondary: #A6A6B0;
-  --text-muted: #6E6E78;
+  --text-muted: #71717C;
 
   --brand-green: #6FCF8E;
   --accent: #F5F5F7;
@@ -39,28 +42,29 @@
   --accent-hover: #DCDCE2;
   --accent-muted: rgba(255, 255, 255, 0.08);
 
-  --pill-black: #26262C;      /* grey pill / button surface */
-  --pill-hover: #2F2F36;      /* grey pill hover */
-  --pill-black-text: #F5F5F7; /* white text on buttons */
+  --pill-black: #F5F5F7;      /* contrast pill / button surface */
+  --pill-hover: #DCDCE2;      /* contrast pill hover */
+  --pill-black-text: #0A0A0C; /* dark text on contrast buttons */
   --text-on-accent: #0A0A0C;
 
   --live-red: #FF5C4D;
   --danger: #FF5C4D;
   --danger-hover: #FF7A6D;
-  --danger-muted: rgba(255, 92, 77, 0.12);
+  --danger-muted: rgba(255, 92, 77, 0.14);
+  --danger-ink: #FF7A6D;
   --text-on-danger: #FFFFFF;
 
-  --border-hairline: #232329;
-  --border: #232329;
-  --border-strong: #3A3A44;
-  --border-focus: #F5F5F7;
+  --border-hairline: transparent;
+  --border: transparent;
+  --border-strong: transparent;
+  --border-focus: transparent;
 
   --success: #6FCF8E;
-  --success-muted: rgba(111, 207, 142, 0.12);
+  --success-muted: rgba(111, 207, 142, 0.13);
   --text-on-success: #0A0A0C;
 
   --warning: #FFC24B;
-  --warning-muted: rgba(255, 194, 75, 0.12);
+  --warning-muted: rgba(255, 194, 75, 0.13);
   --text-on-warning: #0A0A0C;
 
   /* Neutral secondary accents */
@@ -72,12 +76,12 @@
      DARK THEME (in-room view) - aliases for compatibility
      ================================================================ */
   --room-bg: #0A0A0C;
-  --room-surface: #141417;
-  --room-surface-raised: #1B1B1F;
-  --room-avatar-bg: #26262C;
+  --room-surface: #15151A;
+  --room-surface-raised: #1D1D24;
+  --room-avatar-bg: #272730;
   --room-text-primary: #F5F5F7;
   --room-text-secondary: #A6A6B0;
-  --room-divider: #232329;
+  --room-divider: transparent;
   --room-danger: #FF5C4D;
   --room-danger-bg: rgba(255, 92, 77, 0.12);
   --pulse-red-core: #FF5C4D;
@@ -87,10 +91,11 @@
      SHAPE — single radius system
      ================================================================ */
   --radius-pill: 999px;
-  --radius-card: 10px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 12px;
+  --radius-card: 16px;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-panel: 22px; /* large containers — modals, sheets, panels */
   --radius-full: 999px;
 
   /* ================================================================
@@ -98,18 +103,25 @@
      ================================================================ */
   --font-display: 'Space Grotesk', system-ui, sans-serif;
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+  /* Motion — restrained, tactile */
+  --dur: 0.15s;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* Overlay */
+  --overlay: rgba(0, 0, 0, 0.62);
 
   /* ================================================================
      SHADOWS — subtle depth on dark
      ================================================================ */
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-card-hover: 0 10px 28px rgba(0, 0, 0, 0.55);
-  --shadow-pill: 0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-nav: 0 4px 20px rgba(0, 0, 0, 0.45);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --shadow-card: none;
+  --shadow-card-hover: none;
+  --shadow-pill: none;
+  --shadow-nav: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
 
   /* ================================================================
      TOUCH TARGETS
