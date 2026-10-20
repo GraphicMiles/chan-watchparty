@@ -185,8 +185,8 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" \
             | grep -F "versionName='1.0.${{ github.run_number }}'"
-          if unzip -l "$APK" | grep -qiE 'DEBUG|\.debug'; then
-            echo "FAIL: APK looks like a debug artifact"
+          if "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -q 'application-debuggable'; then
+            echo "FAIL: APK is debuggable (debug build)"
             exit 1
           fi
           echo "OK: release APK is signed and version-stamped"
