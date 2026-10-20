@@ -180,7 +180,8 @@ jobs:
         working-directory: android
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
-          test -f "$APK"
+          ls -la app/build/outputs/apk/release/ || true
+          test -f "$APK" || { echo "FAIL: $APK missing (release APK was not signed)"; exit 1; }
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" \
             | grep -F "versionName='1.0.${{ github.run_number }}'"

@@ -61,10 +61,10 @@ android {
     }
 
     // Release signing — only applied when keystore file exists (CI injects it via secrets)
-    if (file("app/chan-release.keystore").exists()) {
+    if (rootProject.file("app/chan-release.keystore").exists()) {
         signingConfigs {
             release {
-                storeFile file("app/chan-release.keystore")
+                storeFile rootProject.file("app/chan-release.keystore")
                 storePassword System.getenv("KEYSTORE_PASSWORD") ?: project.findProperty('storePassword') ?: ''
                 keyAlias System.getenv("KEY_ALIAS") ?: project.findProperty('keyAlias') ?: ''
                 keyPassword System.getenv("KEY_PASSWORD") ?: project.findProperty('keyPassword') ?: ''
@@ -81,7 +81,7 @@ android {
             minifyEnabled false
             shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            if (file("app/chan-release.keystore").exists()) {
+            if (rootProject.file("app/chan-release.keystore").exists()) {
                 signingConfig signingConfigs.release
             }
         }
