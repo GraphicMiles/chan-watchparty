@@ -20,14 +20,12 @@
   width: max-content;
   max-width: 100%;
   box-sizing: border-box;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--border-hairline);
-  background: var(--surface-white);
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-card);
+  background: var(--surface-light);
   color: var(--text-black);
-  box-shadow: none;
-  animation: slideUp 0.2s ease;
+  animation: slideUp 0.18s var(--ease);
 }
 
 .icon {

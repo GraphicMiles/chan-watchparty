@@ -30,7 +30,6 @@
   background: var(--room-surface);
   color: var(--room-text-primary);
   text-align: center;
-  border: 1px solid var(--room-divider);
 }
 
 .errorContainer h3 {
@@ -162,8 +161,7 @@
 
 .customSubtitleBox {
   background: rgba(0, 0, 0, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 6px 16px;
   max-width: 85%;
   text-align: center;
@@ -262,7 +260,6 @@
   width: 100%;
   padding: 10px 14px;
   background: var(--room-surface);
-  border: 1px solid var(--room-divider);
   border-radius: var(--radius-card);
   margin-top: 10px;
   flex-shrink: 0;
@@ -325,9 +322,9 @@
   gap: 6px !important;
   height: 34px !important;
   padding: 6px 14px !important;
-  border-radius: 10px !important;
+  border-radius: var(--radius-pill) !important;
   background: rgba(255, 255, 255, 0.15) !important;
-  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  border: none !important;
   color: #fff !important;
   font-size: 13px !important;
   font-weight: 500 !important;
@@ -348,7 +345,6 @@
   width: 100%;
   padding: 12px 14px;
   background: var(--room-surface);
-  border: 1px solid var(--room-divider);
   border-radius: var(--radius-card);
   margin-top: 10px;
   flex-shrink: 0;
@@ -369,9 +365,9 @@
   gap: 6px !important;
   height: 36px !important;
   padding: 6px 14px !important;
-  border-radius: 10px !important;
+  border-radius: var(--radius-pill) !important;
   background: rgba(255, 255, 255, 0.08) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border: none !important;
   color: #fff !important;
   font-size: 13px !important;
   font-weight: 500 !important;
@@ -514,7 +510,6 @@
   gap: 10px;
   width: 100%;
   padding-top: 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .leftControls,
@@ -554,11 +549,8 @@
   flex-direction: column;
   gap: 4px;
   padding: 8px;
-  background: #18191D;
-  backdrop-filter: none;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--surface-hover);
   border-radius: var(--radius-card);
-  box-shadow: none;
   z-index: 50;
   min-width: 210px;
   max-height: 280px;
@@ -604,14 +596,12 @@
   flex-direction: column;
   gap: 12px;
   padding: 18px;
-  background: #18191D;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 16px;
+  background: var(--surface-hover);
+  border-radius: var(--radius-card);
   width: min(300px, calc(100vw - 32px));
   min-width: 0;
   max-width: calc(100vw - 32px);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
-  animation: brightnessPop 0.18s ease;
+  animation: brightnessPop 0.18s var(--ease);
 }
 
 .brightnessHeader {

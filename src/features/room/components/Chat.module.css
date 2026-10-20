@@ -8,7 +8,6 @@
 
 .quizCard {
   background: var(--room-surface-raised);
-  border: 1.5px solid var(--accent-orange);
   border-radius: var(--radius-card);
   padding: 12px;
   display: flex;
@@ -29,10 +28,10 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: var(--accent-orange);
-  color: #fff;
+  background: var(--pill-black);
+  color: var(--pill-black-text);
   font-weight: 700;
-  padding: 2px 8px;
+  padding: 3px 9px;
   border-radius: var(--radius-pill);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -64,7 +63,7 @@
   padding: 7px 10px;
   border-radius: var(--radius-sm);
   background: var(--room-surface);
-  border: 1px solid var(--room-divider);
+  border: none;
   color: rgba(255, 255, 255, 0.9);
   font-size: 12px;
   font-weight: 500;
@@ -74,28 +73,24 @@
 }
 
 .quizOptionBtn:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.35);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-hover);
 }
 
 .quizOptionSelected {
-  border-color: var(--accent-orange) !important;
-  background: rgba(255, 106, 43, 0.12) !important;
-  color: #fff !important;
+  background: var(--pill-black) !important;
+  color: var(--pill-black-text) !important;
   font-weight: 600;
 }
 
 .quizOptionCorrect {
-  border-color: #00FF7F !important;
-  background: rgba(0, 255, 127, 0.15) !important;
-  color: #00FF7F !important;
+  background: var(--success-muted) !important;
+  color: var(--brand-green) !important;
   font-weight: 700;
 }
 
 .quizOptionWrong {
-  border-color: var(--live-red) !important;
-  background: rgba(234, 51, 35, 0.15) !important;
-  color: var(--live-red) !important;
+  background: var(--danger-muted) !important;
+  color: var(--danger-ink) !important;
 }
 
 .quizVoteBadge {
@@ -109,12 +104,11 @@
 
 .funFactBox {
   font-size: 11px;
-  color: #00FF7F;
-  background: rgba(0, 255, 127, 0.08);
+  color: var(--brand-green);
+  background: var(--success-muted);
   padding: 6px 8px;
   border-radius: var(--radius-sm);
   line-height: 1.4;
-  border: 1px dashed rgba(0, 255, 127, 0.3);
 }
 
 /* Smart Catchup Modal (#1) */
@@ -131,7 +125,6 @@
   padding: 10px 12px;
   background: var(--room-surface-raised);
   border-radius: var(--radius-card);
-  border: 1px solid var(--room-divider);
 }
 
 .catchupHeader h4 {
@@ -143,8 +136,8 @@
 }
 
 .catchupTimeBadge {
-  background: #8A2BE2;
-  color: #fff;
+  background: var(--warning-muted);
+  color: var(--warning);
   font-size: 11px;
   font-weight: 700;
   padding: 2px 8px;
@@ -184,8 +177,8 @@
   align-items: center;
   gap: 6px;
   background: var(--room-surface-raised);
-  border: 1px solid var(--room-divider);
-  border-radius: 20px;
+  border: none;
+  border-radius: var(--radius-pill);
   padding: 8px 14px;
   font-size: 12px;
   font-weight: 600;
@@ -275,13 +268,13 @@
   align-items: center;
   gap: 8px;
   background: var(--room-surface-raised);
-  border-radius: 20px;
+  border-radius: var(--radius-pill);
   padding: 5px 6px;
-  border: 1px solid transparent;
+  transition: background var(--dur) var(--ease);
 }
 
 .composerBar:focus-within {
-  border-color: rgba(255, 255, 255, 0.25);
+  background: var(--surface-hover);
 }
 
 .aiChip {
@@ -351,10 +344,8 @@
   grid-template-columns: repeat(6, 1fr);
   gap: 2px;
   padding: var(--s-2);
-  background: var(--room-surface);
-  border: 1px solid var(--room-divider);
+  background: var(--room-surface-raised);
   border-radius: var(--radius-card);
-  box-shadow: none;
   z-index: 5;
   width: max-content;
   margin-bottom: var(--s-2);
@@ -415,10 +406,8 @@
   max-height: min(50vh, 240px);
   overflow-y: auto;
   padding: var(--s-2);
-  background: var(--room-surface);
-  border: 1px solid var(--room-divider);
+  background: var(--room-surface-raised);
   border-radius: var(--radius-card);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   z-index: 60;
 }
 
@@ -441,19 +430,17 @@
   margin: 6px auto;
   max-width: 92%;
   background: var(--room-surface-raised);
-  border: 1px solid var(--room-divider);
   border-radius: 12px;
   font-style: normal;
   line-height: 1.45;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .newPill {
   align-self: center;
   margin: var(--s-1) 0;
   border: none;
-  background: var(--accent-orange);
-  color: #fff;
+  background: var(--pill-black);
+  color: var(--pill-black-text);
   border-radius: var(--radius-pill);
   padding: var(--s-1) var(--s-3);
   font-size: 12px;

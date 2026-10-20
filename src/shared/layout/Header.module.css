@@ -9,13 +9,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(20, 20, 23, 0.92);
+  background: rgba(21, 21, 26, 0.92);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-radius: var(--radius-pill);
   padding: var(--s-1) var(--s-1) var(--s-1) var(--s-4);
-  box-shadow: var(--shadow-nav);
-  border: 1px solid var(--border-hairline);
   max-width: 1120px;
   margin: 0 auto;
   gap: var(--s-2);
@@ -60,8 +58,7 @@
   content: '';
   position: absolute;
   border-radius: var(--radius-pill);
-  background: var(--pill-black);
-  border: 1px solid var(--border-strong);
+  background: var(--surface-hover);
 }
 
 .logoDots::before {
@@ -137,7 +134,6 @@
   flex: 0 1 auto;
   margin: 0;
   padding: 2px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 999px;
   background: transparent;
   color: var(--room-text-secondary, #888);

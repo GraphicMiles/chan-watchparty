@@ -17,10 +17,8 @@
   display: flex;
   gap: 2px;
   padding: var(--s-1);
-  background: var(--room-surface);
-  border: 1px solid var(--room-divider);
+  background: var(--room-surface-raised);
   border-radius: var(--radius-card);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   z-index: 5;
   margin-bottom: var(--s-1);
 }

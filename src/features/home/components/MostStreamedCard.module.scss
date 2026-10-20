@@ -1,18 +1,11 @@
 .cardContainer {
-  background: #121316;
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card);
+  background: var(--surface-white);
+  border-radius: var(--radius-panel);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   margin-bottom: var(--s-8);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.cardContainer:hover {
-  box-shadow: var(--shadow-card-hover);
-  transform: translateY(-2px);
+  transition: background var(--dur) var(--ease);
 }
 
 .stageWrapper {
@@ -39,8 +32,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: none;
+  font-variant-numeric: tabular-nums;
 }
 
 .statIcon {
@@ -66,19 +58,22 @@
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  background: #111111;
+  background: rgba(10, 10, 12, 0.72);
   color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: none;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.15s ease;
-  box-shadow: none;
+  transition: background var(--dur) var(--ease), transform 0.06s;
 }
 
 .circleBtn:hover {
-  background: #2a2a2a;
+  background: var(--surface-hover);
+}
+
+.circleBtn:active {
+  transform: scale(0.96);
 }
 
 .menuWrapper {
@@ -90,8 +85,7 @@
   top: 100%;
   right: 0;
   margin-top: 6px;
-  background: #18191D;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--surface-hover);
   border-radius: var(--radius-card);
   padding: 6px;
   display: flex;
@@ -158,9 +152,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 20px;
-  background: #18191D;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 14px 18px;
+  background: var(--surface-white);
 }
 
 .titleWrap {
@@ -196,25 +189,25 @@
   padding: 0 20px;
   border-radius: var(--radius-pill);
   background: var(--pill-black);
-  border: 1px solid var(--border-strong);
+  border: none;
   color: var(--pill-black-text);
   font-family: var(--font-body);
-  font-weight: 700;
+  font-weight: 640;
   font-size: 14px;
   text-decoration: none;
-  transition: transform 0.15s ease, background 0.15s ease;
-  box-shadow: var(--shadow-pill) !important;
+  transition: background var(--dur) var(--ease), transform 0.06s;
   flex-shrink: 0;
   width: fit-content;
 }
 
 .watchNowBtn:hover {
   background: var(--pill-hover);
-  border-color: var(--text-muted-grey);
-  transform: scale(1.04);
-  box-shadow: var(--shadow-pill) !important;
   text-decoration: none;
   color: var(--pill-black-text);
+}
+
+.watchNowBtn:active {
+  transform: scale(0.975);
 }
 
 @media (max-width: 640px) {

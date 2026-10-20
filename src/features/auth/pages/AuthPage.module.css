@@ -21,8 +21,8 @@
   width: 64px;
   height: 64px;
   border-radius: var(--radius-pill);
-  background: rgba(255, 106, 43, 0.08);
-  color: var(--accent-orange);
+  background: var(--surface-light);
+  color: var(--text-black);
   margin-bottom: var(--s-5);
 }
 
@@ -51,11 +51,10 @@
 .error {
   margin-top: var(--s-3);
   padding: var(--s-3) var(--s-4);
-  background: rgba(234, 51, 35, 0.06);
-  color: var(--live-red);
-  border-radius: var(--radius-sm);
+  background: var(--danger-muted);
+  color: var(--danger-ink);
+  border-radius: var(--radius-md);
   font-size: 13px;
   line-height: 1.5;
   text-align: left;
-  border: 1px solid rgba(234, 51, 35, 0.1);
 }

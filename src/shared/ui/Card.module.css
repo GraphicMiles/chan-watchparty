@@ -1,23 +1,17 @@
 .card {
   background: var(--surface-white);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-panel);
   padding: var(--s-4);
-  box-shadow: var(--shadow-card);
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
-  border: 1px solid var(--border-hairline);
+  transition: background var(--dur) var(--ease);
 }
 
 .interactive:hover {
-  box-shadow: var(--shadow-card-hover);
+  background: var(--surface-light);
 }
 
 .clickable {
   cursor: pointer;
   text-decoration: none;
-}
-
-.clickable:hover {
-  transform: translateY(-2px);
 }
 
 .compact {
@@ -30,11 +24,8 @@
 
 .room-theme .card {
   background: var(--room-surface);
-  border-color: var(--room-divider);
-  box-shadow: none;
 }
 
 .room-theme .interactive:hover {
-  box-shadow: none;
-  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--room-surface-raised);
 }

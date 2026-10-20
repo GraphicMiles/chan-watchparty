@@ -19,19 +19,19 @@
   gap: 12px;
   width: 100%;                 /* full viewport width */
   padding: 10px 12px;
-  border-bottom: 1px solid var(--room-divider);
   background: var(--room-bg);
   flex-shrink: 0;
 }
 
 .backBtn {
   flex: 0 0 auto;              /* never grows/shrinks */
-  height: 30px;
-  width: 30px;
-  border-radius: 50%;
+  height: 32px;
+  width: 32px;
+  border-radius: var(--radius-pill);
   background: var(--room-surface);
-  border: 1px solid var(--room-divider);
+  border: none;
   color: var(--room-text-primary);
+  transition: background var(--dur) var(--ease);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -102,7 +102,6 @@
 .statusPill.open {
   background: var(--room-surface-raised);
   color: var(--room-text-secondary);
-  border: 1px solid var(--room-divider);
 }
 
 .main {
@@ -192,13 +191,11 @@
 .controlsCard {
   flex-shrink: 0;
   background: var(--room-surface) !important;
-  border: 1px solid var(--room-divider) !important;
-  border-radius: var(--radius-card) !important;
+  border-radius: var(--radius-panel) !important;
   padding: 12px 14px !important;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  box-shadow: none !important;
 }
 
 .controls {
@@ -217,7 +214,7 @@
   max-width: none !important;
   height: 36px !important;
   padding: 6px 14px !important;
-  border-radius: 10px !important;
+  border-radius: var(--radius-pill) !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -235,7 +232,6 @@
   font-size: 12px;
   color: var(--room-text-secondary);
   padding-top: 4px;
-  border-top: 1px dashed rgba(255, 255, 255, 0.08);
 }
 
 .screenNote {
@@ -296,15 +292,14 @@
 .aiInferred {
   display: inline-block;
   margin: 0 0 4px;
-  padding: 1px 6px;
-  border-radius: 999px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #8B8B96;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--warning);
+  background: var(--warning-muted);
 }
 
 .seeMore {
@@ -321,7 +316,7 @@
 }
 
 .metaBar {
-  border: 1px solid var(--room-divider);
+  font-variant-numeric: tabular-nums;
   border-radius: var(--radius-card);
   background: var(--room-surface);
   overflow: hidden;
@@ -375,7 +370,6 @@
 
 .infoCard {
   background: var(--room-surface-raised) !important;
-  border-color: var(--room-divider) !important;
 }
 
 .infoTitle {
@@ -393,17 +387,16 @@
   gap: 8px;
   width: 100%;
   padding: 10px 12px 12px;
-  border-bottom: 1px solid var(--room-divider);
   flex-shrink: 0;
 }
 
 .roomActionBtn {
   position: relative;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
   background: var(--room-surface);
-  border: 1px solid var(--room-divider);
+  border: none;
   color: var(--room-text-secondary);
   display: flex;
   align-items: center;
@@ -411,7 +404,11 @@
   cursor: pointer;
   flex-shrink: 0;
   padding: 0;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), transform 0.06s;
+}
+
+.roomActionBtn:active {
+  transform: scale(0.96);
 }
 
 .roomActionBtn:hover {
@@ -421,7 +418,6 @@
 
 .roomActionActive {
   background: var(--accent-orange, #F5F5F7);
-  border-color: var(--accent-orange, #F5F5F7);
   color: #0B0B0C;
 }
 
@@ -447,20 +443,25 @@
 }
 
 .roomEndBtn {
-  border: 1px solid rgba(228, 72, 61, 0.4);
-  background: rgba(228, 72, 61, 0.1);
-  color: var(--room-danger, #ff5a4f);
-  border-radius: 20px;
-  padding: 5px 12px;
+  border: none;
+  background: var(--room-danger-bg);
+  color: var(--danger-ink);
+  border-radius: var(--radius-pill);
+  padding: 7px 14px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 640;
   cursor: pointer;
   white-space: nowrap;
   font-family: var(--font-body);
+  transition: background var(--dur) var(--ease), transform 0.06s;
 }
 
 .roomEndBtn:hover {
-  background: rgba(228, 72, 61, 0.2);
+  background: rgba(255, 92, 77, 0.22);
+}
+
+.roomEndBtn:active {
+  transform: scale(0.97);
 }
 
 /* ── Merged Chat/Queue bottom sheet ─────────────────────────────── */
@@ -471,9 +472,7 @@
   bottom: 0;
   height: min(55vh, 480px);
   background: var(--room-surface);
-  border-radius: 20px 20px 0 0;
-  border-top: 1px solid var(--room-divider);
-  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.5);
+  border-radius: 22px 22px 0 0;
   display: flex;
   flex-direction: column;
   z-index: 30;
@@ -489,7 +488,7 @@
   width: 36px;
   height: 4px;
   border-radius: 3px;
-  background: var(--room-divider);
+  background: var(--surface-hover);
   margin: 10px auto 0;
   flex-shrink: 0;
 }
@@ -505,10 +504,10 @@
 .sheetTabs {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   background: var(--room-surface-raised);
-  border-radius: 12px;
-  padding: 3px;
+  border-radius: var(--radius-pill);
+  padding: 4px;
 }
 
 .sheetTab, .sheetTabActive {
@@ -517,27 +516,41 @@
   gap: 6px;
   border: none;
   background: none;
-  padding: 8px 14px;
-  border-radius: 9px;
-  font-size: 12.5px;
-  font-weight: 700;
+  padding: 7px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 620;
   color: var(--room-text-secondary);
   cursor: pointer;
   font-family: var(--font-body);
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 
 .sheetTab svg { width: 13px; height: 13px; }
 
-.sheetTabActive {
-  background: var(--room-bg);
+.sheetTab:hover {
   color: var(--room-text-primary);
+}
+
+.sheetTabActive {
+  background: var(--pill-black);
+  color: var(--pill-black-text);
 }
 
 .sheetTabBadge {
   font-size: 10px;
   font-weight: 700;
+  background: var(--surface-hover);
   color: var(--room-text-secondary);
+  border-radius: var(--radius-pill);
+  padding: 1px 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sheetTabActive .sheetTabBadge {
+  background: none;
+  color: inherit;
+  padding: 0;
 }
 
 .sheetClose {
@@ -559,7 +572,6 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--room-divider);
   overflow: hidden;
 }
 
@@ -623,7 +635,6 @@
   padding: 10px;
   border-radius: var(--radius-card);
   background: var(--room-surface-raised);
-  border: 1px solid var(--room-divider);
 }
 
 .autoNextThumb {
@@ -664,7 +675,7 @@
   }
 
   .controls > button {
-    border-radius: 10px !important;
+    border-radius: var(--radius-pill) !important;
     padding: 5px 10px !important;
     height: 32px !important;
     font-size: 12px !important;
@@ -909,6 +920,7 @@
 .changeDivider::after {
   content: '';
   flex: 1;
-  height: 1px;
-  background: var(--border-hairline);
+  height: 2px;
+  border-radius: 1px;
+  background: var(--surface-light);
 }

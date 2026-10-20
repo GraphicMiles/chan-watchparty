@@ -16,10 +16,9 @@
 .card {
   width: 100%;
   max-width: 680px;
-  padding: var(--s-8) !important;
+  padding: var(--s-6) !important;
   background: var(--surface-white);
-  border: 1px solid var(--border-strong);
-  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-panel);
 }
 
 .title {
@@ -46,8 +45,7 @@
   text-align: center;
   gap: 10px;
   padding: 40px 24px 32px;
-  background: var(--bg-base);
-  border: 1px dashed var(--border-hairline);
+  background: var(--surface-light);
   border-radius: var(--radius-card);
 }
 
@@ -55,8 +53,7 @@
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: var(--surface-light);
-  border: 1px solid var(--border-hairline);
+  background: var(--surface-hover);
   color: var(--text-muted-grey);
   display: flex;
   align-items: center;
@@ -95,8 +92,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  background: var(--surface-white);
-  border: 1px solid var(--border-strong);
+  background: var(--surface-light);
   border-radius: var(--radius-card);
   padding: 12px;
   margin-bottom: 14px;
@@ -105,10 +101,10 @@
 .mediaThumb {
   width: 64px;
   height: 64px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   flex-shrink: 0;
-  background: var(--bg-base);
+  background: var(--surface-hover);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -165,16 +161,16 @@
 
 .changeBtn {
   flex-shrink: 0;
-  background: var(--surface-light);
-  border: 1px solid var(--border-hairline);
+  background: var(--surface-hover);
+  border: none;
   color: var(--text-black);
   font-size: 11.5px;
-  font-weight: 700;
+  font-weight: 640;
   padding: 8px 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
   font-family: var(--font-body);
-  transition: background 0.15s, transform 0.1s;
+  transition: background var(--dur) var(--ease), transform 0.06s;
 }
 
 .changeBtn:active {
@@ -184,8 +180,7 @@
 
 /* Grouped settings card */
 .settingsCard {
-  background: var(--surface-white);
-  border: 1px solid var(--border-strong);
+  background: var(--surface-light);
   border-radius: var(--radius-card);
   overflow: hidden;
   margin-bottom: 6px;
@@ -196,7 +191,7 @@
 }
 
 .settingRow + .settingRow {
-  border-top: 1px solid var(--border-hairline);
+  border-top: 2px solid var(--surface-white);
 }
 
 .settingLabel {
@@ -209,23 +204,23 @@
 
 .titleInput {
   width: 100%;
-  background: var(--surface-light);
-  border: 1px solid transparent;
-  border-radius: 12px;
+  background: var(--surface-white);
+  border: none;
+  border-radius: var(--radius-md);
   padding: 11px 14px;
   font-size: 13.5px;
   color: var(--text-black);
   font-family: var(--font-body);
-  transition: border-color 0.15s;
+  transition: background var(--dur) var(--ease);
 }
 
 .titleInput::placeholder {
-  color: var(--text-muted-grey);
+  color: var(--placeholder);
 }
 
 .titleInput:focus {
   outline: none;
-  border-color: var(--border-strong);
+  background: var(--surface-hover);
 }
 
 .stepper {
@@ -240,15 +235,15 @@
 .stepBtn {
   width: 30px;
   height: 30px;
-  border-radius: 50%;
-  background: var(--surface-light);
-  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-hover);
+  border: none;
   color: var(--text-black);
   font-size: 15px;
   line-height: 1;
   cursor: pointer;
   font-family: var(--font-body);
-  transition: background 0.15s, transform 0.1s;
+  transition: background var(--dur) var(--ease), transform 0.06s;
 }
 
 .stepBtn:active {
@@ -270,14 +265,14 @@
 .switch {
   width: 44px;
   height: 26px;
-  border-radius: 14px;
-  background: var(--surface-light);
-  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-hover);
+  border: none;
   position: relative;
   flex-shrink: 0;
   cursor: pointer;
   padding: 0;
-  transition: background 0.18s;
+  transition: background var(--dur) var(--ease);
 }
 
 .switchKnob {
@@ -293,7 +288,6 @@
 
 .switchOn {
   background: var(--pill-black);
-  border-color: var(--border-strong);
 }
 
 .switchOn .switchKnob {
@@ -308,7 +302,6 @@
   justify-content: center;
   gap: 16px;
   padding: 14px 16px;
-  border-top: 1px solid var(--border-hairline);
 }
 
 .cta {
