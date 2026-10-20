@@ -41,6 +41,7 @@ jobs:
         # longer publishes, failing the job before any build work starts.
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
           sdkmanager --version
           yes | sdkmanager --licenses > /dev/null
           sdkmanager \
@@ -49,6 +50,8 @@ jobs:
             "build-tools;35.0.0" \
             "ndk;26.1.10909125" \
             "cmake;3.22.1"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
 
       - name: Install Node dependencies
         run: npm ci
