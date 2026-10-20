@@ -34,12 +34,15 @@ jobs:
           distribution: zulu
           java-version: 21
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android SDK packages
+        # ubuntu-latest runners ship the Android SDK (cmdline-tools, build-tools,
+        # platforms). The android-actions/setup-android step was removed: it
+        # requests the legacy "tools" package, which SDK cmdline-tools 16.0 no
+        # longer publishes, failing the job before any build work starts.
         run: |
-          yes | sdkmanager --licenses
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          sdkmanager --version
+          yes | sdkmanager --licenses > /dev/null
           sdkmanager \
             "platform-tools" \
             "platforms;android-35" \
