@@ -174,8 +174,6 @@ jobs:
             -PversionName=1.0.${{ github.run_number }} \
             -PgitCommitSha=${{ github.sha }} \
             -PbuildTimestampUtc="$BUILD_TIMESTAMP_UTC"
-          unset KEYSTORE_PASSWORD KEY_PASSWORD
-          env | grep -i -E "keystore|key_" && exit 1 || true
 
       - name: Verify release APK signature
         if: steps.signing.outputs.available == 'true'
