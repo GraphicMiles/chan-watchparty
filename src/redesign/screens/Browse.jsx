@@ -398,13 +398,29 @@ function useResultClick(result, layer) {
       const playback = /\/api\/proxy\?/i.test(String(result.url || ''))
         ? String(result.url)
         : normalizePlaybackUrl(liveUrl, { forceProxy: true });
+      const type = result.type === 'sports' ? 'sports' : 'iptv';
       const params = new URLSearchParams({
-        videoUrl: playback,
         title: result.title || 'Live Stream',
-        type: result.type === 'sports' ? 'sports' : 'iptv',
+        type,
         isLive: 'true',
       });
-      navigate(`/create?${params.toString()}`, { state: { from: location.pathname } });
+      // Keep the playback URL out of the query string: Android WebViews can
+      // truncate long proxy/CDN URLs, producing a room that opens dead.
+      navigate(`/create?${params.toString()}`, {
+        state: {
+          from: location.pathname,
+          synopsis: result.description || result.synopsis || null,
+          content: {
+            kind: 'direct',
+            url: playback,
+            title: result.title || 'Live Stream',
+            thumbnail: result.thumbnail || result.image || null,
+            videoType: type,
+            isLive: true,
+            source: result.source || type,
+          },
+        },
+      });
       return;
     }
     const sourceKey = String(result.source || '').toLowerCase();
@@ -429,12 +445,27 @@ function useResultClick(result, layer) {
       return;
     }
     if (result.isDirect || result.playableInRoom || isDirectVideoUrl(result.url || '')) {
+      const type = ['iptv', 'sports', 'nsfw'].includes(result.type) ? result.type : 'direct';
       const params = new URLSearchParams({
-        videoUrl: normalizePlaybackUrl(result.url || result.link || ''),
         title: result.title || 'Video',
-        type: ['iptv', 'sports', 'nsfw'].includes(result.type) ? result.type : 'direct',
+        type,
       });
-      navigate(`/create?${params.toString()}`, { state: { from: location.pathname } });
+      navigate(`/create?${params.toString()}`, {
+        state: {
+          from: location.pathname,
+          synopsis: result.description || result.synopsis || null,
+          content: {
+            kind: 'direct',
+            url: normalizePlaybackUrl(result.url || result.link || ''),
+            title: result.title || 'Video',
+            thumbnail: result.thumbnail || result.image || null,
+            videoType: type,
+            isLive: type === 'iptv' || type === 'sports' || Boolean(result.isLive),
+            source: result.source || 'direct',
+            sourceUrl: result.sourceUrl || undefined,
+          },
+        },
+      });
       return;
     }
     if (user) {
@@ -449,11 +480,24 @@ function useResultClick(result, layer) {
         const directItem = data.results?.find((r) => r.isDirect || r.playableInRoom);
         if (directItem?.url) {
           const params = new URLSearchParams({
-            videoUrl: normalizePlaybackUrl(directItem.url),
             title: directItem.title || result.title || 'Video',
             type: 'direct',
           });
-          navigate(`/create?${params.toString()}`, { state: { from: location.pathname } });
+          navigate(`/create?${params.toString()}`, {
+            state: {
+              from: location.pathname,
+              synopsis: directItem.description || directItem.synopsis || result.description || result.synopsis || null,
+              content: {
+                kind: 'direct',
+                url: normalizePlaybackUrl(directItem.url),
+                title: directItem.title || result.title || 'Video',
+                thumbnail: directItem.thumbnail || directItem.image || result.thumbnail || result.image || null,
+                videoType: 'direct',
+                source: directItem.source || result.source || 'direct',
+                sourceUrl: directItem.sourceUrl || result.sourceUrl || undefined,
+              },
+            },
+          });
           return;
         }
       } catch { /* fallback */ }

@@ -41,7 +41,10 @@
   --dur:.18s; --ease:cubic-bezier(.22,.9,.3,1);
   position:fixed; inset:0; background:var(--bg); color:var(--text);
   font-family:var(--font); font-variant-numeric:tabular-nums;
-  container-type:inline-size; overflow:hidden;
+  /* The shell is viewport-locked; only .scroll descendants may scroll.
+     overflow:clip (with hidden fallback) prevents scrollIntoView() in a
+     descendant from programmatically shifting the whole app off-screen. */
+  container-type:inline-size; overflow:hidden; overflow:clip; overscroll-behavior:none;
 }
 .app-shell *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 .app-shell :where(button){font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;transition:transform .18s ease,background .18s ease,color .18s ease,opacity .18s ease}

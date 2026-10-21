@@ -42,7 +42,6 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   const [myQuizVote, setMyQuizVote] = useState(null)
   const [revealQuizAnswer, setRevealQuizAnswer] = useState(false)
   
-  const bottomRef = useRef(null)
   const listRef = useRef(null)
   const typingTimer = useRef(null)
   const lastTypingWrite = useRef(0)
@@ -127,15 +126,24 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
     )
   }, [messages])
 
+  const scrollToLatest = useCallback(() => {
+    const el = listRef.current
+    if (!el) return
+    // Scroll ONLY the message list. scrollIntoView() also scrolls the
+    // fixed app shell when Chat is mounted inside the closed room sheet,
+    // shifting the entire watch room off-screen (black screen, no exit).
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }, [])
+
   useEffect(() => {
     if (atBottom) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+      scrollToLatest()
       setUnseen(0)
     } else if (merged.length > prevCount.current) {
       setUnseen((n) => n + (merged.length - prevCount.current))
     }
     prevCount.current = merged.length
-  }, [merged.length, atBottom])
+  }, [merged.length, atBottom, scrollToLatest])
 
   const onScroll = () => {
     const el = listRef.current
@@ -148,7 +156,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
   const jumpToLatest = () => {
     setAtBottom(true)
     setUnseen(0)
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    scrollToLatest()
   }
 
   const handleInputChange = (value) => {
@@ -392,7 +400,7 @@ export default function Chat({ messages, sendMessage, user, roomId, typing, setT
             />
           )
         })}
-        <div ref={bottomRef} />
+        <div />
         {typingNames.length > 0 && (
           <div className={styles.typing}>
             <div className={styles.typingDot} />

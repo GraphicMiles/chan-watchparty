@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { Play, ChevronLeft, Link2, Compass, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../shared/auth/hooks/useAuth.jsx';
@@ -86,6 +86,7 @@ export default function Create() {
   const [capacity, setCapacity] = useState(12);
   const [isPrivate, setIsPrivate] = useState(false);
   const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
   const [error, setError] = useState(null);
   const [link, setLink] = useState('');
 
@@ -214,6 +215,8 @@ export default function Create() {
   // ── Create room ───────────────────────────────────────────────────────
   const create = async (e) => {
     e.preventDefault();
+    if (creatingRef.current || !user || !content) return;
+    creatingRef.current = true;
     setError(null);
     setCreating(true);
     try {
@@ -233,11 +236,15 @@ export default function Create() {
       // Single presentation point: the in-panel banner (visible on the create
       // pane). The toast previously duplicated the same message on screen.
       setError(friendlyApiError(err.message || 'Could not create room. Please try again.'));
+      creatingRef.current = false;
       setCreating(false);
     }
   };
 
-  const canCreate = Boolean(content) && (content.kind === 'youtube' ? Boolean(content.videoId) : Boolean(content.url));
+  const isYouTubeContent = content?.kind === 'youtube' || content?.videoType === 'youtube' || Boolean(content?.videoId);
+  const canCreate = Boolean(content) && (isYouTubeContent
+    ? Boolean(content.videoId || extractVideoId(content.url || content.videoUrl || ''))
+    : Boolean(content.url || content.videoUrl || content.sourceUrl));
 
   const contentLabel = useMemo(() => videoTypeLabel(content), [content]);
 
