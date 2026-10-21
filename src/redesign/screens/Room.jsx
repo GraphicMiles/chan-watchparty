@@ -140,7 +140,7 @@ export default function Room() {
     reportPlayerPosition,
   } = useRoom(roomId, inviteCode)
 
-  const { isHost, writePlayerState, canControl } = usePlayerSync(roomId, room, playerRef)
+  const { isHost, writePlayerState, canControl } = usePlayerSync(roomId, room, playerRef, joined)
 
   // Groq synopsis ONLY after playback has started. Never on join/create —
   // that raced DownloadWella tokens. Uses the show/movie title, not a guess.
@@ -179,15 +179,15 @@ export default function Room() {
   }, [])
 
   useEffect(() => {
-    if (!roomId) return undefined
+    if (!roomId || !joined) return undefined
     const q = query(collection(db, 'rooms', roomId, 'queue'), orderBy('createdAt', 'asc'))
     return onSnapshot(q, (snap) => {
       setQueueItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
-  }, [roomId])
+  }, [roomId, joined])
 
   useEffect(() => {
-    if (!roomId) return undefined
+    if (!roomId || !joined) return undefined
     const q = query(collection(db, 'rooms', roomId, 'floatingReactions'), orderBy('createdAt', 'desc'), limit(15))
     return onSnapshot(q, (snap) => {
       const now = Date.now()
@@ -197,10 +197,10 @@ export default function Room() {
       })
       setFloatingReactions(items)
     })
-  }, [roomId])
+  }, [roomId, joined])
 
   useEffect(() => {
-    if (!roomId) return undefined
+    if (!roomId || !joined) return undefined
     const q = query(collection(db, 'rooms', roomId, 'soundEffects'), orderBy('createdAt', 'desc'), limit(1))
     return onSnapshot(q, (snap) => {
       if (snap.empty) return
@@ -220,7 +220,7 @@ export default function Room() {
         setTimeout(() => setSoundFxBanner(null), 3000)
       }
     })
-  }, [roomId])
+  }, [roomId, joined])
 
   useEffect(() => {
     if (!activityType) return
@@ -484,13 +484,20 @@ export default function Room() {
   }
 
   const confirmLeave = async () => {
+    setBusy(true)
     try {
-      setBusy(true)
-      await leave()
-      navigate('/')
+      // Exiting must never wait forever on Firestore/API cleanup. Give the
+      // leave request a short head start, then leave the screen regardless;
+      // the request can finish in the background and stale-seat cleanup is
+      // the backstop if it cannot.
+      await Promise.race([
+        leave(),
+        new Promise((resolve) => { window.setTimeout(resolve, 2500) }),
+      ])
     } catch (err) {
-      toast(err.message || 'Could not leave', { variant: 'error' })
-      setBusy(false)
+      toast(err.message || 'Left the room. Cleanup will finish shortly.', { variant: 'warning' })
+    } finally {
+      navigate('/')
     }
   }
 
@@ -596,7 +603,11 @@ export default function Room() {
     return (
       <div className="screen">
         <div className="center-state">
-          <p>Joining room...</p>
+          <h3>Joining room...</h3>
+          <p>This should only take a moment.</p>
+          <button type="button" className="btn btn-ghost btn-sm" style={{ width: 'auto', marginTop: 8 }} onClick={() => navigate('/')}>
+            Back to Home
+          </button>
         </div>
       </div>
     )

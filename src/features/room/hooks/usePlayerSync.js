@@ -11,7 +11,7 @@ const HOST_RECONCILIATION_SEEK_TIMEOUT = 15000 // max wait for player to seek af
 const PLAYER_READY_POLL_MS = 200
 const PLAYER_READY_MAX_WAIT_MS = 12000
 
-export function usePlayerSync(roomId, room, playerRef) {
+export function usePlayerSync(roomId, room, playerRef, enabled = true) {
   const { user } = useAuth()
   const isHost = room?.hostId === user?.uid
   const isCoHost = Array.isArray(room?.coHosts) && room.coHosts.includes(user?.uid)
@@ -40,7 +40,7 @@ export function usePlayerSync(roomId, room, playerRef) {
   }, [roomId])
 
   const writePlayerState = useCallback(async (patch, force = false) => {
-    if (!roomId || !canControl || !room || !user) return
+    if (!enabled || !roomId || !canControl || !room || !user) return
     const now = Date.now()
     // Debounce non-forced writes within 400ms to avoid flooding Firestore during rapid slider seeking
     if (!force && now - lastWriteTimeRef.current < 400) return
@@ -65,7 +65,7 @@ export function usePlayerSync(roomId, room, playerRef) {
       updatedBy: user.uid,
       ...patchOut,
     }, { merge: true })
-  }, [roomId, canControl, room, user])
+  }, [enabled, roomId, canControl, room, user])
 
   // Apply a Firestore player state to the active player adapter
   const applyPlayerState = useCallback((state) => {
@@ -119,7 +119,7 @@ export function usePlayerSync(roomId, room, playerRef) {
   // When the host leaves and returns (or refreshes), restore the saved playerState
   // so playback continues from where they left off instead of restarting at 00:00.
   useEffect(() => {
-    if (!canControl || !roomId || initialHostSyncDoneRef.current) return undefined
+    if (!enabled || !canControl || !roomId || initialHostSyncDoneRef.current) return undefined
 
     let isMounted = true
     let pollTimer = null
@@ -223,11 +223,11 @@ export function usePlayerSync(roomId, room, playerRef) {
       isMounted = false
       if (pollTimer) clearTimeout(pollTimer)
     }
-  }, [canControl, roomId, applyPlayerState, playerRef])
+  }, [enabled, canControl, roomId, applyPlayerState, playerRef])
 
   // Controller heartbeat (every 1.5s when playing, or 5s when paused)
   useEffect(() => {
-    if (!canControl || (!room?.videoId && !room?.videoUrl)) return undefined
+    if (!enabled || !canControl || (!room?.videoId && !room?.videoUrl)) return undefined
 
     const interval = setInterval(() => {
       if (!initialHostSyncDoneRef.current) return
@@ -292,11 +292,11 @@ export function usePlayerSync(roomId, room, playerRef) {
     }, HOST_HEARTBEAT_MS)
 
     return () => clearInterval(interval)
-  }, [canControl, room?.videoId, room?.videoUrl, room?.createdAt, playerRef, writePlayerState])
+  }, [enabled, canControl, room?.videoId, room?.videoUrl, room?.createdAt, playerRef, writePlayerState])
 
   // Viewer real-time synchronization (< 0.5s threshold)
   useEffect(() => {
-    if (canControl || !roomId) return undefined
+    if (!enabled || canControl || !roomId) return undefined
 
     let disposed = false
     const stateRef = doc(db, 'rooms', roomId, 'playerState', 'current')
@@ -323,11 +323,11 @@ export function usePlayerSync(roomId, room, playerRef) {
       unsub()
       clearInterval(interval)
     }
-  }, [applyPlayerState, canControl, roomId])
+  }, [enabled, applyPlayerState, canControl, roomId])
 
   // Idle-tab resync on return to active tab
   useEffect(() => {
-    if (!roomId) return undefined
+    if (!enabled || !roomId) return undefined
     const onVis = async () => {
       if (document.visibilityState !== 'visible') return
       try {
@@ -342,7 +342,7 @@ export function usePlayerSync(roomId, room, playerRef) {
     }
     document.addEventListener('visibilitychange', onVis)
     return () => document.removeEventListener('visibilitychange', onVis)
-  }, [applyPlayerState, roomId])
+  }, [enabled, applyPlayerState, roomId])
 
   return { writePlayerState, isHost, isCoHost, canControl }
 }

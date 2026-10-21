@@ -1,7 +1,7 @@
 import { doc, setDoc, deleteDoc, serverTimestamp, collection } from 'firebase/firestore'
 import { db } from './firebase.js'
 import { apiPath, parseJsonResponse } from './api.js'
-import { isDirectVideoUrl, normalizePlaybackUrl, checkEmbeddable } from './youtube.js'
+import { extractVideoId, isDirectVideoUrl, normalizePlaybackUrl, checkEmbeddable } from './youtube.js'
 import { proxyTargetUrl, isDownloadPageUrl, resolveDownloadDescriptor } from './mediaApi.js'
 import { sanitizeSynopsis } from './synopsis.js'
 import { mediaDocFromDescriptor, mediaStubForCdn } from './resolvePlayback.js'
@@ -41,9 +41,18 @@ export async function createRoom(user, { title, capacity, isPrivate, content }) 
   const roomTitle = typeof title === 'string' ? title.trim() : ''
   if (!roomTitle) throw new Error('Give the room a title')
 
-  const videoId = content?.kind === 'youtube' ? content.videoId : ''
-  let videoUrl = content?.kind === 'direct' ? (content.url || '') : ''
-  const videoType = content?.videoType || 'youtube'
+  // Normalize the picker contract defensively. Some producers have only a
+  // videoType, some only a kind, and DownloadWella picks may carry the page
+  // solely as sourceUrl. Requiring every optional alias made valid picks
+  // fail before the room was created.
+  const candidateUrl = content?.url || content?.videoUrl || content?.link || ''
+  const extractedVideoId = content?.videoId || extractVideoId(candidateUrl) || ''
+  const contentKind = content?.kind || (extractedVideoId ? 'youtube' : 'direct')
+  const videoId = contentKind === 'youtube' ? extractedVideoId : ''
+  let videoUrl = contentKind === 'direct'
+    ? (candidateUrl || content?.sourceUrl || '')
+    : ''
+  const videoType = content?.videoType || (contentKind === 'youtube' ? 'youtube' : 'direct')
   let mediaDescriptor = null
   let pageUrl = ''
 

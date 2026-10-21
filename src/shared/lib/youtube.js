@@ -281,20 +281,25 @@ export async function checkEmbeddable(videoId) {
     if (res.status === 403 || res.status === 401) {
       return {
         embeddable: false,
+        verified: true,
         reason: 'This video is blocked from embedding by the uploader.',
       }
     }
     if (!res.ok) {
-      return { embeddable: false, reason: 'Unable to verify embed status.' }
+      // oEmbed is a best-effort preflight, not an authority on embeddability.
+      // A transient 404/5xx (or WebView network failure below) must not make
+      // an otherwise valid pick impossible to create a room with.
+      return { embeddable: true, verified: false, reason: 'Unable to verify embed status.' }
     }
     const data = await res.json()
     return {
       embeddable: true,
+      verified: true,
       title: data.title,
       thumbnail: data.thumbnail_url,
     }
   } catch {
-    return { embeddable: false, reason: 'Network error while checking embed status.' }
+    return { embeddable: true, verified: false, reason: 'Network error while checking embed status.' }
   }
 }
 

@@ -9,7 +9,6 @@ import {
   limit,
   serverTimestamp,
   updateDoc,
-  getDoc,
   setDoc,
   deleteDoc,
   writeBatch,
@@ -104,7 +103,7 @@ export function useRoom(roomId, inviteCode = null) {
   }, [user, roomId])
 
   const join = useCallback(async () => {
-    if (!user || !roomId || joinInFlight.current) return
+    if (!user || !roomId || joinInFlight.current) return false
     joinInFlight.current = true
     try {
       const token = await user.getIdToken()
@@ -124,9 +123,12 @@ export function useRoom(roomId, inviteCode = null) {
       if (!res.ok) throw new Error(data.error || 'Could not join room')
       setJoined(true)
       setKicked(false)
+      setError(null)
       rememberRoom(data.roomId || roomId)
+      return true
     } catch (err) {
       setError(err.message)
+      return false
     } finally {
       joinInFlight.current = false
     }
@@ -282,20 +284,28 @@ export function useRoom(roomId, inviteCode = null) {
         isHostRef.current = data.hostId === user?.uid
         if (data.status === 'ended') {
           setError('This room has ended')
+        } else if (joined) {
+          // A private room snapshot is denied until the server join creates
+          // the participant seat. Once seated, a successful snapshot clears
+          // that transient pre-join error instead of trapping the viewer.
+          setError(null)
         }
         rememberRoom(roomId, data.title || '')
       },
       (err) => {
+        // Before the seat exists, private-room reads are expected to be
+        // denied. Let the join API decide whether entry really failed.
+        if (!joined && err?.code === 'permission-denied') return
         console.error(err)
         setError(err.message || 'Could not load room')
       }
     )
     return unsub
-  }, [roomId, rememberRoom, user?.uid])
+  }, [roomId, rememberRoom, user?.uid, joined])
 
   // Participants listener + exact participantCount sync + kick detection
   useEffect(() => {
-    if (!roomId || !user) return
+    if (!roomId || !user || !joined) return
     const q = query(collection(db, 'rooms', roomId, 'participants'))
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -313,11 +323,11 @@ export function useRoom(roomId, inviteCode = null) {
       }
     })
     return unsub
-  }, [roomId, user, joined, room?.participantCount])
+  }, [roomId, user, joined])
 
   // Messages listener
   useEffect(() => {
-    if (!roomId) return
+    if (!roomId || !joined) return
     const q = query(collection(db, 'rooms', roomId, 'messages'), orderBy('createdAt', 'asc'), limit(200))
     const unsub = onSnapshot(q, (snap) => {
       setMessages(
@@ -329,11 +339,11 @@ export function useRoom(roomId, inviteCode = null) {
       )
     })
     return unsub
-  }, [roomId])
+  }, [roomId, joined])
 
   // Typing indicator listener
   useEffect(() => {
-    if (!roomId) return
+    if (!roomId || !joined) return
     const q = query(collection(db, 'rooms', roomId, 'typing'))
     const unsub = onSnapshot(q, (snap) => {
       const now = Date.now()
@@ -344,7 +354,7 @@ export function useRoom(roomId, inviteCode = null) {
       )
     })
     return unsub
-  }, [roomId])
+  }, [roomId, joined])
 
   const setTypingStatus = useCallback(async (isTyping) => {
     if (!user || !roomId) return
@@ -465,21 +475,13 @@ export function useRoom(roomId, inviteCode = null) {
     let cancelled = false
 
     const check = async () => {
-      try {
-        const snap = await getDoc(doc(db, 'rooms', roomId, 'participants', user.uid))
-        if (cancelled) return
-        if (snap.exists()) {
-          wasParticipant.current = true
-          setJoined(true)
-        } else {
-          await join()
-          if (!cancelled) {
-            wasParticipant.current = true
-          }
-        }
-      } catch (err) {
-        if (!cancelled) setError(err.message || 'Could not join room')
-      }
+      // Join through the server unconditionally. Do not pre-read the
+      // participant document: Firestore rules only let an existing
+      // participant read it, so a first-time joiner gets permission-denied
+      // before the join endpoint ever runs. The endpoint is idempotent
+      // for an existing seat.
+      const ok = await join()
+      if (!cancelled && ok) wasParticipant.current = true
     }
     check()
 

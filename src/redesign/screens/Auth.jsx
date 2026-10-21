@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Play, User, Loader2 } from 'lucide-react';
 import { useAuth } from '../../shared/auth/hooks/useAuth.jsx';
@@ -13,12 +13,19 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const afterAuthTargetRef = useRef(null);
   const afterAuthPath = () => {
+    // Both submit() and the auth-state effect navigate after sign-in.
+    // Cache the one-shot target so the second caller cannot consume an
+    // already-removed value and win the race with a navigation to Home.
+    if (afterAuthTargetRef.current) return afterAuthTargetRef.current;
+    let target = '/';
     try {
-      const target = sessionStorage.getItem('chan:after-auth');
-      if (target) { sessionStorage.removeItem('chan:after-auth'); return target; }
+      target = sessionStorage.getItem('chan:after-auth') || '/';
+      sessionStorage.removeItem('chan:after-auth');
     } catch { /* storage unavailable */ }
-    return '/';
+    afterAuthTargetRef.current = target;
+    return target;
   };
 
   useEffect(() => {
