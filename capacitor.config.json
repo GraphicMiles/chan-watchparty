@@ -33,6 +33,9 @@
     "Keyboard": {
       "resize": "body",
       "resizeOnFullScreen": true
+    },
+    "PushNotifications": {
+      "presentationOptions": []
     }
   }
 }

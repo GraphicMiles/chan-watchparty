@@ -12,6 +12,7 @@ import { kickParticipant, promoteParticipant, muteParticipant, banParticipant } 
 import { generateLiveKitToken } from '../server-lib/livekitHelper.js'
 import { generateAiSummary, generateSmartCatchup, generateRoomQuiz, voteRoomQuiz, generateAiSubtitles } from '../server-lib/aiHelper.js'
 import { checkRateLimit, clientKey } from '../server-lib/rateLimit.js'
+import { notifyRoomJoined } from '../server-lib/pushHelper.js'
 import { timingSafeEqual } from 'node:crypto'
 import { sanitizeAction, sanitizeRoomId, sanitizeUid, sanitizeText } from '../server-lib/sanitize.js'
 
@@ -52,6 +53,16 @@ function requireCronSecret(req) {
   }
 }
 
+function timestampMillis(value) {
+  if (!value) return 0
+  if (typeof value === 'number') return value
+  if (typeof value.toMillis === 'function') return value.toMillis()
+  if (typeof value.seconds === 'number') return value.seconds * 1000
+  if (typeof value._seconds === 'number') return value._seconds * 1000
+  const parsed = Date.parse(String(value))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 async function joinRoom(db, body) {
   const { roomId, uid, displayName, inviteCode } = body || {}
   let targetRoomId = roomId
@@ -86,7 +97,10 @@ async function joinRoom(db, body) {
     seatsBefore = 0
   }
 
+  let joinNotification = null
+
   await db.runTransaction(async (t) => {
+    joinNotification = null
     const roomSnap = await t.get(roomRef)
     if (!roomSnap.exists) throw new Error('Room not found')
     const room = roomSnap.data()
@@ -123,6 +137,18 @@ async function joinRoom(db, body) {
     }
 
     const nextCount = seatsBefore + 1
+    const shouldNotifyHost = Boolean(room.hostId)
+      && room.hostId !== uid
+      && Date.now() - timestampMillis(room.lastJoinPushAt) >= 60_000
+    if (shouldNotifyHost) {
+      joinNotification = {
+        hostId: room.hostId,
+        roomId: targetRoomId,
+        roomTitle: room.title || '',
+        joinerUid: uid,
+        joinerName: displayName,
+      }
+    }
 
     t.set(participantRef, {
       displayName,
@@ -138,10 +164,11 @@ async function joinRoom(db, body) {
     t.update(roomRef, {
       participantCount: nextCount,
       lastHeartbeat: FieldValue.serverTimestamp(),
+      ...(shouldNotifyHost ? { lastJoinPushAt: FieldValue.serverTimestamp() } : {}),
     })
   })
 
-  return { roomId: targetRoomId }
+  return { roomId: targetRoomId, joinNotification }
 }
 
 async function freezePlayerState(db, roomRef, room, uid, currentTime) {
@@ -321,7 +348,13 @@ export default async function handler(req, res) {
 
     if (action === 'join') {
       await requireUser(req, body.uid)
-      result = await joinRoom(db, body)
+      const { joinNotification, ...joinResult } = await joinRoom(db, body)
+      result = joinResult
+      if (joinNotification) {
+        void notifyRoomJoined(db, joinNotification).catch((err) => {
+          console.error('Room join push failed:', err?.message || err)
+        })
+      }
     } else if (action === 'leave') {
       await requireUser(req, body.uid)
       result = await leaveRoom(db, body)

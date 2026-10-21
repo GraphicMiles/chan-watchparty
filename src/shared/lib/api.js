@@ -1,7 +1,7 @@
 // Production API is Render. Ignore a leftover Vercel VITE_API_URL so the
 // APK cannot keep calling a host that no longer matches resolve/proxy.
 const RENDER_API = 'https://chan-aunk.onrender.com'
-const fromEnv = String(import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+const fromEnv = String(import.meta.env?.VITE_API_URL || '').replace(/\/+$/, '')
 export const API_URL = /onrender\.com/i.test(fromEnv) ? fromEnv : RENDER_API
 
 export function apiPath(path) {

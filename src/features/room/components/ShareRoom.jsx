@@ -2,14 +2,13 @@ import { useEffect, useState } from 'react'
 import { Copy, Share2, Hash } from 'lucide-react'
 import QRCode from 'qrcode'
 import { Button, Input, Modal, useToast } from '../../../shared/ui/index.js'
+import { buildRoomLink } from '../../../shared/lib/deepLink.js'
 import styles from './ShareRoom.module.css'
 
 export default function ShareRoom({ room, roomId, open, onClose }) {
   const { toast } = useToast()
   const [qr, setQr] = useState('')
-  const url = room?.inviteCode
-    ? `${window.location.origin}/room/${roomId}?invite=${room.inviteCode}`
-    : `${window.location.origin}/room/${roomId}`
+  const url = buildRoomLink(roomId, room?.inviteCode || '')
 
   useEffect(() => {
     if (!open) return

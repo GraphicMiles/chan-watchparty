@@ -49,7 +49,22 @@
                 <data android:scheme="https" android:host="chan-yz3p.vercel.app" />
             </intent-filter>
 
+            <!-- App-specific fallback for senders that cannot carry an HTTPS
+                 App Link. JS validates these too and only routes safe paths. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="chan" android:host="room" />
+                <data android:scheme="chan" android:host="join" />
+                <data android:scheme="chan" android:host="invite" />
+            </intent-filter>
+
         </activity>
+
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="room-activity" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

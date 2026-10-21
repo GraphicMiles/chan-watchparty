@@ -1,137 +1,99 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { O2TvPlugin, Show, Season, Episode } from '../native/O2TvPlugin';
+import { O2TvPlugin } from '../native/O2TvPlugin';
+import type { Episode, Season, Show } from '../native/O2TvPlugin';
 import { useAuth } from '../shared/auth/hooks/useAuth.jsx';
-import { apiPath } from '../shared/lib/api.js'
+import { apiPath } from '../shared/lib/api.js';
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+    }),
+  ]);
+}
 
 /**
- * Hook that uses native O2TV plugin on Android, falls back to server on web
+ * Android-only O2TV fast path.
+ *
+ * This deliberately does not duplicate the server resolver: callers keep the
+ * existing authenticated /api/media flow as their fallback whenever this
+ * returns null/empty or throws. The native plugin scrapes from the device IP,
+ * which is the part the server cannot reliably do when upstream blocks it.
  */
 export function useO2TvNative() {
   const { user } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const isNativeAvailable = Capacitor.isNativePlatform()
+    && Capacitor.isPluginAvailable('O2TvPlugin');
 
-  const isNative = Capacitor.isNativePlatform();
+  const searchNative = useCallback(async (query: string): Promise<Show[] | null> => {
+    const clean = String(query || '').trim();
+    if (!isNativeAvailable || !clean) return null;
+    const result = await withTimeout(O2TvPlugin.search({ query: clean }), 25_000, 'Native O2TV search');
+    return Array.isArray(result?.shows) ? result.shows : [];
+  }, [isNativeAvailable]);
 
-  const search = useCallback(async (query: string): Promise<Show[]> => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (isNative) {
-        const result = await O2TvPlugin.search({ query });
-        return result.shows;
-      } else {
-        // Fallback to server
-        const response = await fetch(apiPath('/api/media'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'search', layer: 'direct', query }),
-        });
-        const data = await response.json();
-        return data.results || [];
-      }
-    } catch (err: any) {
-      setError(err.message || 'Search failed');
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  }, [isNative]);
+  const getNativeSeasons = useCallback(async (showSlug: string): Promise<Season[] | null> => {
+    const slug = String(showSlug || '').trim();
+    if (!isNativeAvailable || !slug) return null;
+    const result = await withTimeout(O2TvPlugin.getSeasons({ showSlug: slug }), 20_000, 'Native O2TV seasons');
+    return Array.isArray(result?.seasons) ? result.seasons : [];
+  }, [isNativeAvailable]);
 
-  const getSeasons = useCallback(async (showSlug: string): Promise<Season[]> => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (isNative) {
-        const result = await O2TvPlugin.getSeasons({ showSlug });
-        return result.seasons;
-      } else {
-        const response = await fetch(apiPath('/api/media'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'o2tvSeasons', showSlug }),
-        });
-        const data = await response.json();
-        return data.results || [];
-      }
-    } catch (err: any) {
-      setError(err.message || 'Get seasons failed');
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  }, [isNative]);
-
-  const getEpisodes = useCallback(async (showSlug: string, seasonNum: number): Promise<Episode[]> => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (isNative) {
-        const result = await O2TvPlugin.getEpisodes({ showSlug, seasonNum });
-        return result.episodes;
-      } else {
-        const response = await fetch(apiPath('/api/media'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'o2tvEpisodes', showSlug, seasonNum }),
-        });
-        const data = await response.json();
-        return data.results || [];
-      }
-    } catch (err: any) {
-      setError(err.message || 'Get episodes failed');
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  }, [isNative]);
-
-  const resolveEpisode = useCallback(async (
-    showName: string,
+  const getNativeEpisodes = useCallback(async (
     showSlug: string,
     seasonNum: number,
-    epNum: number
-  ): Promise<string | null> => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (isNative) {
-        const authToken = user ? await user.getIdToken() : undefined;
-        const captchaSolverEndpoint = apiPath('/api/media');
-        const result = await O2TvPlugin.resolveEpisode({
-          showName,
-          showSlug,
-          seasonNum,
-          epNum,
-          captchaSolverEndpoint,
-          authToken,
-        });
-        return result.url;
-      } else {
-        const response = await fetch(apiPath('/api/media'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'o2tvResolve', showName, showSlug, seasonNum, episodeNum: epNum }),
-        });
-        const data = await response.json();
-        return data.results?.[0]?.url || null;
-      }
-    } catch (err: any) {
-      setError(err.message || 'Resolve episode failed');
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, [isNative, user]);
+  ): Promise<Episode[] | null> => {
+    const slug = String(showSlug || '').trim();
+    const season = Number(seasonNum) || 0;
+    if (!isNativeAvailable || !slug || season < 1) return null;
+    const result = await withTimeout(
+      O2TvPlugin.getEpisodes({ showSlug: slug, seasonNum: season }),
+      20_000,
+      'Native O2TV episodes',
+    );
+    return Array.isArray(result?.episodes) ? result.episodes : [];
+  }, [isNativeAvailable]);
+
+  const resolveNativeEpisode = useCallback(async ({
+    showName,
+    showSlug,
+    seasonNum,
+    epNum,
+  }: {
+    showName: string;
+    showSlug: string;
+    seasonNum: number;
+    epNum: number;
+  }): Promise<string | null> => {
+    const slug = String(showSlug || '').trim();
+    const season = Number(seasonNum) || 0;
+    const episode = Number(epNum) || 0;
+    if (!isNativeAvailable || !user || !slug || season < 1 || episode < 1) return null;
+
+    const authToken = await user.getIdToken().catch(() => undefined);
+    const result = await withTimeout(
+      O2TvPlugin.resolveEpisode({
+        showName: String(showName || slug.replace(/-/g, ' ')),
+        showSlug: slug,
+        seasonNum: season,
+        epNum: episode,
+        captchaSolverEndpoint: apiPath('/api/media'),
+        authToken,
+      }),
+      75_000,
+      'Native O2TV resolve',
+    );
+    const url = String(result?.url || '').trim();
+    return /^https?:\/\//i.test(url) ? url : null;
+  }, [isNativeAvailable, user]);
 
   return {
-    search,
-    getSeasons,
-    getEpisodes,
-    resolveEpisode,
-    loading,
-    error,
-    isNative,
+    isNativeAvailable,
+    searchNative,
+    getNativeSeasons,
+    getNativeEpisodes,
+    resolveNativeEpisode,
   };
 }
