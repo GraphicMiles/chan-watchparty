@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react'
-import { Search, Loader2, ChevronLeft, ChevronRight, Youtube, Tv, AlertCircle, Link2, Film, Play } from 'lucide-react'
+import { Search, Loader2, ChevronLeft, ChevronRight, Youtube, Tv, AlertCircle, Link2, Play } from 'lucide-react'
 import { useScraper } from '../../hooks/useScraper.js'
 import { useAuth } from '../auth/hooks/useAuth.jsx'
 import { isO2TvUrl, isDirectVideoUrl, normalizePlaybackUrl, getThumbnail } from '../lib/youtube.js'

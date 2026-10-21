@@ -169,7 +169,7 @@ export default function Create() {
   }, [user]); // run once per user/preset — presets come from navigation
 
   // ── Paste a link: same classification as the preset bootstrap ────────
-  const usePastedLink = (e) => {
+  const applyPastedLink = (e) => {
     e?.preventDefault();
     const raw = link.trim();
     if (!raw) return;
@@ -318,12 +318,12 @@ export default function Create() {
             <input
               value={link}
               onChange={(e) => setLink(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); usePastedLink(); } }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyPastedLink(); } }}
               placeholder="Or paste a link"
               aria-label="Paste a link"
             />
             {link.trim() && (
-              <button type="button" style={{ color: 'var(--amber)', fontWeight: 800, fontSize: 13, flex: 'none' }} onClick={usePastedLink}>
+              <button type="button" style={{ color: 'var(--amber)', fontWeight: 800, fontSize: 13, flex: 'none' }} onClick={applyPastedLink}>
                 Use
               </button>
             )}
