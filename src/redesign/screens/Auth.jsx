@@ -1,22 +1,64 @@
-import { useState } from 'react';
-import { Play, User } from 'lucide-react';
-import { POSTERS } from '../data.js';
-import { Avatar, grad, useGo, useUser } from '../ui.jsx';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Play, User, Loader2 } from 'lucide-react';
+import { useAuth } from '../../shared/auth/hooks/useAuth.jsx';
+import { Avatar, gradFor } from '../ui.jsx';
+
+const MOSAIC = ['Shogun', 'Dune', 'The Bear', 'Oppenheimer', 'The Last of Us', 'Spider-Verse', 'Breaking Bad', 'Wednesday', 'Silo'];
 
 export default function Auth() {
-  const go = useGo();
-  const { setName } = useUser();
-  const [value, setValue] = useState('Tunde');
-  const initial = (value.trim()[0] || 'V').toUpperCase();
+  const { user, loading: authLoading, signInAnonymously } = useAuth();
+  const navigate = useNavigate();
+  const [value, setValue] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const afterAuthPath = () => {
+    try {
+      const target = sessionStorage.getItem('chan:after-auth');
+      if (target) { sessionStorage.removeItem('chan:after-auth'); return target; }
+    } catch { /* storage unavailable */ }
+    return '/';
+  };
+
+  useEffect(() => {
+    if (!authLoading && user) navigate(afterAuthPath(), { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading, navigate]);
+
+  if (authLoading || user) {
+    return (
+      <div className="screen">
+        <div className="center-state"><Loader2 size={26} className="spin" style={{ color: 'var(--amber)' }} /><p>Loading...</p></div>
+      </div>
+    );
+  }
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await signInAnonymously(value.trim() || 'Viewer');
+      navigate(afterAuthPath(), { replace: true });
+    } catch (err) {
+      setError(err.message || 'Could not join anonymously');
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="screen">
       <div className="auth-mosaic">
-        {POSTERS.slice(0, 9).map((p) => <div key={p.t} style={grad(p)} />)}
+        {MOSAIC.map((t) => <div key={t} style={gradFor(t)} />)}
       </div>
       <div className="auth-shade" />
       <div className="safe-top" style={{ position: 'relative', zIndex: 2 }} />
-      <div className="scroll" style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', padding: '0 20px 14px' }}>
+      <form
+        className="scroll"
+        style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', padding: '0 20px 14px' }}
+        onSubmit={submit}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: 'auto 0 14px' }}>
           <span className="logo" style={{ width: 44, height: 44, borderRadius: 13 }}><Play size={22} /></span>
           <span style={{ fontSize: 24, fontWeight: 900, letterSpacing: '.06em' }}>CHAN</span>
@@ -32,31 +74,34 @@ export default function Auth() {
             id="auth-name"
             value={value}
             onChange={(e) => setValue(e.target.value)}
+            placeholder="Pick a display name"
             aria-label="Display name"
-            maxLength={24}
-            autoComplete="off"
+            maxLength={30}
+            autoComplete="nickname"
           />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 14, padding: 12 }}>
-          <span style={{ display: 'flex', flex: 'none' }}><Avatar name={initial} color="#E9B44C" size={36} /></span>
-          <span style={{ flex: '1 1 auto', minWidth: 0 }}>
+          <span style={{ display: 'flex', flex: 'none' }}><Avatar name={value.trim() || 'Viewer'} size={36} /></span>
+          <span>
             <small style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.5, display: 'block' }}>
               This is how you appear in rooms. Colour is set by your name.
             </small>
+            <b style={{ fontSize: 12.5 }}>{value.trim() || 'Viewer'}</b>
           </span>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          style={{ marginTop: 22 }}
-          onClick={() => { setName(value.trim() || 'Viewer'); go('home'); }}
-        >
-          Continue
+        {error ? (
+          <div className="err-note" role="alert" style={{ margin: '14px 0 0' }}>
+            <span>{error}</span>
+          </div>
+        ) : null}
+        <button type="submit" className="btn btn-primary" style={{ marginTop: 22 }} disabled={loading}>
+          {loading ? <Loader2 size={18} className="spin" /> : null}
+          {loading ? 'Signing……' : 'Continue'}
         </button>
         <p style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--faint)', marginTop: 14 }}>
           Leave it empty and we call you Viewer.
         </p>
-      </div>
+      </form>
     </div>
   );
 }

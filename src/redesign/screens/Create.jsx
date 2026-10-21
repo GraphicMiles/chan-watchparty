@@ -1,65 +1,384 @@
-import { useState } from 'react';
-import { Play, ChevronLeft, Link2 } from 'lucide-react';
-import { POSTERS } from '../data.js';
-import { Toggle, grad, useGo } from '../ui.jsx';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { Play, ChevronLeft, Link2, Compass, Loader2, AlertCircle } from 'lucide-react';
+import { useAuth } from '../../shared/auth/hooks/useAuth.jsx';
+import {
+  extractVideoId,
+  isDirectVideoUrl,
+  normalizePlaybackUrl,
+  getThumbnail,
+} from '../../shared/lib/youtube.js';
+import { createRoom } from '../../shared/lib/createRoom.js';
+import { isSuitableThumbnail } from '../../shared/lib/mediaHelper.js';
+import { cleanMediaTitle } from '../../shared/lib/titleFormat.js';
+import { friendlyApiError } from '../../shared/lib/mediaApi.js';
+import { sanitizeSynopsis } from '../../shared/lib/synopsis.js';
+import { useToast } from '../../shared/ui/index.js';
+import { Img, Toggle, gradFor } from '../ui.jsx';
 
+function parseShowSlugFromUrl(value) {
+  try {
+    const u = new URL(value);
+    if (!/tvshows4mobile\.org|o2tvseries|o2tv\.org/i.test(u.href)) return null;
+    if (/o2tv\.org/i.test(u.hostname)) return null;
+    const parts = u.pathname.split('/').filter(Boolean);
+    return parts[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function safeThumb(url) {
+  return isSuitableThumbnail(url) ? url : null;
+}
+
+function videoTypeLabel(content) {
+  if (!content) return '';
+  if (content.kind === 'youtube') return 'YouTube';
+  switch (content.videoType) {
+    case 'iptv': return 'Live TV (IPTV)';
+    case 'sports': return 'Live Sports';
+    case 'nsfw': return 'Direct video';
+    default: return 'Direct video';
+  }
+}
+
+/**
+ * Create Room — single-step.
+ * The picker lives in the Media Browser; this page only sets up the room.
+ *   - Arrives with ?video / ?videoUrl presets or location.state.content →
+ *     the media card + settings are shown immediately.
+ *   - Arrives with nothing (deep link / home) → empty state → "Browse media",
+ *     or paste a link (classified with the same rules as the presets).
+ *   - "Change" goes back to the Media Browser.
+ */
 export default function Create() {
-  const go = useGo();
-  const p = POSTERS[0];
-  const [cap, setCap] = useState(8);
-  const [priv, setPriv] = useState(false);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const { toast } = useToast();
+
+  const presetVideo = searchParams.get('video') || '';
+  const presetVideoUrl = searchParams.get('videoUrl') || '';
+  const presetTitle = searchParams.get('title') || '';
+  const presetType = searchParams.get('type') || 'youtube';
+  const presetThumb = safeThumb(searchParams.get('thumbnail') || '');
+  const presetShowSlug = searchParams.get('showSlug') || '';
+  const presetShowName = searchParams.get('showName') || '';
+  const presetIsLive = searchParams.get('isLive') === 'true' || presetType === 'iptv' || presetType === 'sports';
+  // Original episode page URL (DownloadWella etc.) — kept so re-resolve can
+  // regenerate a fresh CDN token instead of echoing a dead one.
+  const presetSourceUrl = searchParams.get('sourceUrl') || '';
+  // Query-string synopsis is a fallback for deep links. The Media Browser
+  // also passes the full blurb via location.state so long text isn't lost
+  // when videoUrl + thumbnail already saturate the URL.
+  const presetSynopsis = sanitizeSynopsis(
+    location.state?.synopsis || location.state?.content?.synopsis || searchParams.get('synopsis') || '',
+  );
+
+  // ── State ───────────────────────────────────────────────────────────────
+  const [content, setContent] = useState(null); // picked content (from presets)
+  // Custom room title override. Starts EMPTY on purpose — the picked content's
+  // title is the default, shown as the input placeholder, so we never render
+  // the same title twice (once in the media card, once in the field).
+  const [title, setTitle] = useState('');
+  const [capacity, setCapacity] = useState(12);
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState(null);
+  const [link, setLink] = useState('');
+
+  const pickContent = useCallback((next) => {
+    setContent(next);
+    setError(null);
+    // Keep a custom title the user already typed; never clobber it with the
+    // picked title (that created the duplicate-title display).
+  }, []);
+
+  // ── Bootstrap from /media hand-off / deep link ───────────────────────
+  useEffect(() => {
+    if (!user) return;
+    // Prefer the Media Browser's full content object. Putting a long CDN /
+    // DownloadWella URL in ?videoUrl= truncates in the WebView and the room
+    // then tries to play a broken link ("unavailable or expired").
+    const handed = location.state?.content;
+    if (handed && (handed.url || handed.videoId || handed.sourceUrl)) {
+      pickContent({
+        ...handed,
+        synopsis: handed.synopsis || presetSynopsis || undefined,
+      });
+      return;
+    }
+    // ?video=ID&type=youtube deep link (YouTube pick)
+    if (presetVideo && !presetVideoUrl) {
+      pickContent({
+        kind: 'youtube',
+        videoId: presetVideo,
+        url: `https://youtube.com/watch?v=${presetVideo}`,
+        title: presetTitle || 'YouTube video',
+        thumbnail: presetThumb,
+        videoType: 'youtube',
+      });
+      return;
+    }
+    if (!presetVideoUrl) return;
+    const id = extractVideoId(presetVideoUrl);
+    if (id) {
+      pickContent({
+        kind: 'youtube',
+        videoId: id,
+        url: `https://youtube.com/watch?v=${id}`,
+        title: presetTitle || 'YouTube video',
+        thumbnail: presetThumb,
+        videoType: 'youtube',
+        synopsis: presetSynopsis || undefined,
+      });
+      return;
+    }
+    // DownloadWella / fsmc PAGE links (picked TV-show episodes) are not
+    // direct video URLs — they're resolved to a FRESH token at create time.
+    const isDwPage = /downloadwella\.com|fsmc/i.test(presetVideoUrl) && !isDirectVideoUrl(presetVideoUrl);
+    if (isDirectVideoUrl(presetVideoUrl) || /\/api\/proxy\?/i.test(presetVideoUrl) || isDwPage) {
+      const isM3u8 = /\.m3u8(\?|#|$)/i.test(presetVideoUrl);
+      const streamType = ['iptv', 'sports', 'nsfw'].includes(presetType) ? presetType : (isM3u8 ? 'iptv' : 'direct');
+      pickContent({
+        kind: 'direct',
+        url: normalizePlaybackUrl(presetVideoUrl),
+        title: presetTitle || 'Direct video',
+        thumbnail: presetThumb,
+        videoType: streamType,
+        isLive: presetIsLive,
+        // DownloadWella pages expire fast — keep the page URL so createRoom
+        // walks the form for a fresh CDN token instead of a dead one.
+        sourceUrl: presetSourceUrl || (isDwPage ? presetVideoUrl : undefined),
+        pendingResolve: isDwPage,
+        synopsis: presetSynopsis || undefined,
+      });
+      return;
+    }
+    // O2TV show page / slug → the picker (seasons) lives in the Media
+    // Browser's Direct layer now — hand off there instead of embedding a
+    // second browser here.
+    const slug = presetShowSlug || parseShowSlugFromUrl(presetVideoUrl);
+    if (slug) {
+      const q = presetShowName || presetTitle || slug;
+      navigate(`/media?layer=direct&q=${encodeURIComponent(q)}`, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]); // run once per user/preset — presets come from navigation
+
+  // ── Paste a link: same classification as the preset bootstrap ────────
+  const usePastedLink = (e) => {
+    e?.preventDefault();
+    const raw = link.trim();
+    if (!raw) return;
+    const id = extractVideoId(raw);
+    if (id) {
+      pickContent({
+        kind: 'youtube',
+        videoId: id,
+        url: `https://youtube.com/watch?v=${id}`,
+        title: 'YouTube video',
+        thumbnail: null,
+        videoType: 'youtube',
+      });
+      setLink('');
+      return;
+    }
+    const isDwPage = /downloadwella\.com|fsmc/i.test(raw) && !isDirectVideoUrl(raw);
+    if (isDirectVideoUrl(raw) || /\/api\/proxy\?/i.test(raw) || isDwPage) {
+      const isM3u8 = /\.m3u8(\?|#|$)/i.test(raw);
+      pickContent({
+        kind: 'direct',
+        url: normalizePlaybackUrl(raw),
+        title: 'Direct video',
+        thumbnail: null,
+        videoType: isM3u8 ? 'iptv' : 'direct',
+        isLive: isM3u8,
+        sourceUrl: isDwPage ? raw : undefined,
+        pendingResolve: isDwPage,
+      });
+      setLink('');
+      return;
+    }
+    const slug = parseShowSlugFromUrl(raw);
+    if (slug) {
+      navigate(`/media?layer=direct&q=${encodeURIComponent(slug)}`);
+      return;
+    }
+    // Anything else goes through search, exactly like the Home search bar.
+    navigate(`/search?q=${encodeURIComponent(raw)}`);
+  };
+
+  // ── Create room ───────────────────────────────────────────────────────
+  const create = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setCreating(true);
+    try {
+      // Custom title override: fall back to the picked content's title when
+      // the user left the field empty (its placeholder already shows it).
+      const roomTitle = title.trim() || cleanMediaTitle(content?.title || '') || 'Untitled room';
+      const { roomId, inviteCode } = await createRoom(user, {
+        title: roomTitle,
+        capacity: Number(capacity) || 12,
+        isPrivate,
+        content: { ...content, synopsis: content?.synopsis || presetSynopsis || null },
+      });
+      toast('Room created', { variant: 'success' });
+      navigate(`/room/${roomId}${inviteCode ? `?invite=${inviteCode}` : ''}`);
+    } catch (err) {
+      console.error('Create room error:', err);
+      // Single presentation point: the in-panel banner (visible on the create
+      // pane). The toast previously duplicated the same message on screen.
+      setError(friendlyApiError(err.message || 'Could not create room. Please try again.'));
+      setCreating(false);
+    }
+  };
+
+  const canCreate = Boolean(content) && (content.kind === 'youtube' ? Boolean(content.videoId) : Boolean(content.url));
+
+  const contentLabel = useMemo(() => videoTypeLabel(content), [content]);
+
+  const goBack = () => {
+    const from = location.state?.from;
+    if (from) navigate(from);
+    else if (window.history.length > 1) navigate(-1);
+    else navigate('/media');
+  };
+
+  const browseMedia = () => navigate('/media', { state: { from: location.pathname } });
+
+  if (!user) {
+    return (
+      <div className="screen">
+        <div className="center-state">
+          <h3>Sign in to create a room</h3>
+          <button type="button" className="btn btn-primary btn-sm" style={{ width: 'auto', marginTop: 10 }} onClick={() => navigate('/auth')}>
+            Sign in
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const contentThumb = content
+    ? (safeThumb(content.thumbnail) || (content.kind === 'youtube' && content.videoId ? getThumbnail(content.videoId) : null))
+    : null;
+  const synopsis = sanitizeSynopsis(content?.synopsis);
 
   return (
     <div className="screen">
       <div className="safe-top" />
       <div className="px h-row" style={{ flex: 'none', marginTop: 6 }}>
-        <button type="button" className="icon-btn" onClick={() => go('title')} aria-label="Back"><ChevronLeft size={19} /></button>
+        <button type="button" className="icon-btn" onClick={goBack} aria-label="Back"><ChevronLeft size={19} /></button>
         <b style={{ fontSize: 16 }}>New room</b>
         <span style={{ width: 40 }} />
       </div>
-      <div className="scroll">
-        <div className="card" style={{ marginTop: 14, display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-          <span className="poster" style={{ ...grad(p), width: 52, height: 78, flex: 'none' }} />
-          <span style={{ flex: '1 1 auto', minWidth: 0 }}>
-            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Direct links</span>
-            <b style={{ display: 'block', fontSize: 14.5, marginTop: 2, lineHeight: 1.3 }}>Shogun, episode 4</b>
-            <small style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45, display: 'block', marginTop: 2 }}>
-              Blackthorne trains the regiment while the council moves against Toranaga.
-            </small>
-          </span>
-          <button type="button" className="see-all" onClick={() => go('browse')}>Change</button>
-        </div>
+
+      <form className="scroll" onSubmit={create} style={{ display: 'flex', flexDirection: 'column' }}>
+        {content ? (
+          <div className="card rise" style={{ marginTop: 14, display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+            <span className="poster" style={{ ...gradFor(content.title), width: 52, height: 78, flex: 'none' }}>
+              <Img src={contentThumb} alt="" />
+            </span>
+            <span style={{ flex: '1 1 auto', minWidth: 0 }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{contentLabel}</span>
+              <b className="card-title-2" style={{ display: '-webkit-box', fontSize: 14.5, marginTop: 2, lineHeight: 1.3 }}>
+                {cleanMediaTitle(content.title) || 'Selected video'}
+              </b>
+              {synopsis && (
+                <small style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', marginTop: 2 }}>
+                  {synopsis}
+                </small>
+              )}
+            </span>
+            <button type="button" className="see-all" onClick={browseMedia}>Change</button>
+          </div>
+        ) : (
+          <div className="px" style={{ marginTop: 14 }}>
+            <div className="empty-box">
+              <Compass size={26} style={{ color: 'var(--amber)' }} />
+              <h4>Pick something to watch</h4>
+              <p>
+                Browse for a YouTube video, a live channel, a sports match, or a TV show,
+                then come back here to start the room.
+              </p>
+              <button type="button" className="btn btn-primary btn-sm" style={{ width: 'auto', margin: '12px auto 0' }} onClick={browseMedia}>
+                Browse media
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="px" style={{ marginTop: 14 }}>
           <div className="field">
             <Link2 size={16} />
-            <input placeholder="Or paste a link" aria-label="Paste a link" />
+            <input
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); usePastedLink(); } }}
+              placeholder="Or paste a link"
+              aria-label="Paste a link"
+            />
+            {link.trim() && (
+              <button type="button" style={{ color: 'var(--amber)', fontWeight: 800, fontSize: 13, flex: 'none' }} onClick={usePastedLink}>
+                Use
+              </button>
+            )}
           </div>
           <p className="helper" style={{ marginTop: 7 }}>YouTube, a direct file, a download page or Live TV.</p>
         </div>
+
         <div className="px" style={{ marginTop: 20 }}>
           <label className="micro" style={{ display: 'block', marginBottom: 8 }} htmlFor="room-title">Room title, optional</label>
           <div className="field">
-            <input id="room-title" placeholder="Defaults to Shogun, episode 4" maxLength={80} aria-label="Room title" />
+            <input
+              id="room-title"
+              type="text"
+              placeholder={content?.title ? `Defaults to "${cleanMediaTitle(content.title)}"` : 'Room title'}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={80}
+              aria-label="Room title"
+            />
           </div>
         </div>
+
         <div className="card" style={{ marginTop: 18, padding: '4px 16px' }}>
           <div className="switch-row">
             <span><b>Capacity</b><small>Up to 12 people</small></span>
             <span className="stepper">
-              <button type="button" onClick={() => setCap((c) => Math.max(1, c - 1))} aria-label="Decrease capacity">&minus;</button>
-              <b style={{ fontSize: 16, minWidth: 22, textAlign: 'center' }}>{cap}</b>
-              <button type="button" onClick={() => setCap((c) => Math.min(12, c + 1))} aria-label="Increase capacity">+</button>
+              <button type="button" onClick={() => setCapacity((c) => Math.max(1, Number(c) - 1))} aria-label="Decrease capacity">&minus;</button>
+              <b style={{ fontSize: 16, minWidth: 22, textAlign: 'center' }}>{capacity}</b>
+              <button type="button" onClick={() => setCapacity((c) => Math.min(12, Number(c) + 1))} aria-label="Increase capacity">+</button>
             </span>
           </div>
           <div className="switch-row">
             <span><b>Private room</b><small>Needs an invite code, stays out of Live now</small></span>
-            <Toggle on={priv} onChange={setPriv} label="Private room" />
+            <Toggle on={isPrivate} onChange={setIsPrivate} label="Private room" />
           </div>
         </div>
-      </div>
+
+        {error && (
+          <div className="err-note" role="alert" style={{ margin: '16px var(--gut) 0' }}>
+            <AlertCircle size={15} style={{ flex: 'none', marginTop: 1 }} />
+            <span>{error}</span>
+          </div>
+        )}
+      </form>
+
       <div className="sticky-cta">
-        <button type="button" className="btn btn-primary" onClick={() => go('room')}>
-          <Play size={17} />Create room and enter
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={!canCreate || creating}
+          style={!canCreate ? { opacity: 0.55 } : undefined}
+          onClick={create}
+        >
+          {creating ? <Loader2 size={17} className="spin" /> : <Play size={17} />}
+          {creating ? 'Creating room…' : 'Create room and enter'}
         </button>
         <p style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--faint)', marginTop: 10 }}>
           Invite link, QR code and code are waiting inside the room.

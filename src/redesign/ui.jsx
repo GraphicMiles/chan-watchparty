@@ -1,48 +1,8 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Play, Pause, Home, LayoutGrid, Plus, Users, User, ChevronLeft, Share2,
-  Pencil, Maximize, SlidersHorizontal,
-} from 'lucide-react';
-import { POSTERS, PEOPLE, ROOM } from './data.js';
-
-/* Route map (mock ids mirror the old app's paths) */
-export function pathFor(id, layer) {
-  switch (id) {
-    case 'auth': return '/auth';
-    case 'browse': return '/search' + (layer && layer !== 'all' ? `?layer=${layer}` : '');
-    case 'title': return '/title';
-    case 'create': return '/create';
-    case 'room': return '/room/friday-night';
-    case 'settings': return '/room/friday-night/settings';
-    case 'share': return '/room/friday-night/share';
-    case 'error': return '/room/friday-night/error';
-    case 'profile': return '/profile';
-    case 'states': return '/states';
-    default: return '/';
-  }
-}
-export function useGo() {
-  const navigate = useNavigate();
-  return (id, layer) => navigate(pathFor(id, layer));
-}
-
-/* Anonymous user (mock auth): name persists locally, colour derived later. */
-const UserCtx = createContext({ name: '', setName: () => {} });
-export function UserProvider({ children }) {
-  const [name, setNameState] = useState(() => {
-    try { return localStorage.getItem('chan-name') || ''; } catch { return ''; }
-  });
-  const setName = (n) => {
-    setNameState(n);
-    try {
-      if (n) localStorage.setItem('chan-name', n);
-      else localStorage.removeItem('chan-name');
-    } catch { /* storage unavailable */ }
-  };
-  return <UserCtx.Provider value={{ name, setName }}>{children}</UserCtx.Provider>;
-}
-export const useUser = () => useContext(UserCtx);
+import { Home, LayoutGrid, Plus, Users, User } from 'lucide-react';
+import { Avatar as SharedAvatar } from '../shared/ui/index.js';
+import { getLastRoom } from '../features/room/hooks/useRoom.js';
 
 /* Temporary confirmation flag (Copied / Saved feedback) */
 export function useTempFlag(ms = 1400) {
@@ -71,40 +31,76 @@ export function copyText(txt) {
   });
 }
 
+/* Deterministic poster art for media without artwork (rooms, thumbless
+   results). Seeded by id/title so a card keeps its colours across renders. */
+const PALETTES = [
+  ['#3F3434', '#1E1A1B'], ['#403A32', '#1D1A16'], ['#323A40', '#171A1D'],
+  ['#40362F', '#1C1815'], ['#363B34', '#181A17'], ['#393440', '#1A181C'],
+  ['#323B36', '#161A18'], ['#383840', '#18181C'], ['#3B3934', '#1A1917'],
+];
+export function gradFor(seed = '') {
+  let h = 0;
+  const s = String(seed);
+  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  const g = PALETTES[h % PALETTES.length];
+  return { background: `linear-gradient(160deg,${g[0]},${g[1]})` };
+}
 export const grad = (p) => ({ background: `linear-gradient(160deg,${p.g[0]},${p.g[1]})` });
 export const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-export function Avatar({ name, color, size = 30 }) {
+/* Real thumbnail over gradient art; hides itself when the image fails. */
+export function Img({ src, alt = '' }) {
+  if (!src) return null;
   return (
-    <span className="avatar" style={{ width: size, height: size, background: color, fontSize: Math.round(size * 0.4) }}>
-      {(name || 'V')[0].toUpperCase()}
-    </span>
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      className="cover-img"
+      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+    />
   );
 }
-export function Stack({ list = PEOPLE, size = 26 }) {
+
+export function Avatar({ name, uid, size = 30 }) {
+  return <SharedAvatar name={name || 'Viewer'} uid={uid} size={size} />;
+}
+
+/* Overlapping avatar stack from real participant objects. */
+export function Stack({ people = [], size = 26 }) {
   return (
     <span className="avatar-stack">
-      {list.slice(0, 4).map((p) => <Avatar key={p.n} name={p.n} color={p.c} size={size} />)}
+      {people.slice(0, 4).map((p, i) => (
+        <Avatar
+          key={p.uid || p.id || p.displayName || i}
+          name={typeof p === 'string' ? p : p.displayName || 'Viewer'}
+          uid={typeof p === 'string' ? p : p.uid || p.id}
+          size={size}
+        />
+      ))}
     </span>
   );
 }
 
-export function PosterCard({ p, w, rank, fluid, onOpen }) {
-  if (fluid) {
-    return (
-      <span style={{ minWidth: 0 }}>
-        <button type="button" className="poster" style={{ ...grad(p), width: '100%', aspectRatio: '2/3' }} onClick={onOpen} aria-label={p.t} />
-        <span className="poster-meta"><b>{p.t}</b>{p.m}{p.src !== 'Direct links' ? `, ${p.src}` : ''}</span>
-      </span>
-    );
-  }
-  const width = w || 118;
+/* Poster card driven by a real search result (or a trending term). */
+export function PosterCard({ title, meta, thumb, seed, rank, w, fluid, badge, onOpen, rise }) {
+  const inner = (
+    <button
+      type="button"
+      className="poster"
+      style={{ ...gradFor(seed || title), width: fluid ? '100%' : w || 118, aspectRatio: '2/3' }}
+      onClick={onOpen}
+      aria-label={title}
+    >
+      <Img src={thumb} alt="" />
+      {rank ? <span className="p-rank">{rank}</span> : null}
+      {badge ? <span className="pill pill-live" style={{ position: 'absolute', top: 8, left: 8, zIndex: 2 }}>{badge}</span> : null}
+    </button>
+  );
   return (
-    <span style={{ flex: 'none', width }}>
-      <button type="button" className="poster" style={{ ...grad(p), width, aspectRatio: '2/3' }} onClick={onOpen} aria-label={p.t}>
-        {rank ? <span className="p-rank">{rank}</span> : null}
-      </button>
-      <span className="poster-meta"><b>{p.t}</b>{p.m}</span>
+    <span className={rise ? 'rise' : undefined} style={{ ...(fluid ? { minWidth: 0 } : { flex: 'none', width: w || 118 }), ...(rise ? { '--d': rise } : null) }}>
+      {inner}
+      <span className="poster-meta"><b>{title}</b>{meta}</span>
     </span>
   );
 }
@@ -131,113 +127,25 @@ export function Toggle({ on, onChange, label }) {
 }
 
 export function BottomNav({ active }) {
-  const go = useGo();
-  const item = (id, Icon, label) => (
-    <button type="button" className={active === id ? 'active' : ''} onClick={() => go(id)}>
+  const navigate = useNavigate();
+  const goRoom = () => {
+    const last = getLastRoom();
+    navigate(last?.roomId ? `/room/${last.roomId}` : '/');
+  };
+  const item = (id, Icon, label, onClick) => (
+    <button type="button" className={active === id ? 'active' : ''} onClick={onClick}>
       <Icon size={22} strokeWidth={1.8} />{label}
     </button>
   );
   return (
     <nav className="bottomnav">
-      {item('home', Home, 'Home')}
-      {item('browse', LayoutGrid, 'Browse')}
-      <button type="button" className="fab" onClick={() => go('create')} aria-label="Start a party">
+      {item('home', Home, 'Home', () => navigate('/'))}
+      {item('browse', LayoutGrid, 'Browse', () => navigate('/search'))}
+      <button type="button" className="fab" onClick={() => navigate('/create')} aria-label="Start a party">
         <Plus size={26} strokeWidth={1.8} />
       </button>
-      {item('room', Users, 'Room')}
-      {item('profile', User, 'You')}
+      {item('room', Users, 'Room', goRoom)}
+      {item('profile', User, 'You', () => navigate('/profile'))}
     </nav>
-  );
-}
-
-/* Mock player surface: gradient "video", transport, seek, pins, floats. */
-export function Player({
-  playing, onTogglePlay, pos, dur = ROOM.duration, onSkip,
-  skips, caption, pins, extraPins = [], vibe, floats = [], desktop, bgFilter,
-}) {
-  const p = POSTERS[0];
-  const pct = Math.max(0, Math.min(100, (pos / dur) * 100));
-  return (
-    <div className={`player${caption ? ' cap' : ''}`} style={vibe ? { border: '1.5px solid #5A4040' } : undefined}>
-      <div className="p-bg" style={{ ...grad(p), filter: bgFilter }} />
-      {desktop ? (
-        <div className="desktop-art">
-          <div className="desktop-bar"><i /><i /><i /></div>
-          <div style={{ padding: 12 }}>
-            <div className="skel" style={{ height: 60, background: '#22242C' }} />
-            <div className="skel" style={{ height: 8, width: '60%', marginTop: 10, background: '#26282F' }} />
-            <div className="skel" style={{ height: 8, width: '44%', marginTop: 7, background: '#26282F' }} />
-          </div>
-        </div>
-      ) : null}
-      <div className="p-top">
-        <span className="pill pill-glass"><span className="live-dot ok" />IN SYNC</span>
-      </div>
-      <div className="p-center">
-        {skips ? <button type="button" className="skip-btn" onClick={() => onSkip(-10)}>-10s</button> : null}
-        <button type="button" className="play-btn" onClick={onTogglePlay} aria-label={playing ? 'Pause' : 'Play'}>
-          {playing ? <Pause size={25} /> : <Play size={25} />}
-        </button>
-        {skips ? <button type="button" className="skip-btn" onClick={() => onSkip(10)}>+10s</button> : null}
-      </div>
-      {caption ? (
-        <div className="caption-line"><span>[rain against the banners] The torches gutter in the wind.</span></div>
-      ) : null}
-      {floats.map((f) => (
-        <span key={f.id} className={`float-react${f.fly ? ' fly' : ''}`} style={{ top: f.top }}>{f.emoji}</span>
-      ))}
-      <div className="p-bottom">
-        <div className="seek">
-          <div className="progress"><i style={{ width: `${pct}%` }} /></div>
-          {pins ? <><span className="pin-mark" style={{ left: '31%' }} /><span className="pin-mark" style={{ left: '57%' }} /></> : null}
-          {extraPins.map((l) => <span key={l} className="pin-mark" style={{ left: `${l}%` }} />)}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 7, fontSize: 11, color: 'var(--soft)' }}>
-          <span>{fmt(pos)} of {fmt(dur)}</span>
-          <span><Maximize size={15} /></span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export function RoomHead() {
-  const go = useGo();
-  return (
-    <>
-      <div className="safe-top" />
-      <div className="px h-row" style={{ flex: 'none', marginTop: 2 }}>
-        <button type="button" className="icon-btn" onClick={() => go('home')} aria-label="Leave room">
-          <ChevronLeft size={19} />
-        </button>
-        <span style={{ textAlign: 'center', flex: '1 1 auto', minWidth: 0, padding: '0 8px' }}>
-          <b className="truncate" style={{ fontSize: 14, display: 'block' }}>
-            {ROOM.name} <span style={{ color: 'var(--faint)' }}><Pencil size={12} style={{ verticalAlign: '-1px' }} /></span>
-          </b>
-          <small style={{ color: 'var(--muted)', fontSize: 11 }}>{ROOM.seats}</small>
-        </span>
-        <button type="button" className="icon-btn" onClick={() => go('share')} aria-label="Share room">
-          <Share2 size={18} />
-        </button>
-      </div>
-    </>
-  );
-}
-
-export function RoomMeta() {
-  const go = useGo();
-  return (
-    <div className="px" style={{ flex: 'none', marginTop: 8 }}>
-      <div className="h-row">
-        <b className="truncate" style={{ fontSize: 15.5, lineHeight: 1.3, minWidth: 0 }}>{ROOM.episode}</b>
-        <button type="button" className="icon-btn" onClick={() => go('settings')} aria-label="Player settings">
-          <SlidersHorizontal size={18} />
-        </button>
-      </div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 2 }}>
-        <small style={{ flex: '1 1 auto', minWidth: 0, color: 'var(--muted)', fontSize: 12 }}>{ROOM.source}</small>
-        <Stack size={26} />
-      </div>
-    </div>
   );
 }
