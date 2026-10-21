@@ -103,7 +103,6 @@ export default function Room() {
     return () => window.removeEventListener('resize', onResize)
   }, [])
   const [shareOpen, setShareOpen] = useState(false)
-  const [detailsOpen, setDetailsOpen] = useState(false)
   const [endConfirmOpen, setEndConfirmOpen] = useState(false)
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
