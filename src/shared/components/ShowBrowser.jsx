@@ -1,6 +1,5 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react'
-import { Search, Loader2, ChevronLeft, ChevronRight, Youtube, Tv, AlertCircle, Link2, Film } from 'lucide-react'
-import styles from './ShowBrowser.module.css'
+import { Search, Loader2, ChevronLeft, ChevronRight, Youtube, Tv, AlertCircle, Link2, Film, Play } from 'lucide-react'
 import { useScraper } from '../../hooks/useScraper.js'
 import { useAuth } from '../auth/hooks/useAuth.jsx'
 import { isO2TvUrl, isDirectVideoUrl, normalizePlaybackUrl, getThumbnail } from '../lib/youtube.js'
@@ -10,6 +9,7 @@ import { mediaPost, friendlyApiError, proxyTargetUrl, isDownloadPageUrl } from '
 import { resolvePlaybackForUser } from '../lib/resolvePlayback.js'
 import { isSeasonalResult, isStandaloneResult, isMovieTitle } from '../lib/mediaType.js'
 import { useToast } from '../ui/index.js'
+import { Img, gradFor } from '../../redesign/ui.jsx'
 
 function parseShowSlugFromUrl(value) {
   try {
@@ -42,7 +42,7 @@ function safeThumb(url) {
  *   { kind: 'direct',  url, title, thumbnail, videoType, source?, pendingResolve? }
  */
 export const ShowBrowser = forwardRef(function ShowBrowser(
-  { onPick, initialMode = 'tv', placeholder, compact = false, hideModeTabs = false, className },
+  { onPick, initialMode = 'tv', placeholder, compact = false, hideModeTabs = false, hideSearch = false, className },
   ref
 ) {
   const { user } = useAuth()
@@ -579,48 +579,62 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     },
   }), [emit, loadSeasons, scrape, clearTv])
 
-  // ── Render helpers ────────────────────────────────────────────────────
+  // ── Render helpers (redesign skin; logic above untouched) ────────────
 
   const loading = tvLoading || ytLoading || browseLoading
   const error = searchError || tvError || browseError
   const results = mode === 'youtube' ? ytResults : tvResults
   const isBusy = Boolean(resolvingIdx !== null)
 
+  const hero = (backLabel, onBack) => (
+    <div className="title-hero" style={{ height: 200, ...gradFor(showName || showSlug) }}>
+      <Img src={showThumb} alt="" />
+      <button
+        type="button"
+        className="icon-btn"
+        onClick={onBack}
+        aria-label={backLabel}
+        style={{ position: 'absolute', top: 12, left: 16, zIndex: 3 }}
+      >
+        <ChevronLeft size={19} />
+      </button>
+      <div className="hero-in">
+        <span className="pill pill-amber">TV SHOW</span>
+        <h3 style={{ fontSize: 25, letterSpacing: '-.02em', marginTop: 8 }}>{cleanMediaTitle(showName) || 'Show'}</h3>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{backLabel}</p>
+      </div>
+    </div>
+  )
+
   const renderGrid = () => {
     if (stage === 'seasons') {
       return (
-        <div className={styles.group}>
-          <div className={styles.showHeader}>
-            {showThumb && <img src={showThumb} alt="" className={styles.showPoster} onError={(e) => { e.currentTarget.style.display = 'none' }} />}
-            <div className={styles.showHeaderText}>
-              <h3 className={styles.showName}>{cleanMediaTitle(showName) || 'Select a season'}</h3>
-              <button type="button" className={styles.backLink} onClick={() => { setStage(null); setSeasons([]); setShowSlug('') }}>
-                <ChevronLeft size={14} /> Back to results
-              </button>
-            </div>
+        <div>
+          {hero('Back to results', () => { setStage(null); setSeasons([]); setShowSlug('') })}
+          <div className="px h-row" style={{ margin: '16px 0 6px' }}>
+            <span className="sec-title" style={{ fontSize: 16 }}>Seasons</span>
+            <span className="result-count">{seasons.length} season{seasons.length !== 1 ? 's' : ''}</span>
           </div>
-          <div className={styles.resultList}>
+          <div style={{ padding: '0 10px' }}>
             {seasons.map((season, idx) => (
               <button
                 key={season.seasonNum || season.url || idx}
                 type="button"
-                className={styles.resultCard}
+                className="ep-row rise"
+                style={{ '--d': `${Math.min(idx, 6) * 40}ms` }}
                 onClick={() => loadEpisodes(season)}
               >
-                <div className={styles.resultThumb}>
-                  {(season.thumbnail || showThumb) ? (
-                    <img src={season.thumbnail || showThumb} alt="" className={styles.resultThumbImg} onError={(e) => { e.currentTarget.style.display = 'none' }} />
-                  ) : (
-                    <div className={styles.resultNoThumb}><Film size={20} /></div>
-                  )}
-                </div>
-                <div className={styles.resultBody}>
-                  <h3 className={styles.resultTitle}>{cleanMediaTitle(season.label || season.title) || `Season ${season.seasonNum || idx + 1}`}</h3>
-                  <div className={styles.resultMeta}>
-                    <span className={styles.resultSource} data-source="o2tv">TV Show</span>
-                  </div>
-                </div>
-                <span className={styles.resultChevron}><ChevronRight size={16} /></span>
+                <span className="ep-thumb" style={gradFor(showName)}>
+                  <Img src={safeThumb(season.thumbnail) || showThumb} alt="" />
+                  <Play size={17} style={{ position: 'relative', zIndex: 1 }} />
+                </span>
+                <span style={{ flex: '1 1 auto', minWidth: 0 }}>
+                  <b style={{ display: 'block', fontSize: 13.5, lineHeight: 1.3 }}>
+                    {cleanMediaTitle(season.label || season.title) || `Season ${season.seasonNum || idx + 1}`}
+                  </b>
+                  <small className="ep-sub">TV Show</small>
+                </span>
+                <span style={{ color: 'var(--faint)', flex: 'none' }}><ChevronRight size={16} /></span>
               </button>
             ))}
           </div>
@@ -630,49 +644,48 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
 
     if (stage === 'episodes') {
       return (
-        <div className={styles.group}>
-          <div className={styles.showHeader}>
-            {showThumb && <img src={showThumb} alt="" className={styles.showPoster} onError={(e) => { e.currentTarget.style.display = 'none' }} />}
-            <div className={styles.showHeaderText}>
-              <h3 className={styles.showName}>{cleanMediaTitle(showName) || 'Episodes'}</h3>
-              {episodesSynopsis && <p className={styles.showSynopsis}>{episodesSynopsis}</p>}
-              <button
-                type="button"
-                className={styles.backLink}
-                onClick={() => {
-                  setStage(showSlug ? 'seasons' : null)
-                  setEpisodes([])
-                  setSeasonNum(null)
-                  if (!showSlug) { setShowName(''); setShowThumb(null) }
-                }}
-              >
-                <ChevronLeft size={14} /> {showSlug ? 'All seasons' : 'Back to results'}
-              </button>
-            </div>
+        <div>
+          {hero(showSlug ? 'All seasons' : 'Back to results', () => {
+            setStage(showSlug ? 'seasons' : null)
+            setEpisodes([])
+            setSeasonNum(null)
+            if (!showSlug) { setShowName(''); setShowThumb(null) }
+          })}
+          {episodesSynopsis && (
+            <p className="px" style={{ marginTop: 12, fontSize: 13, color: 'var(--soft)', lineHeight: 1.6 }}>
+              {episodesSynopsis}
+            </p>
+          )}
+          <div className="px h-row" style={{ margin: '16px 0 6px' }}>
+            <span className="sec-title" style={{ fontSize: 16 }}>
+              {seasonNum ? `Season ${seasonNum}` : 'Episodes'}
+            </span>
+            <span className="result-count">{episodes.length} episode{episodes.length !== 1 ? 's' : ''}</span>
           </div>
-          <div className={styles.resultList}>
+          <div style={{ padding: '0 10px' }}>
             {episodes.map((ep, idx) => (
               <button
                 key={ep.episodeNum || ep.url || idx}
                 type="button"
-                className={`${styles.resultCard} ${resolvingIdx === idx ? styles.resultCardBusy : ''}`}
+                className={`ep-row rise${resolvingIdx === idx ? ' active' : ''}`}
+                style={{ '--d': `${Math.min(idx, 6) * 40}ms` }}
                 disabled={isBusy}
                 onClick={() => pickEpisode(ep, idx)}
               >
-                <div className={styles.resultThumb}>
-                  {(ep.thumbnail || showThumb) ? (
-                    <img src={ep.thumbnail || showThumb} alt="" className={styles.resultThumbImg} onError={(e) => { e.currentTarget.style.display = 'none' }} />
-                  ) : (
-                    <div className={styles.resultNoThumb}><Film size={20} /></div>
-                  )}
-                </div>
-                <div className={styles.resultBody}>
-                  <h3 className={styles.resultTitle}>{cleanMediaTitle(ep.label || ep.title) || `Episode ${ep.episodeNum || idx + 1}`}</h3>
-                  <div className={styles.resultMeta}>
-                    <span className={styles.resultSource} data-source="direct">Episode</span>
-                  </div>
-                </div>
-                <span className={styles.resultWatch}>
+                <span className="ep-thumb" style={gradFor(showName)}>
+                  <Img src={safeThumb(ep.thumbnail) || showThumb} alt="" />
+                  {resolvingIdx === idx
+                    ? <Loader2 size={17} className="spin" style={{ position: 'relative', zIndex: 1 }} />
+                    : <Play size={17} style={{ position: 'relative', zIndex: 1 }} />}
+                </span>
+                <span style={{ flex: '1 1 auto', minWidth: 0 }}>
+                  <b style={{ display: 'block', fontSize: 13.5, lineHeight: 1.3 }}>
+                    {cleanMediaTitle(ep.label || ep.title) || `Episode ${ep.episodeNum || idx + 1}`}
+                  </b>
+                  <small className="ep-sub">Episode</small>
+                  <small className="ep-picked">Resolving link, one moment</small>
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--amber)', flex: 'none' }}>
                   {resolvingIdx === idx ? 'Resolving…' : 'Play'}
                 </span>
               </button>
@@ -683,149 +696,148 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     }
 
     return (
-      <div className={styles.group}>
-        <div className={styles.resultList}>
-          {results.map((item, idx) => {
-            const thumb = safeThumb(item.thumbnail || item.image) || (item.source === 'youtube' && item.id ? getThumbnail(item.id) : null)
-            const seasonal = isSeasonalResult(item)
-            const standalone = isStandaloneResult(item)
-            const isNkiriPage = item.source === 'nkiri' || /thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '')
-            // Standalone movies are directly playable (resolved on click) —
-            // only genuine series pages stay muted until the drill opens.
-            const playable = (item.source === 'youtube' && item.id)
-              || item.isDirect
-              || isDirectVideoUrl(item.link || item.url)
-              || (isNkiriPage && standalone)
-            const sourceKey = item.source === 'youtube'
-              ? 'youtube'
-              : seasonal
-                ? 'o2tv'
-                : item.source === 'nkiri'
-                  ? 'nkiri'
-                  : 'direct'
-            const chipLabel = item.source === 'youtube'
-              ? '▶ YouTube'
-              : seasonal
-                ? 'TV Show'
-                : isNkiriPage
-                  ? 'Movie'
-                  : playable
-                    ? 'Direct'
-                    : 'Media page'
-            const watchLabel = item.source === 'youtube'
-              ? 'Watch'
-              : seasonal
-                ? 'Seasons'
+      <div className="browse-grid" style={{ padding: '4px var(--gut) 0' }}>
+        {results.map((item, idx) => {
+          const thumb = safeThumb(item.thumbnail || item.image) || (item.source === 'youtube' && item.id ? getThumbnail(item.id) : null)
+          const seasonal = isSeasonalResult(item)
+          const standalone = isStandaloneResult(item)
+          const isNkiriPage = item.source === 'nkiri' || /thenkiri\.com|nkiri\.com/i.test(item.url || item.link || '')
+          // Standalone movies are directly playable (resolved on click) —
+          // only genuine series pages drill into seasons/episodes first.
+          const playable = (item.source === 'youtube' && item.id)
+            || item.isDirect
+            || isDirectVideoUrl(item.link || item.url)
+            || (isNkiriPage && standalone)
+          const chipLabel = item.source === 'youtube'
+            ? 'YouTube'
+            : seasonal
+              ? 'TV Show'
+              : isNkiriPage
+                ? 'Movie'
                 : playable
-                  ? 'Watch'
-                  : 'Open'
-            return (
+                  ? 'Direct'
+                  : 'Media page'
+          const watchLabel = item.source === 'youtube'
+            ? 'Watch'
+            : seasonal
+              ? 'Seasons'
+              : playable
+                ? 'Watch'
+                : 'Open'
+          const title = cleanMediaTitle(item.title)
+          return (
+            <span key={item.id || item.link || item.url || idx} className="rise" style={{ minWidth: 0, '--d': `${Math.min(idx, 8) * 40}ms` }}>
               <button
-                key={item.id || item.link || item.url || idx}
                 type="button"
-                className={`${styles.resultCard} ${!playable ? styles.resultCardMuted : ''}`}
+                className="poster"
+                style={{ ...gradFor(title), width: '100%', aspectRatio: '2/3' }}
                 onClick={() => selectResult(item)}
+                aria-label={title}
               >
-                <div className={styles.resultThumb}>
-                  {thumb ? (
-                    <img src={thumb} alt="" className={styles.resultThumbImg} onError={(e) => { e.currentTarget.style.display = 'none' }} />
-                  ) : (
-                    <div className={styles.resultNoThumb}><Film size={20} /></div>
-                  )}
-                  <span className={styles.resultPlay}><span className={styles.resultPlayCircle}>▶</span></span>
-                  {item.isLive && <span className={styles.resultLive}>LIVE</span>}
-                </div>
-                <div className={styles.resultBody}>
-                  <h3 className={styles.resultTitle}>{cleanMediaTitle(item.title)}</h3>
-                  <div className={styles.resultMeta}>
-                    <span className={styles.resultSource} data-source={sourceKey}>{chipLabel}</span>
-                    <span className={styles.resultWatch}>{watchLabel}</span>
-                  </div>
-                </div>
+                <Img src={thumb} alt="" />
+                {item.isLive && (
+                  <span className="pill pill-live" style={{ position: 'absolute', top: 8, left: 8, zIndex: 2 }}>LIVE</span>
+                )}
+                {resolvingIdx === -1 && (
+                  <span style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', zIndex: 2, background: 'rgba(5,5,7,.45)' }}>
+                    <Loader2 size={20} className="spin" />
+                  </span>
+                )}
               </button>
-            )
-          })}
-        </div>
+              <span className="poster-meta">
+                <b>{title}</b>{chipLabel}, {watchLabel}
+              </span>
+            </span>
+          )
+        })}
       </div>
     )
   }
 
   return (
-    <div className={`${styles.browser} ${compact ? styles.compact : ''} ${className || ''}`}>
+    <div className={className || ''}>
       {!hideModeTabs && (
-        <div className={styles.modeTabs}>
-          <button
-            type="button"
-            className={mode === 'tv' ? styles.modeActive : styles.mode}
-            onClick={() => switchMode('tv')}
-          >
-            <Tv size={13} /> TV Shows &amp; Direct
-          </button>
-          <button
-            type="button"
-            className={mode === 'youtube' ? styles.modeActive : styles.mode}
-            onClick={() => switchMode('youtube')}
-          >
-            <Youtube size={13} /> YouTube
-          </button>
+        <div className="px" style={{ marginTop: 4 }}>
+          <div className="seg">
+            <button type="button" className={mode === 'tv' ? 'active' : ''} onClick={() => switchMode('tv')}>
+              <Tv size={13} style={{ verticalAlign: '-2px', marginRight: 5 }} />TV Shows &amp; Direct
+            </button>
+            <button type="button" className={mode === 'youtube' ? 'active' : ''} onClick={() => switchMode('youtube')}>
+              <Youtube size={13} style={{ verticalAlign: '-2px', marginRight: 5 }} />YouTube
+            </button>
+          </div>
         </div>
       )}
 
-      <form
-        className={styles.searchRow}
-        onSubmit={(e) => { e.preventDefault(); runSearch() }}
-      >
-        <div className={styles.inputWrap}>
-          <Search size={15} className={styles.searchIcon} />
-          <input
-            type="text"
-            className={styles.searchInput}
-            placeholder={placeholder || (mode === 'youtube' ? 'Search YouTube…' : 'Search shows &amp; movies (Silo, House of the Dragon…)' )}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-        <button type="submit" className={styles.searchBtn} disabled={loading}>
-          {loading ? <Loader2 size={14} className={styles.spin} /> : <Search size={14} />}
-          Search
-        </button>
-      </form>
+      {!hideSearch && (
+        <form
+          style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '12px var(--gut) 0' }}
+          onSubmit={(e) => { e.preventDefault(); runSearch() }}
+        >
+          <div className="field" style={{ flex: '1 1 auto', borderRadius: 'var(--r-pill)', height: 44 }}>
+            <Search size={16} />
+            <input
+              type="text"
+              placeholder={placeholder || (mode === 'youtube' ? 'Search YouTube…' : 'Search shows & movies (Silo, House of the Dragon…)')}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search shows and movies"
+            />
+          </div>
+          <button type="submit" className="btn btn-primary btn-sm" style={{ height: 44, flex: 'none' }} disabled={loading}>
+            {loading ? <Loader2 size={15} className="spin" /> : <Search size={15} />}
+            {compact ? '' : 'Search'}
+          </button>
+        </form>
+      )}
 
       {error && (
-        <div className={styles.error}>
-          <AlertCircle size={14} />
+        <div className="err-note">
+          <AlertCircle size={15} style={{ flex: 'none', marginTop: 1 }} />
           <span>{error}</span>
-          <button type="button" className={styles.errorDismiss} onClick={() => { setSearchError(null); setBrowseError(null); clearTv() }}>
+          <button type="button" onClick={() => { setSearchError(null); setBrowseError(null); clearTv() }}>
             Dismiss
           </button>
         </div>
       )}
 
       {loading && stage === null && (
-        <div className={styles.loading}>
-          <Loader2 size={22} className={styles.spin} />
-          <span>{mode === 'youtube' ? 'Searching YouTube…' : 'Searching shows…'}</span>
+        <div style={{ padding: '16px var(--gut) 0' }}>
+          <span className="helper" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Loader2 size={16} className="spin" style={{ color: 'var(--amber)' }} />
+            {mode === 'youtube' ? 'Searching YouTube…' : 'Searching shows…'}
+          </span>
+          <div className="browse-grid" style={{ marginTop: 14 }}>
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <span key={i}>
+                <span className="skel" style={{ display: 'block', aspectRatio: '2/3', borderRadius: 12 }} />
+                <span className="skel" style={{ display: 'block', height: 11, width: '75%', marginTop: 8 }} />
+              </span>
+            ))}
+          </div>
         </div>
       )}
 
       {!loading && !error && stage === null && results.length === 0 && !browseError && (
-        <div className={styles.empty}>
-          <Link2 size={22} />
-          <p>
-            {mode === 'youtube'
-              ? 'Search YouTube or pick a video to start a watch party.'
-              : 'Search TV shows and movies (O2TV / Nkiri) or paste a direct .mp4 / .m3u8 link above.'}
-          </p>
+        <div className="px" style={{ marginTop: 16 }}>
+          <div className="empty-box">
+            <Link2 size={22} style={{ color: 'var(--amber)' }} />
+            <p style={{ marginTop: 8 }}>
+              {mode === 'youtube'
+                ? 'Search YouTube or pick a video to start a watch party.'
+                : 'Search TV shows and movies (O2TV / Nkiri) or paste a direct .mp4 / .m3u8 link above.'}
+            </p>
+          </div>
         </div>
       )}
 
       {!loading && (stage !== null || results.length > 0) && renderGrid()}
 
       {stage !== null && browseLoading && (
-        <div className={styles.loading}>
-          <Loader2 size={22} className={styles.spin} />
-          <span>{stage === 'episodes' ? 'Loading episodes…' : 'Loading seasons…'}</span>
-        </div>
+        <span className="helper" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '16px var(--gut) 0' }}>
+          <Loader2 size={16} className="spin" style={{ color: 'var(--amber)' }} />
+          {stage === 'episodes' ? 'Loading episodes…' : 'Loading seasons…'}
+        </span>
       )}
     </div>
   )
