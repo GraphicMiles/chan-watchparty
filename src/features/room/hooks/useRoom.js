@@ -232,7 +232,8 @@ export function useRoom(roomId, inviteCode = null) {
   const authFetch = useCallback(async (path, body) => {
     if (!user) throw new Error('Not signed in')
     const token = await user.getIdToken()
-    const res = await fetch(path, {
+    const target = /^https?:\/\//i.test(path) ? path : apiPath(path)
+    const res = await fetch(target, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(body),

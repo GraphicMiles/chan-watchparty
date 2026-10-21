@@ -1,6 +1,7 @@
 import { Firestore, FieldValue, Timestamp } from '@google-cloud/firestore'
 import { initializeApp, getApps, cert } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
+import { getMessaging } from 'firebase-admin/messaging'
 
 function getCredentials() {
   const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID
@@ -28,6 +29,7 @@ function getCredentials() {
 
 let dbInstance = null
 let authInstance = null
+let messagingInstance = null
 
 export function getDb() {
   if (!dbInstance) {
@@ -57,6 +59,14 @@ export function getAuthClient() {
     authInstance = getAuth()
   }
   return authInstance
+}
+
+export function getMessagingClient() {
+  if (!messagingInstance) {
+    getAuthClient()
+    messagingInstance = getMessaging()
+  }
+  return messagingInstance
 }
 
 export async function verifyIdToken(token) {

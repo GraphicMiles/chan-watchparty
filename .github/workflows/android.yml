@@ -74,6 +74,86 @@ jobs:
       - name: Sync Capacitor Android
         run: npx cap sync android
 
+      - name: Configure Firebase Android app for FCM
+        id: firebase_android
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+          FIREBASE_ANDROID_APP_ID: ${{ vars.VITE_FIREBASE_ANDROID_APP_ID }}
+          FIREBASE_ANDROID_DEBUG_APP_ID: ${{ vars.VITE_FIREBASE_ANDROID_DEBUG_APP_ID }}
+          FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          FIREBASE_PROJECT_NUMBER: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+          FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import binascii
+          import json
+          import os
+          from pathlib import Path
+
+          target = Path('android/app/google-services.json')
+          encoded = ''.join((os.getenv('GOOGLE_SERVICES_JSON_BASE64') or '').split())
+          configured = False
+
+          if encoded:
+              try:
+                  raw = base64.b64decode(encoded, validate=True)
+                  parsed = json.loads(raw)
+              except (binascii.Error, json.JSONDecodeError) as exc:
+                  raise SystemExit(f'GOOGLE_SERVICES_JSON_BASE64 is not valid base64 JSON: {exc}')
+              packages = {
+                  c.get('client_info', {}).get('android_client_info', {}).get('package_name')
+                  for c in parsed.get('client', [])
+              }
+              if 'com.chan.watchparty' not in packages:
+                  raise SystemExit('google-services.json has no Android client for com.chan.watchparty')
+              target.write_bytes(raw)
+              configured = True
+          else:
+              app_id = (os.getenv('FIREBASE_ANDROID_APP_ID') or '').strip()
+              debug_app_id = (os.getenv('FIREBASE_ANDROID_DEBUG_APP_ID') or app_id).strip()
+              project_id = (os.getenv('FIREBASE_PROJECT_ID') or '').strip()
+              project_number = (os.getenv('FIREBASE_PROJECT_NUMBER') or '').strip()
+              storage_bucket = (os.getenv('FIREBASE_STORAGE_BUCKET') or '').strip()
+              api_key = (os.getenv('FIREBASE_API_KEY') or '').strip()
+              if ':android:' in app_id and project_id and project_number and api_key:
+                  def client(package_name, mobilesdk_app_id):
+                      return {
+                          'client_info': {
+                              'mobilesdk_app_id': mobilesdk_app_id,
+                              'android_client_info': {'package_name': package_name},
+                          },
+                          'oauth_client': [],
+                          'api_key': [{'current_key': api_key}],
+                          'services': {'appinvite_service': {'other_platform_oauth_client': []}},
+                      }
+
+                  payload = {
+                      'project_info': {
+                          'project_number': project_number,
+                          'project_id': project_id,
+                          'storage_bucket': storage_bucket,
+                      },
+                      'client': [
+                          client('com.chan.watchparty', app_id),
+                          client('com.chan.watchparty.debug', debug_app_id),
+                      ],
+                      'configuration_version': '1',
+                  }
+                  target.write_text(json.dumps(payload, indent=2) + '\n')
+                  configured = True
+
+          if configured:
+              print('Firebase Android configuration written for FCM.')
+          else:
+              target.unlink(missing_ok=True)
+              print('::warning::FCM is not configured for this APK. Add GOOGLE_SERVICES_JSON_BASE64 or VITE_FIREBASE_ANDROID_APP_ID.')
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
+              out.write(f"configured={'true' if configured else 'false'}\n")
+          PY
+
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
 
@@ -194,6 +274,10 @@ jobs:
       - name: Delete keystore from workspace
         if: always()
         run: rm -f android/app/chan-release.keystore
+
+      - name: Remove generated Firebase Android config
+        if: always()
+        run: rm -f android/app/google-services.json
 
       - name: Upload signed Release APK artifact
         uses: actions/upload-artifact@v4

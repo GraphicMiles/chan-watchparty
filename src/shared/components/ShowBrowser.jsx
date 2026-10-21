@@ -1,6 +1,7 @@
-import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Search, Loader2, ChevronLeft, ChevronRight, Youtube, Tv, AlertCircle, Link2, Play } from 'lucide-react'
 import { useScraper } from '../../hooks/useScraper.js'
+import { useO2TvNative } from '../../hooks/useO2TvNative.ts'
 import { useAuth } from '../auth/hooks/useAuth.jsx'
 import { isO2TvUrl, isDirectVideoUrl, normalizePlaybackUrl, getThumbnail } from '../lib/youtube.js'
 import { isSuitableThumbnail } from '../lib/mediaHelper.js'
@@ -27,6 +28,44 @@ function safeThumb(url) {
   return isSuitableThumbnail(url) ? url : null
 }
 
+function nativeShowResult(show, index) {
+  const slug = String(show?.slug || show?.showSlug || '').trim()
+  const name = String(show?.name || show?.title || slug.replace(/-/g, ' ')).trim()
+  const url = String(show?.url || (slug ? `https://tvshows4mobile.org/${slug}/index.html` : '')).trim()
+  if (!slug || !name || !url) return null
+  return {
+    id: `native-o2tv-${slug}-${index}`,
+    title: name,
+    showName: name,
+    showSlug: slug,
+    thumbnail: null,
+    image: null,
+    link: url,
+    url,
+    meta: show.guessed ? 'Direct match' : 'TV show — pick a season, then an episode',
+    source: 'o2tv',
+    provider: 'o2tv-native',
+    type: 'direct',
+    o2tvKind: 'show',
+    requiresEpisodes: true,
+    isDirect: false,
+    playableInRoom: false,
+    matchScore: Number(show.matchScore) || 0,
+  }
+}
+
+function mergeTvResults(serverResults, nativeResults) {
+  const seen = new Set()
+  return [...nativeResults, ...serverResults].filter((item) => {
+    const key = String(item?.showSlug || item?.url || item?.link || item?.title || '')
+      .trim()
+      .toLowerCase()
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 /**
  * The ONE hierarchical media browser (P1 consolidation).
  *
@@ -48,12 +87,21 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
   const { user } = useAuth()
   const { toast } = useToast()
   const { results: tvResults, loading: tvLoading, error: tvError, clear: clearTv, scrape } = useScraper()
+  const {
+    isNativeAvailable,
+    searchNative,
+    getNativeSeasons,
+    getNativeEpisodes,
+    resolveNativeEpisode,
+  } = useO2TvNative()
 
   const [mode, setMode] = useState(initialMode) // 'tv' | 'youtube'
   const [query, setQuery] = useState('')
   const [ytResults, setYtResults] = useState([])
   const [ytLoading, setYtLoading] = useState(false)
   const [searchError, setSearchError] = useState(null)
+  const [nativeResults, setNativeResults] = useState([])
+  const [nativeLoading, setNativeLoading] = useState(false)
 
   // Hierarchical browse state (O2TV / Nkiri)
   const [stage, setStage] = useState(null) // null | 'seasons' | 'episodes'
@@ -68,6 +116,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
   const [seasonNum, setSeasonNum] = useState(null)
   const [resolvingIdx, setResolvingIdx] = useState(null)
   const abortRef = useRef(0)
+  const nativeSearchRef = useRef(0)
   const showPageUrlRef = useRef(null)
 
   const emit = useCallback((content) => {
@@ -91,6 +140,9 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     setBrowseError(null)
     setStage(null)
     clearTv()
+    const nativeReq = ++nativeSearchRef.current
+    setNativeResults([])
+    setNativeLoading(false)
 
     if (mode === 'youtube') {
       setYtLoading(true)
@@ -123,9 +175,25 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       return
     }
 
-    // TV / direct mode via the scraper hook (server-side, same as before)
+    // TV / direct mode via the scraper hook (server-side, same as before).
+    // On Android, also run the on-device O2TV catalog search in parallel and
+    // merge its shows in; the server result path is unchanged if native fails.
+    if (isNativeAvailable && !/^https?:\/\//i.test(target)) {
+      setNativeLoading(true)
+      void searchNative(target)
+        .then((shows) => {
+          if (nativeReq !== nativeSearchRef.current) return
+          setNativeResults((shows || []).map(nativeShowResult).filter(Boolean))
+        })
+        .catch(() => {
+          if (nativeReq === nativeSearchRef.current) setNativeResults([])
+        })
+        .finally(() => {
+          if (nativeReq === nativeSearchRef.current) setNativeLoading(false)
+        })
+    }
     await scrape({ query: target, site: 'o2tv' })
-  }, [query, mode, user, toast, clearTv, scrape])
+  }, [query, mode, user, toast, clearTv, scrape, isNativeAvailable, searchNative])
 
   const switchMode = useCallback((next) => {
     if (next === mode) return
@@ -137,6 +205,9 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     setSeasons([])
     setEpisodes([])
     clearTv()
+    nativeSearchRef.current += 1
+    setNativeResults([])
+    setNativeLoading(false)
     setYtResults([])
   }, [mode, clearTv])
 
@@ -157,18 +228,48 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     setShowName(name || slug.replace(/-/g, ' '))
     if (thumb) setShowThumb(safeThumb(thumb))
     try {
-      const data = await mediaPost(user, {
-        action: 'o2tvSeasons',
-        showSlug: slug,
-        showName: name || undefined,
-        thumbnail: thumb || undefined,
-      })
+      let list = null
+
+      try {
+        const nativeSeasons = await getNativeSeasons(slug)
+        if (nativeSeasons?.length) {
+          const displayName = name || slug.replace(/-/g, ' ')
+          list = nativeSeasons
+            .filter((season) => Number(season.number) > 0)
+            .map((season) => ({
+              title: `${displayName}: Season ${Number(season.number)}`,
+              label: season.label || `Season ${Number(season.number)}`,
+              url: season.url,
+              link: season.url,
+              source: 'o2tv',
+              o2tvKind: 'season',
+              seasonNum: Number(season.number),
+              number: Number(season.number),
+              showSlug: slug,
+              showName: displayName,
+            }))
+          if (!list.length) list = null
+        }
+      } catch {
+        list = null
+      }
       if (reqId !== abortRef.current) return
-      const list = Array.isArray(data.results) ? data.results : []
+
+      if (!list) {
+        const data = await mediaPost(user, {
+          action: 'o2tvSeasons',
+          showSlug: slug,
+          showName: name || undefined,
+          thumbnail: thumb || undefined,
+        })
+        if (reqId !== abortRef.current) return
+        list = Array.isArray(data.results) ? data.results : []
+        if (data.showName) setShowName(data.showName)
+        if (data.showSlug) setShowSlug(data.showSlug)
+        if (data.thumbnail) setShowThumb(safeThumb(data.thumbnail) || showThumb)
+      }
+
       setSeasons(list)
-      if (data.showName) setShowName(data.showName)
-      if (data.showSlug) setShowSlug(data.showSlug)
-      if (data.thumbnail) setShowThumb(safeThumb(data.thumbnail) || showThumb)
       if (!list.length) setBrowseError('No seasons found for this show. Try another result or paste a direct .mp4 link.')
     } catch (err) {
       if (reqId !== abortRef.current) return
@@ -176,7 +277,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     } finally {
       if (reqId === abortRef.current) setBrowseLoading(false)
     }
-  }, [user, showThumb])
+  }, [user, showThumb, getNativeSeasons])
 
   const loadEpisodes = useCallback(async (season) => {
     const num = season?.seasonNum || season?.number
@@ -188,15 +289,47 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     setEpisodes([])
     setSeasonNum(num)
     try {
-      const data = await mediaPost(user, {
-        action: 'o2tvEpisodes',
-        showSlug,
-        showName,
-        seasonNum: num,
-        thumbnail: showThumb || undefined,
-      })
+      let list = null
+
+      try {
+        const nativeEpisodes = await getNativeEpisodes(showSlug, num)
+        if (nativeEpisodes?.length) {
+          const seasonLabel = String(num).padStart(2, '0')
+          list = nativeEpisodes
+            .filter((episode) => Number(episode.number) > 0)
+            .map((episode) => ({
+              title: `${showName} - S${seasonLabel}E${String(Number(episode.number)).padStart(2, '0')}`,
+              label: episode.title || `Episode ${Number(episode.number)}`,
+              url: episode.url,
+              link: episode.url,
+              source: 'o2tv',
+              o2tvKind: 'episode',
+              episodeNum: Number(episode.number),
+              number: Number(episode.number),
+              seasonNum: num,
+              showSlug,
+              showName,
+              thumbnail: showThumb || null,
+            }))
+          if (!list.length) list = null
+        }
+      } catch {
+        list = null
+      }
       if (reqId !== abortRef.current) return
-      const list = Array.isArray(data.results) ? data.results : []
+
+      if (!list) {
+        const data = await mediaPost(user, {
+          action: 'o2tvEpisodes',
+          showSlug,
+          showName,
+          seasonNum: num,
+          thumbnail: showThumb || undefined,
+        })
+        if (reqId !== abortRef.current) return
+        list = Array.isArray(data.results) ? data.results : []
+      }
+
       setEpisodes(list)
       if (!list.length) setBrowseError('No episodes found for this season.')
     } catch (err) {
@@ -205,7 +338,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     } finally {
       if (reqId === abortRef.current) setBrowseLoading(false)
     }
-  }, [user, showSlug, showName, showThumb])
+  }, [user, showSlug, showName, showThumb, getNativeEpisodes])
 
   /**
    * Resolve a standalone Nkiri MOVIE page to a playable file and emit it —
@@ -332,17 +465,44 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
         toast('Episode ready', { variant: 'success' })
         return
       }
-      const data = await mediaPost(user, {
-        action: 'o2tvResolve',
-        showSlug: epSlug,
-        showName: ep.showName || showName,
-        seasonNum: epSeasonNum,
-        episodeNum: epNum,
-        thumbnail: ep.thumbnail || showThumb || undefined,
-      })
+      let best = null
+
+      try {
+        const nativeUrl = await resolveNativeEpisode({
+          showName: ep.showName || showName,
+          showSlug: epSlug,
+          seasonNum: epSeasonNum,
+          epNum,
+        })
+        if (nativeUrl) {
+          best = {
+            url: nativeUrl,
+            title: ep.title || `${showName} S${String(epSeasonNum).padStart(2, '0')}E${String(epNum).padStart(2, '0')}`,
+            thumbnail: ep.thumbnail || showThumb || null,
+            isDirect: true,
+            playableInRoom: true,
+            meta: 'HD',
+            synopsis: ep.synopsis || null,
+          }
+        }
+      } catch {
+        best = null
+      }
       if (reqId !== abortRef.current) return
-      const best = (data.results || []).find((r) => r.isDirect || r.playableInRoom || /\/api\/proxy\?/i.test(r.url || ''))
-        || (data.results || [])[0]
+
+      if (!best) {
+        const data = await mediaPost(user, {
+          action: 'o2tvResolve',
+          showSlug: epSlug,
+          showName: ep.showName || showName,
+          seasonNum: epSeasonNum,
+          episodeNum: epNum,
+          thumbnail: ep.thumbnail || showThumb || undefined,
+        })
+        if (reqId !== abortRef.current) return
+        best = (data.results || []).find((r) => r.isDirect || r.playableInRoom || /\/api\/proxy\?/i.test(r.url || ''))
+          || (data.results || [])[0]
+      }
       if (!best?.url) throw new Error('Could not resolve a playable link for this episode')
       const playUrl = normalizePlaybackUrl(best.url)
       const epTitle = best.title || ep.title || `${showName} S${String(epSeasonNum).padStart(2, '0')}E${String(epNum).padStart(2, '0')}`
@@ -365,7 +525,7 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
     } finally {
       if (reqId === abortRef.current) setResolvingIdx(null)
     }
-  }, [user, showSlug, showName, seasonNum, showThumb, episodesSynopsis, emit, toast])
+  }, [user, showSlug, showName, seasonNum, showThumb, episodesSynopsis, emit, toast, resolveNativeEpisode])
 
   const pickEpisode = useCallback((ep, idx) => {
     // Direct media file (ds2.nkiserv.com .mkv etc.) — playable immediately,
@@ -546,6 +706,9 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
       setShowName('')
       setShowThumb(null)
       clearTv()
+      nativeSearchRef.current += 1
+      setNativeResults([])
+      setNativeLoading(false)
       setYtResults([])
       setQuery('')
     },
@@ -581,9 +744,14 @@ export const ShowBrowser = forwardRef(function ShowBrowser(
 
   // ── Render helpers (redesign skin; logic above untouched) ────────────
 
+  const mergedTvResults = useMemo(
+    () => mergeTvResults(tvResults, nativeResults),
+    [tvResults, nativeResults]
+  )
+  const results = mode === 'youtube' ? ytResults : mergedTvResults
   const loading = tvLoading || ytLoading || browseLoading
-  const error = searchError || tvError || browseError
-  const results = mode === 'youtube' ? ytResults : tvResults
+    || (mode === 'tv' && nativeLoading && results.length === 0)
+  const error = searchError || (mode === 'tv' && mergedTvResults.length ? null : tvError) || browseError
   const isBusy = Boolean(resolvingIdx !== null)
 
   const hero = (backLabel, onBack) => (

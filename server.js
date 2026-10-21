@@ -8,6 +8,7 @@ import { dirname, join } from 'path'
 import mediaHandler from './api/media.js'
 import roomHandler from './api/room.js'
 import proxyHandler from './api/proxy.js'
+import pushHandler from './api/push.js'
 import { corsHeaders } from './server-lib/cors.js'
 import { getDb } from './server-lib/firebaseAdmin.js'
 import { runCleanupStaleRooms } from './server-lib/roomCleanup.js'
@@ -95,6 +96,15 @@ app.all('/api/room', async (req, res) => {
   }
 })
 
+app.all('/api/push', async (req, res) => {
+  try {
+    await pushHandler(req, res)
+  } catch (err) {
+    console.error('Push API error:', err)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 app.all('/api/proxy', async (req, res) => {
   try {
     await proxyHandler(req, res)
@@ -106,11 +116,14 @@ app.all('/api/proxy', async (req, res) => {
 
 // Serve static frontend - hashed assets can be cached long-term
 app.use(express.static(join(__dirname, 'dist'), {
+  // Allow only the public build output's dot-directory so Android can fetch
+  // /.well-known/assetlinks.json for verified App Links.
+  dotfiles: 'allow',
   maxAge: '1y',
   immutable: true,
   setHeaders: (res, path) => {
     // Never cache index.html - it must always be fresh to load new asset hashes
-    if (path.endsWith('index.html')) {
+    if (path.endsWith('index.html') || path.endsWith('assetlinks.json')) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
       res.setHeader('Pragma', 'no-cache')
       res.setHeader('Expires', '0')

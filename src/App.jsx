@@ -1,9 +1,11 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useRef } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import './redesign/redesign.css';
 import { AuthProvider, useAuth } from './shared/auth/hooks/useAuth.jsx';
-import { ToastProvider } from './shared/ui/index.js';
+import { ToastProvider, useToast } from './shared/ui/index.js';
+import { deepLinkPathFromNotification, parseDeepLink } from './shared/lib/deepLink.js';
+import { initPushNotifications } from './shared/lib/push.js';
 import { ConnectionBanner } from './shared/components/ConnectionBanner.jsx';
 import { ErrorBoundary } from './shared/components/ErrorBoundary.jsx';
 import Auth from './redesign/screens/Auth.jsx';
@@ -11,8 +13,8 @@ import Home from './redesign/screens/Home.jsx';
 
 /*
  * Chan redesign, fully wired: the approved REDESIGN_MOCKUP.html screens on
- * top of the existing hooks/services/player (logic untouched). The legacy
- * pages under src/features remain as the reference implementations.
+ * top of the existing hooks/services/player. Legacy duplicate screens were
+ * retired only after their live logic had been ported into these routes.
  */
 
 // Lazy-load heavy route components to reduce initial bundle size
@@ -48,9 +50,100 @@ function Gate({ children }) {
   return children;
 }
 
+/* Native-only bridge: turns Android App Links / custom-scheme intents and
+   push-notification taps into the same React routes used on the web. The
+   Gate above remembers protected targets across anonymous sign-in. */
+function NativeBridge() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { toast } = useToast();
+  const currentPathRef = useRef('/');
+  const lastOpenRef = useRef({ path: '', at: 0 });
+
+  useEffect(() => {
+    currentPathRef.current = `${location.pathname}${location.search}`;
+  }, [location.pathname, location.search]);
+
+  const openPathRef = useRef((path) => {
+    if (!path) return;
+    const now = Date.now();
+    if (lastOpenRef.current.path === path && now - lastOpenRef.current.at < 1500) return;
+    lastOpenRef.current = { path, at: now };
+    if (currentPathRef.current !== path) navigate(path);
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    let removeListener = null;
+
+    (async () => {
+      try {
+        const [{ Capacitor }, { App: NativeApp }] = await Promise.all([
+          import('@capacitor/core'),
+          import('@capacitor/app'),
+        ]);
+        if (cancelled || !Capacitor.isNativePlatform()) return;
+
+        const handle = await NativeApp.addListener('appUrlOpen', ({ url }) => {
+          openPathRef.current(parseDeepLink(url));
+        });
+        if (cancelled) {
+          handle?.remove?.();
+          return;
+        }
+        removeListener = handle?.remove;
+
+        const launched = await NativeApp.getLaunchUrl().catch(() => null);
+        if (!cancelled && launched?.url) {
+          openPathRef.current(parseDeepLink(launched.url));
+        }
+      } catch {
+        /* Web routing already starts on the URL the browser supplied. */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      try { removeListener?.(); } catch { /* listener already gone during teardown */ }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      initPushNotifications(null).catch(() => {});
+      return undefined;
+    }
+
+    let active = true;
+    initPushNotifications(user, {
+      onOpen: (action) => {
+        const path = deepLinkPathFromNotification(action);
+        if (path) openPathRef.current(path);
+      },
+      onForeground: (notification) => {
+        const path = deepLinkPathFromNotification(notification);
+        if (path && currentPathRef.current === path) return;
+        const message = notification?.body || notification?.title || 'New room activity';
+        toast(message, { variant: 'info', duration: 5000 });
+      },
+      onError: (err) => {
+        if (active) console.warn('Push registration unavailable:', err?.message || err);
+      },
+    }).catch((err) => {
+      if (active) console.warn('Push setup unavailable:', err?.message || err);
+    });
+
+    return () => { active = false; };
+  }, [user, toast]);
+
+  return null;
+}
+
 function AppRoutes() {
   return (
     <div className="app-shell">
+      <NativeBridge />
       <ConnectionBanner />
       <ErrorBoundary fallback={(error, resetError) => (
         <div style={{

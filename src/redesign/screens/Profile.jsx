@@ -7,6 +7,7 @@ import { db } from '../../shared/lib/firebase.js';
 import { useAuth } from '../../shared/auth/hooks/useAuth.jsx';
 import { useToast } from '../../shared/ui/index.js';
 import { VideoPlayerPlugin } from '../../native/VideoPlayerPlugin';
+import { disablePushNotifications, enablePushNotifications, getPushState } from '../../shared/lib/push.js';
 import { Avatar, BottomNav, Toggle, useTempFlag } from '../ui.jsx';
 
 const ADULT_KEY = 'chan:adult-verified';
@@ -32,6 +33,8 @@ export default function Profile() {
   const [saved, markSaved] = useTempFlag();
   const [tier, setTier] = useState('Free');
   const [buildInfo, setBuildInfo] = useState(null);
+  const [push, setPush] = useState({ supported: false, receive: 'denied', enabled: false });
+  const [pushBusy, setPushBusy] = useState(false);
 
   // Account doc (tier) for the identity card.
   useEffect(() => {
@@ -58,6 +61,12 @@ export default function Profile() {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    getPushState().then((state) => { if (active) setPush(state); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
   const built = buildInfo?.builtAt
     ? buildInfo.builtAt.replace('T', ' ').replace(/:\d{2}(?:\.\d+)?Z$/, 'Z')
     : '';
@@ -81,7 +90,27 @@ export default function Profile() {
     else { setAdult(false); setAdultVerifiedStored(false); }
   };
 
+  const togglePush = async (next) => {
+    if (pushBusy) return;
+    setPushBusy(true);
+    try {
+      const state = next
+        ? await enablePushNotifications(user)
+        : await disablePushNotifications(user);
+      setPush(state);
+      if (next && state.enabled) toast('Room join alerts are on', { variant: 'success' });
+      else if (next) toast('Allow notifications in Android settings to receive room alerts', { variant: 'warning' });
+      else toast('Room join alerts are off', { variant: 'success' });
+    } catch (err) {
+      setPush(await getPushState().catch(() => push));
+      toast(err.message || 'Could not update notifications', { variant: 'error' });
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
   const signOut = async () => {
+    try { await disablePushNotifications(user); } catch { /* do not trap the user in a signed-in session */ }
     try { await logout(); } catch { /* still leave */ }
     navigate('/auth', { replace: true });
   };
@@ -151,6 +180,13 @@ export default function Profile() {
           <div className="switch-row">
             <span><b>Adult content (18+)</b><small>Shows the 18+ section in Browse after an age check</small></span>
             <Toggle on={adult} onChange={toggleAdult} label="Adult content" />
+          </div>
+          <div className="switch-row">
+            <span>
+              <b>Room join alerts</b>
+              <small>{push.supported ? 'Get a push notification when someone joins a room you host' : 'Available in the Android app'}</small>
+            </span>
+            <Toggle on={push.enabled} onChange={togglePush} label="Room join alerts" />
           </div>
         </div>
 

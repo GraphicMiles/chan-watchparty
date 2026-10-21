@@ -209,6 +209,35 @@ describe('room privacy', () => {
   })
 })
 
+describe('push devices', () => {
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore()
+      await setDoc(doc(db, 'users', HOST, 'pushDevices', 'device1'), {
+        installId: 'device1',
+        token: 'secret-token',
+        enabled: true,
+      })
+    })
+  })
+
+  it('the owner cannot read a push token directly from Firestore', async () => {
+    await assertFails(getDoc(doc(as(HOST), 'users', HOST, 'pushDevices', 'device1')))
+  })
+
+  it('another user cannot read a push token', async () => {
+    await assertFails(getDoc(doc(as(OUTSIDER), 'users', HOST, 'pushDevices', 'device1')))
+  })
+
+  it('clients cannot write push tokens directly', async () => {
+    await assertFails(setDoc(doc(as(HOST), 'users', HOST, 'pushDevices', 'device2'), {
+      installId: 'device2',
+      token: 'forged-token',
+      enabled: true,
+    }))
+  })
+})
+
 describe('chat', () => {
   it('participant can post', async () => {
     const db = as(VIEWER)

@@ -51,8 +51,6 @@ export interface O2TvPlugin {
   }): Promise<ResolveResponse>;
 }
 
-const O2TvPlugin = registerPlugin<O2TvPlugin>('O2TvPlugin', {
-  web: () => import('./O2TvWeb').then(m => new m.O2TvWeb()),
-});
+const O2TvPlugin = registerPlugin<O2TvPlugin>('O2TvPlugin');
 
 export { O2TvPlugin };
