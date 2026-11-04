@@ -255,3 +255,11 @@ service cloud.firestore {
   grep -R "FIREBASE_ADMIN_PRIVATE_KEY" dist/ || echo "No secret found — good"
   ```
 - Any variable without `VITE_` is only available server-side in Vercel functions and is never bundled by Vite.
+
+## Repository map
+
+```
+docs/DEVELOPER_GUIDE.md    how the app is put together
+docs/audits/               audit reports, findings and historical notes
+ANDROID_BUILD.md           building the Android app
+```

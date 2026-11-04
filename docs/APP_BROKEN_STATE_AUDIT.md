@@ -214,7 +214,7 @@ exist, and nothing routes to `/auth` where the real page lives.
 ## 8. Miscellaneous, non-blocking
 
 - Three untracked-looking scratch files were added at the repo root:
-  `guide.md` (701 lines), `unified.md` (312 lines), `note.md` (72 lines) —
+  `docs/audits/guide.md` (701 lines), `docs/audits/unified.md` (312 lines), `docs/audits/note.md` (72 lines) —
   worth checking whether these were meant to be committed or are leftover
   planning notes; they don't affect runtime either way.
 - A screenshot (`attached_assets/Screenshot_20260712_201718_Chrome_...jpg`)
