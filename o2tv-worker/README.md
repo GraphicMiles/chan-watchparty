@@ -57,7 +57,7 @@ Same idea: **New → Web Service** → connect repo → **Root Directory** `o2tv
 `api/media.js` `handleO2TvResolve` calls `${O2TV_WORKER_URL}/resolve-episode`
 when `O2TV_WORKER_URL` is set, falling back to the in-process resolver if the
 worker is unreachable or the env var is absent. So nothing breaks during the
-switch — set the vars and it just starts using the worker.
+switch - set the vars and it just starts using the worker.
 
 ## Keeping the resolver in sync
 

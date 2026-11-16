@@ -40,11 +40,11 @@ Several paths could zero out a brand-new room and then delete it:
    Hooks were reordered correctly, but the `header` still did `room.title` / `room.locked` **before** the `if (!room)` guard. While the room doc was loading (or after delete), that throws and white-screens.
 
 2. **Create → join was single-shot**  
-   Cold-start failures on `/api/room` join left a half-created Firestore room (`participantCount: 0`) that cleanup would later remove — looks like “create failed and room vanished.”
+   Cold-start failures on `/api/room` join left a half-created Firestore room (`participantCount: 0`) that cleanup would later remove - looks like “create failed and room vanished.”
 
 ### C. `/api/proxy` 504 (matches your Vercel logs)
 
-1. **`vercel.json` capped proxy at `maxDuration: 30`** — matches log text exactly.
+1. **`vercel.json` capped proxy at `maxDuration: 30`** - matches log text exactly.
 
 2. **MKV remux path holds the function open**  
    Direct/Nkiri/Koyeb/MaxCinema URLs often get `remux=1`. Remuxing a multi‑GB MKV to fMP4 cannot finish in 30s. Vercel kills the invocation → **Runtime Timeout 504**.
@@ -79,7 +79,7 @@ Vercel **Hobby hard-kills functions at ~10s**. Config and proxy behavior:
 |---------|--------|
 | `vercel.json` `api/proxy.js` `maxDuration` | **10** |
 | Small file (`Content-Length` ≤ 8 MiB) | Full progressive stream in one invocation |
-| Large / unknown size | **1 MiB** `206` chunks (`Accept-Ranges: bytes`) — browser requests next range |
+| Large / unknown size | **1 MiB** `206` chunks (`Accept-Ranges: bytes`) - browser requests next range |
 | MKV remux | **Only** if size ≤ ~6 MiB and no Range; large MKV = chunked passthrough |
 | Upstream connect budget | ~3.5s |
 | Hard stream deadline | ~9s (exit cleanly before platform kill) |
@@ -89,7 +89,7 @@ Response headers for debugging: `X-Chan-Proxy-Mode: full|chunked|probe|remux-sma
 ## What is still a platform limit (not fully solvable in code)
 
 - **Vercel serverless cannot be a full video CDN.** Chunking fixes 504s for progressive MP4/WebM; seeking still works via Range.
-- **Large MKV remux is not viable on Hobby** — browsers often cannot play raw MKV; prefer MP4 sources or upgrade plan / external media edge.
+- **Large MKV remux is not viable on Hobby** - browsers often cannot play raw MKV; prefer MP4 sources or upgrade plan / external media edge.
 - Set `PROXY_ALLOWED_DOMAINS` in production (currently open if unset).
 
 ---

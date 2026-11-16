@@ -1,4 +1,4 @@
-# Chan App — Completion Note
+# Chan App - Completion Note
 
 ## Current stat
 

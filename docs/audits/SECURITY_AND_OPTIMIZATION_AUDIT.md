@@ -1,4 +1,4 @@
-# Chan — Security Evaluation & Latency/Bandwidth Optimization Audit
+# Chan - Security Evaluation & Latency/Bandwidth Optimization Audit
 
 **Date:** 2026-07-14  
 **Repo:** `GraphicMiles/chan-watchparty`  
@@ -11,34 +11,34 @@
 
 1. [Executive Summary](#executive-summary)
 2. [Security Evaluation Audit](#security-evaluation-audit)
-   - [CRITICAL — Open Proxy via `/api/proxy`](#critical--open-proxy-via-apiproxy)
-   - [CRITICAL — SSRF in Media Scraper](#critical--ssrf-in-media-scraper)
-   - [HIGH — Wildcard CORS on All Endpoints](#high--wildcard-cors-on-all-endpoints)
-   - [HIGH — No Rate Limiting on Any API Endpoint](#high--no-rate-limiting-on-any-api-endpoint)
-   - [HIGH — Weak Cron Secret Validation](#high--weak-cron-secret-validation)
-   - [HIGH — Firestore Rules Allow Overly Broad Writes](#high--firestore-rules-allow-overly-broad-writes)
-   - [MEDIUM — Exposed PAT in Git Clone URL](#medium--exposed-pat-in-git-clone-url)
-   - [MEDIUM — OMDb Fallback API Key in Source Code](#medium--omdb-fallback-api-key-in-source-code)
-   - [MEDIUM — Anonymous Auth with No Abuse Controls](#medium--anonymous-auth-with-no-abuse-controls)
-   - [MEDIUM — No Input Sanitization on Chat Messages](#medium--no-input-sanitization-on-chat-messages)
-   - [MEDIUM — NSFW Content Behind Weak Gate](#medium--nsfw-content-behind-weak-gate)
-   - [MEDIUM — Sony CDN URLs with Hardcoded Auth Tokens](#medium--sony-cdn-urls-with-hardcoded-auth-tokens)
-   - [LOW — Missing Security Headers](#low--missing-security-headers)
-   - [LOW — `.env.example` Contains `VITE_` Prefix for Secrets](#low--envexample-contains-vite_-prefix-for-secrets)
-   - [LOW — No CSRF Protection on POST Routes](#low--no-csrf-protection-on-post-routes)
-   - [LOW — Error Messages Leak Internal State](#low--error-messages-leak-internal-state)
+   - [CRITICAL - Open Proxy via `/api/proxy`](#critical--open-proxy-via-apiproxy)
+   - [CRITICAL - SSRF in Media Scraper](#critical--ssrf-in-media-scraper)
+   - [HIGH - Wildcard CORS on All Endpoints](#high--wildcard-cors-on-all-endpoints)
+   - [HIGH - No Rate Limiting on Any API Endpoint](#high--no-rate-limiting-on-any-api-endpoint)
+   - [HIGH - Weak Cron Secret Validation](#high--weak-cron-secret-validation)
+   - [HIGH - Firestore Rules Allow Overly Broad Writes](#high--firestore-rules-allow-overly-broad-writes)
+   - [MEDIUM - Exposed PAT in Git Clone URL](#medium--exposed-pat-in-git-clone-url)
+   - [MEDIUM - OMDb Fallback API Key in Source Code](#medium--omdb-fallback-api-key-in-source-code)
+   - [MEDIUM - Anonymous Auth with No Abuse Controls](#medium--anonymous-auth-with-no-abuse-controls)
+   - [MEDIUM - No Input Sanitization on Chat Messages](#medium--no-input-sanitization-on-chat-messages)
+   - [MEDIUM - NSFW Content Behind Weak Gate](#medium--nsfw-content-behind-weak-gate)
+   - [MEDIUM - Sony CDN URLs with Hardcoded Auth Tokens](#medium--sony-cdn-urls-with-hardcoded-auth-tokens)
+   - [LOW - Missing Security Headers](#low--missing-security-headers)
+   - [LOW - `.env.example` Contains `VITE_` Prefix for Secrets](#low--envexample-contains-vite_-prefix-for-secrets)
+   - [LOW - No CSRF Protection on POST Routes](#low--no-csrf-protection-on-post-routes)
+   - [LOW - Error Messages Leak Internal State](#low--error-messages-leak-internal-state)
 3. [Latency & Bandwidth Optimization](#latency--bandwidth-optimization)
-   - [HIGH — Proxy Buffers Entire Chunks Into Memory](#high--proxy-buffers-entire-chunks-into-memory)
-   - [HIGH — M3U8 Rewrite Causes Double-Hop Latency](#high--m3u8-rewrite-causes-double-hop-latency)
-   - [HIGH — No Client-Side Caching Headers on Proxy Responses](#high--no-client-side-caching-headers-on-proxy-responses)
-   - [HIGH — OMDb Enrichment Fires N+1 API Calls Per Search](#high--omdb-enrichment-fires-n1-api-calls-per-search)
-   - [MEDIUM — Multiple Unbounded Firestore `onSnapshot` Listeners](#medium--multiple-unbounded-firestore-onsnapshot-listeners)
-   - [MEDIUM — No Response Compression](#medium--no-response-compression)
-   - [MEDIUM — IPTV Playlist Fetched on Every Search](#medium--iptv-playlist-fetched-on-every-search)
-   - [MEDIUM — Vercel Serverless Cold Starts on Every API Call](#medium--vercel-serverless-cold-starts-on-every-api-call)
-   - [MEDIUM — Google Fonts Render-Blocking](#medium--google-fonts-render-blocking)
-   - [LOW — No Bundle Splitting / Lazy Loading for Heavy Components](#low--no-bundle-splitting--lazy-loading-for-heavy-components)
-   - [LOW — Heartbeat Updates Every 30s Cause Unnecessary Firestore Writes](#low--heartbeat-updates-every-30s-cause-unnecessary-firestore-writes)
+   - [HIGH - Proxy Buffers Entire Chunks Into Memory](#high--proxy-buffers-entire-chunks-into-memory)
+   - [HIGH - M3U8 Rewrite Causes Double-Hop Latency](#high--m3u8-rewrite-causes-double-hop-latency)
+   - [HIGH - No Client-Side Caching Headers on Proxy Responses](#high--no-client-side-caching-headers-on-proxy-responses)
+   - [HIGH - OMDb Enrichment Fires N+1 API Calls Per Search](#high--omdb-enrichment-fires-n1-api-calls-per-search)
+   - [MEDIUM - Multiple Unbounded Firestore `onSnapshot` Listeners](#medium--multiple-unbounded-firestore-onsnapshot-listeners)
+   - [MEDIUM - No Response Compression](#medium--no-response-compression)
+   - [MEDIUM - IPTV Playlist Fetched on Every Search](#medium--iptv-playlist-fetched-on-every-search)
+   - [MEDIUM - Vercel Serverless Cold Starts on Every API Call](#medium--vercel-serverless-cold-starts-on-every-api-call)
+   - [MEDIUM - Google Fonts Render-Blocking](#medium--google-fonts-render-blocking)
+   - [LOW - No Bundle Splitting / Lazy Loading for Heavy Components](#low--no-bundle-splitting--lazy-loading-for-heavy-components)
+   - [LOW - Heartbeat Updates Every 30s Cause Unnecessary Firestore Writes](#low--heartbeat-updates-every-30s-cause-unnecessary-firestore-writes)
 4. [Prioritized Remediation Roadmap](#prioritized-remediation-roadmap)
 
 ---
@@ -55,16 +55,16 @@ Chan is a real-time watch-party platform built on Firebase + Vercel Serverless F
 
 ## Security Evaluation Audit
 
-### CRITICAL — Open Proxy via `/api/proxy`
+### CRITICAL - Open Proxy via `/api/proxy`
 
 **File:** `api/proxy.js`
 
 The `/api/proxy` endpoint functions as an **open, unauthenticated proxy**. Any client on the internet can pass an arbitrary `?url=` parameter and the server will fetch it and return the response body. While there are SSRF protections (private IP blocking), the endpoint has:
 
-- **No authentication** — no `requireUser()` call, no token check
-- **No rate limiting** — can be used to proxy unlimited requests
-- **No allow-list** — any public URL is proxied
-- **No audit logging** — no record of what was proxied
+- **No authentication** - no `requireUser()` call, no token check
+- **No rate limiting** - can be used to proxy unlimited requests
+- **No allow-list** - any public URL is proxied
+- **No audit logging** - no record of what was proxied
 
 This turns the Vercel deployment into a **free, anonymous proxy service** for anyone on the internet, which can be abused for:
 - Masking attack origins
@@ -80,7 +80,7 @@ This turns the Vercel deployment into a **free, anonymous proxy service** for an
 
 ---
 
-### CRITICAL — SSRF in Media Scraper
+### CRITICAL - SSRF in Media Scraper
 
 **File:** `api/media.js`
 
@@ -88,7 +88,7 @@ The `fetchHtml()` and `validateProxyUrl()`/`validateFetchTarget()` functions hav
 
 1. `validateProxyUrl()` (in `proxy.js`) blocks private IPs via `PRIVATE_IPV4_RE`
 2. `validateFetchTarget()` (in `media.js`) has a slightly different implementation using `isPrivateIpv4()` 
-3. The `resolvePageChain()` function follows up to 8 URLs with manual redirect handling, and the redirect validation reuses `validateFetchTarget()` — but DNS rebinding attacks can bypass this
+3. The `resolvePageChain()` function follows up to 8 URLs with manual redirect handling, and the redirect validation reuses `validateFetchTarget()` - but DNS rebinding attacks can bypass this
 4. The `resolveO2TvPage()` function makes direct HTTP requests to hardcoded CDN IPs (`d6.o2tv.org`, etc.) **without** any SSRF validation
 
 More importantly, the scraper accepts **arbitrary user-supplied URLs** via the `scrape` action and follows redirect chains. An attacker can:
@@ -98,13 +98,13 @@ More importantly, the scraper accepts **arbitrary user-supplied URLs** via the `
 
 **Remediation:**
 1. Use a single, shared SSRF validation function across all endpoints
-2. Add DNS resolution validation — resolve the hostname first, then check the resolved IP against private ranges
+2. Add DNS resolution validation - resolve the hostname first, then check the resolved IP against private ranges
 3. Limit the `scrape` action to known, allow-listed domains only
 4. Add a timeout and max-response-size limit to all outbound fetches
 
 ---
 
-### HIGH — Wildcard CORS on All Endpoints
+### HIGH - Wildcard CORS on All Endpoints
 
 **Files:** `server-lib/http.js`, `server-lib/response.js`, `api/proxy.js`
 
@@ -127,7 +127,7 @@ This allows **any website** on the internet to make authenticated requests to th
 
 ---
 
-### HIGH — No Rate Limiting on Any API Endpoint
+### HIGH - No Rate Limiting on Any API Endpoint
 
 **Files:** `api/room.js`, `api/media.js`, `api/proxy.js`
 
@@ -147,7 +147,7 @@ The only throttle is a 5-minute cooldown on AI summaries and 60-second cooldown 
 
 ---
 
-### HIGH — Weak Cron Secret Validation
+### HIGH - Weak Cron Secret Validation
 
 **File:** `api/room.js`
 
@@ -164,26 +164,26 @@ function requireCronSecret(req) {
 ```
 
 **Problems:**
-1. If `CRON_SECRET` is not set, the check is **completely bypassed** — anyone can trigger cleanup
+1. If `CRON_SECRET` is not set, the check is **completely bypassed** - anyone can trigger cleanup
 2. The comparison is not timing-safe (`!==` instead of `crypto.timingSafeEqual`)
-3. The cleanup action is accessible via GET request with no body — trivially triggered
+3. The cleanup action is accessible via GET request with no body - trivially triggered
 4. In `media.js`, `requireCronSecret` throws if not configured, but in `room.js` it silently passes
 
 **Remediation:**
-1. Make `CRON_SECRET` mandatory — throw if it's not set
+1. Make `CRON_SECRET` mandatory - throw if it's not set
 2. Use `crypto.timingSafeEqual` for comparison
 3. Only allow cleanup via POST (not GET)
 4. Add a Vercel Cron configuration that sends the secret
 
 ---
 
-### HIGH — Firestore Rules Allow Overly Broad Writes
+### HIGH - Firestore Rules Allow Overly Broad Writes
 
 **File:** `firestore.rules`
 
 Several rules are too permissive:
 
-1. **Room update:** Any authenticated participant can update the room document — this means any viewer can change `hostId`, `title`, `videoUrl`, `isPrivate`, `locked`, etc.:
+1. **Room update:** Any authenticated participant can update the room document - this means any viewer can change `hostId`, `title`, `videoUrl`, `isPrivate`, `locked`, etc.:
    ```
    allow update: if isRoomHostOrCoHost(roomId) || isRoomParticipant(roomId);
    ```
@@ -217,7 +217,7 @@ Several rules are too permissive:
 
 ---
 
-### MEDIUM — Exposed PAT in Git Clone URL
+### MEDIUM - Exposed PAT in Git Clone URL
 
 A GitHub PAT (personal access token) was provided in plaintext during the audit setup. If this token was used in any CI/CD pipeline, commit history, or shared channel, it must be revoked immediately. GitHub PATs in messages/logs are a common attack vector.
 
@@ -225,11 +225,11 @@ A GitHub PAT (personal access token) was provided in plaintext during the audit 
 1. **Revoke the token immediately** at GitHub Settings → Developer settings → Personal access tokens
 2. Generate a new token with minimal scope
 3. Use GitHub's fine-grained PATs or deploy keys instead
-4. Never share tokens in plain text — use secret managers
+4. Never share tokens in plain text - use secret managers
 
 ---
 
-### MEDIUM — OMDb Fallback API Key in Source Code
+### MEDIUM - OMDb Fallback API Key in Source Code
 
 **File:** `api/media.js`
 
@@ -248,7 +248,7 @@ The fallback key `trilogy` is the OMDb free-tier demo key. While this is a known
 
 ---
 
-### MEDIUM — Anonymous Auth with No Abuse Controls
+### MEDIUM - Anonymous Auth with No Abuse Controls
 
 **File:** `src/features/auth/pages/AuthPage.jsx`, `src/shared/auth/hooks/useAuth.jsx`
 
@@ -268,7 +268,7 @@ This makes rate limiting per-UID essentially useless since attackers can create 
 
 ---
 
-### MEDIUM — No Input Sanitization on Chat Messages
+### MEDIUM - No Input Sanitization on Chat Messages
 
 **File:** `src/features/room/hooks/useRoom.js`
 
@@ -288,13 +288,13 @@ The Firestore rules check `text.size() > 0 && text.size() <= 500` but don't vali
 
 ---
 
-### MEDIUM — NSFW Content Behind Weak Gate
+### MEDIUM - NSFW Content Behind Weak Gate
 
 **Files:** `api/media.js`, `server-lib/nsfw.js`, `server-lib/iptv.js`
 
 NSFW content is gated by:
 1. `NSFW_ENABLED=true` environment variable (off by default)
-2. `adultVerified` flag in the request body — **client-supplied and not verified server-side**
+2. `adultVerified` flag in the request body - **client-supplied and not verified server-side**
 
 Additionally, the IPTV module includes hardcoded XXX 18+ channels (`BUILTIN_EXTRA_CHANNELS` with `isNSFW: true`) that are always present in the channel list, just filtered client-side.
 
@@ -306,7 +306,7 @@ Additionally, the IPTV module includes hardcoded XXX 18+ channels (`BUILTIN_EXTR
 
 ---
 
-### MEDIUM — Sony CDN URLs with Hardcoded Auth Tokens
+### MEDIUM - Sony CDN URLs with Hardcoded Auth Tokens
 
 **File:** `server-lib/iptv.js`
 
@@ -327,7 +327,7 @@ These tokens:
 
 ---
 
-### LOW — Missing Security Headers
+### LOW - Missing Security Headers
 
 **File:** `index.html`, `server-lib/response.js`
 
@@ -345,12 +345,12 @@ No security headers are set:
 
 ---
 
-### LOW — `.env.example` Contains `VITE_` Prefix for Secrets
+### LOW - `.env.example` Contains `VITE_` Prefix for Secrets
 
 **File:** `.env.example`
 
 Several keys that should be server-side only use `VITE_` prefix:
-- `VITE_YOUTUBE_API_KEY` — should be server-side only
+- `VITE_YOUTUBE_API_KEY` - should be server-side only
 - The example doesn't clearly distinguish which variables are exposed to the client
 
 The `VITE_` prefix means Vite will bundle them into the client JavaScript, exposing them to anyone who opens DevTools.
@@ -362,7 +362,7 @@ The `VITE_` prefix means Vite will bundle them into the client JavaScript, expos
 
 ---
 
-### LOW — No CSRF Protection on POST Routes
+### LOW - No CSRF Protection on POST Routes
 
 All POST routes (`/api/room`, `/api/media`) accept requests from any origin due to wildcard CORS. While Bearer token auth provides some protection, there's no CSRF token mechanism.
 
@@ -373,14 +373,14 @@ All POST routes (`/api/room`, `/api/media`) accept requests from any origin due 
 
 ---
 
-### LOW — Error Messages Leak Internal State
+### LOW - Error Messages Leak Internal State
 
 **Files:** Various
 
 Error messages sometimes leak internal information:
-- `Firebase Admin credentials are missing. Check FIREBASE_ADMIN_PROJECT_ID, FIREBASE_ADMIN_CLIENT_EMAIL, and FIREBASE_ADMIN_PRIVATE_KEY.` — reveals env var names
-- `Upstream server returned HTTP 502` — reveals infrastructure details
-- `Could not parse valid quiz from AI response` — reveals AI integration details
+- `Firebase Admin credentials are missing. Check FIREBASE_ADMIN_PROJECT_ID, FIREBASE_ADMIN_CLIENT_EMAIL, and FIREBASE_ADMIN_PRIVATE_KEY.` - reveals env var names
+- `Upstream server returned HTTP 502` - reveals infrastructure details
+- `Could not parse valid quiz from AI response` - reveals AI integration details
 
 **Remediation:**
 1. Use generic error messages for client-facing responses
@@ -391,7 +391,7 @@ Error messages sometimes leak internal information:
 
 ## Latency & Bandwidth Optimization
 
-### HIGH — Proxy Buffers Entire Chunks Into Memory
+### HIGH - Proxy Buffers Entire Chunks Into Memory
 
 **File:** `api/proxy.js`
 
@@ -417,13 +417,13 @@ res.send(buffer)
 - Adds latency equal to the full download time of the chunk
 
 **Remediation:**
-1. **Stream the response** — use `Readable.fromWeb(chunkResponse.body).pipe(res)` instead of buffering
+1. **Stream the response** - use `Readable.fromWeb(chunkResponse.body).pipe(res)` instead of buffering
 2. Vercel Serverless Functions support streaming with `@vercel/node` v3+ using `streaming: true`
 3. This reduces TTFB from "full chunk download time" to "first byte from upstream"
 
 ---
 
-### HIGH — M3U8 Rewrite Causes Double-Hop Latency
+### HIGH - M3U8 Rewrite Causes Double-Hop Latency
 
 **File:** `api/proxy.js`
 
@@ -445,7 +445,7 @@ This **doubles the latency** for every segment and **doubles the bandwidth** (in
 
 ---
 
-### HIGH — No Client-Side Caching Headers on Proxy Responses
+### HIGH - No Client-Side Caching Headers on Proxy Responses
 
 **File:** `api/proxy.js`
 
@@ -464,7 +464,7 @@ This means the browser re-fetches every segment, M3U8 playlist, and video chunk 
 
 ---
 
-### HIGH — OMDb Enrichment Fires N+1 API Calls Per Search
+### HIGH - OMDb Enrichment Fires N+1 API Calls Per Search
 
 **File:** `api/media.js`
 
@@ -482,12 +482,12 @@ For a search with 60 results where 30 need OMDb posters, this fires **30 sequent
 **Remediation:**
 1. Use OMDb's batch capabilities or parallelize with `Promise.all()` (with concurrency limit)
 2. Cache OMDb results in Firestore with a TTL (e.g., 24 hours)
-3. Move poster enrichment to an async background process — return results immediately and enrich lazily
+3. Move poster enrichment to an async background process - return results immediately and enrich lazily
 4. Reduce the number of items that need poster lookup by improving scraper thumbnail extraction
 
 ---
 
-### MEDIUM — Multiple Unbounded Firestore `onSnapshot` Listeners
+### MEDIUM - Multiple Unbounded Firestore `onSnapshot` Listeners
 
 **File:** `src/features/room/hooks/useRoom.js`
 
@@ -516,7 +516,7 @@ For a room with 10,000+ messages, this downloads the entire history on join.
 
 ---
 
-### MEDIUM — No Response Compression
+### MEDIUM - No Response Compression
 
 **Files:** All API endpoints
 
@@ -529,7 +529,7 @@ No `Content-Encoding: gzip` or `br` is set on API responses. For large JSON payl
 
 ---
 
-### MEDIUM — IPTV Playlist Fetched on Every Search
+### MEDIUM - IPTV Playlist Fetched on Every Search
 
 **File:** `server-lib/iptv.js`
 
@@ -546,7 +546,7 @@ The `getPlaylistChannels()` function has a 5-minute cache (`CACHE_TTL_MS = 5 * 6
 
 ---
 
-### MEDIUM — Vercel Serverless Cold Starts on Every API Call
+### MEDIUM - Vercel Serverless Cold Starts on Every API Call
 
 **File:** `api/media.js` (especially)
 
@@ -566,7 +566,7 @@ On Vercel Hobby, cold starts can be 500ms-2s. The first search after idle will b
 
 ---
 
-### MEDIUM — Google Fonts Render-Blocking
+### MEDIUM - Google Fonts Render-Blocking
 
 **File:** `index.html`
 
@@ -584,7 +584,7 @@ Two font families with multiple weights are loaded render-blockingly from an ext
 
 ---
 
-### LOW — No Bundle Splitting / Lazy Loading for Heavy Components
+### LOW - No Bundle Splitting / Lazy Loading for Heavy Components
 
 **Files:** `src/App.jsx`, `src/main.jsx`
 
@@ -598,7 +598,7 @@ Heavy components like `VideoPlayer` (1,367 lines), `RoomPage` (708 lines), and t
 
 ---
 
-### LOW — Heartbeat Updates Every 30s Cause Unnecessary Firestore Writes
+### LOW - Heartbeat Updates Every 30s Cause Unnecessary Firestore Writes
 
 **File:** `src/features/room/hooks/useRoom.js`
 
@@ -608,7 +608,7 @@ const interval = setInterval(() => {
 }, 30000)
 ```
 
-With 5 active rooms each with a host, this generates **10 Firestore writes per minute** (5 rooms × 2 updates/min). At scale, this is 600 writes/hour, 14,400 writes/day — all for heartbeats alone. Firestore free tier is 20K writes/day.
+With 5 active rooms each with a host, this generates **10 Firestore writes per minute** (5 rooms × 2 updates/min). At scale, this is 600 writes/hour, 14,400 writes/day - all for heartbeats alone. Firestore free tier is 20K writes/day.
 
 **Remediation:**
 1. Increase heartbeat interval to 60s or 90s (still well within the 15-minute stale threshold)

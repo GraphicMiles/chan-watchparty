@@ -1,4 +1,4 @@
-# Chan — Android Build Guide
+# Chan - Android Build Guide
 
 ## Quick Start
 

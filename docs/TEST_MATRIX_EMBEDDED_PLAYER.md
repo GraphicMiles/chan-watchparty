@@ -1,8 +1,8 @@
-# Test Matrix — Embedded Native Player (Phases 1–5)
+# Test Matrix - Embedded Native Player (Phases 1–5)
 
 **Date:** 2026-08-11 · **Device requirement:** physical Android device (Android 8.0+ recommended, min 6.0) with the APK from `npm run android:build` + Android Studio, or a signed release build.
 
-> ⚠️ The web bundle was build-verified (`npm run build` ✓, eslint clean). The Android Java (`ChanPlayerEngine`, `RoomPlayerOverlayView`, `VideoPlayerPlugin`) was hand-reviewed and structurally validated but **must be compile-verified on a machine with the Android SDK** — `cd android && ./gradlew assembleDebug` — before shipping.
+> ⚠️ The web bundle was build-verified (`npm run build` ✓, eslint clean). The Android Java (`ChanPlayerEngine`, `RoomPlayerOverlayView`, `VideoPlayerPlugin`) was hand-reviewed and structurally validated but **must be compile-verified on a machine with the Android SDK** - `cd android && ./gradlew assembleDebug` - before shipping.
 
 ---
 
@@ -68,7 +68,7 @@ cd android && ./gradlew assembleDebug
 | 5.2 | Kill & relaunch app | Room rehydrates; video position restored from Firestore |
 | 5.3 | Expired DownloadWella link | Friendly error: "This link has expired…" + Re-resolve link button (host) → resolves → plays for everyone |
 | 5.4 | No network | Friendly: "Network issue while fetching media…" |
-| 5.5 | Embedded fails to start | **Silent** fallback to the web player — user never sees a broken screen |
+| 5.5 | Embedded fails to start | **Silent** fallback to the web player - user never sees a broken screen |
 
 ## 6. Regression (should still work)
 
@@ -91,27 +91,27 @@ cd android && ./gradlew assembleDebug
 
 ---
 
-## Fix log — Nkiri/DownloadWella playback (2026-08-11)
+## Fix log - Nkiri/DownloadWella playback (2026-08-11)
 
 Root causes found by live reproduction (resolve → proxy → stream):
 
-1. **Remux stream was hard-cut at 8.5s** — `REMUX_DEADLINE_MS = 8_500` (tuned for
+1. **Remux stream was hard-cut at 8.5s** - `REMUX_DEADLINE_MS = 8_500` (tuned for
    Vercel Hobby's 10s kill) applied on Render too, truncating large MKVs mid-file
    → `MEDIA_ERR_SRC_NOT_SUPPORTED` ("Source not supported"). **Fix:** deadlines are
    now environment-aware (`IS_VERCEL` → 8.5s/9s; otherwise 120s), overridable via
    `REMUX_DEADLINE_MS` / `PROXY_MAX_DURATION_MS`.
 
-2. **Re-resolve could never refresh an expired link** — the room only stored the
+2. **Re-resolve could never refresh an expired link** - the room only stored the
    resolved CDN URL; `nkiriResolve` on a CDN URL just echoes it back (verified
    live), so "Re-resolve link" swapped in the same dead URL. **Fix:** the original
    episode page URL is now carried end-to-end (`sourceUrl` param → `room.sourceUrl`)
    and every re-resolve walks the form from the page URL for a fresh token.
 
-3. **JS-countdown pages weren't handled** — XFileSharing pages that only reveal
+3. **JS-countdown pages weren't handled** - XFileSharing pages that only reveal
    the free link after a timer now wait the countdown out (≤20s) and re-POST with
    the freshly rendered form fields (was: immediate "JS countdown/captcha" failure).
 
-4. **Android parity** — the embedded player's error state now shows the same
+4. **Android parity** - the embedded player's error state now shows the same
    "Re-resolve link" button (host/co-host) as the web player.
 
 Test: re-run 1.2 (MKV via DownloadWella) and 5.3 (expired link → re-resolve).

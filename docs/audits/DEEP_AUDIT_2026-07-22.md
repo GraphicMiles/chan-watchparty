@@ -1,4 +1,4 @@
-# Chan Deep Audit — 2026-07-22
+# Chan Deep Audit - 2026-07-22
 
 ## Scope
 Audited the `GraphicMiles/chan-watchparty` repository across:
@@ -147,7 +147,7 @@ After sync, Capacitor Android doctor passes under matching dependencies in CI. L
 
 ## High-priority findings
 
-### HIGH — Android secret leakage risk through `BuildConfig`
+### HIGH - Android secret leakage risk through `BuildConfig`
 
 File:
 
@@ -178,7 +178,7 @@ Required deployment config:
 - Set `VITE_API_URL` for Android/Capacitor builds to the public API origin, e.g. `https://your-app.vercel.app`.
 - Do not put Groq keys in `VITE_` variables or Android Gradle `BuildConfig`.
 
-### HIGH — Dependency audit still reports 20 vulnerabilities
+### HIGH - Dependency audit still reports 20 vulnerabilities
 
 After non-breaking `npm audit fix`, remaining:
 
@@ -200,7 +200,7 @@ Recommended next step:
   - `@google-cloud/firestore` to latest compatible version.
   - Vite only after verifying React/Vite plugin compatibility.
 
-### HIGH — Proxy is permissive by default
+### HIGH - Proxy is permissive by default
 
 File:
 
@@ -229,7 +229,7 @@ Set `PROXY_ALLOWED_DOMAINS` in production, for example:
 
 Only include domains the app truly needs.
 
-### MEDIUM — API CORS is broadly permissive
+### MEDIUM - API CORS is broadly permissive
 
 File:
 
@@ -251,7 +251,7 @@ Recommendation:
 - Restrict app APIs to known app origins.
 - Keep proxy media CORS broad only if absolutely required for video playback.
 
-### MEDIUM — Firestore rules expose public room/user data to all authenticated users
+### MEDIUM - Firestore rules expose public room/user data to all authenticated users
 
 File:
 
@@ -281,7 +281,7 @@ Recommendation:
 - Split public room metadata from private room internals.
 - For private rooms, restrict read to participants or invite-code-validated joins.
 
-### MEDIUM — Native TypeScript files are not currently part of the Vite build path
+### MEDIUM - Native TypeScript files are not currently part of the Vite build path
 
 Files:
 
@@ -297,7 +297,7 @@ Recommendation:
 
 - Either fully integrate TypeScript support or convert these files to `.js`/`.jsx`.
 
-### MEDIUM — Bundle size/performance
+### MEDIUM - Bundle size/performance
 
 Large chunks:
 

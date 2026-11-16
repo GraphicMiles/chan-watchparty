@@ -127,8 +127,8 @@ Server
 
 Query params of note:
 
-- `/room/:roomId?invite=CODE` — private join  
-- `/create?video=ID&title=…` — preset YouTube from media handoff (CreateRoom supports this)
+- `/room/:roomId?invite=CODE` - private join  
+- `/create?video=ID&title=…` - preset YouTube from media handoff (CreateRoom supports this)
 
 ---
 
@@ -139,13 +139,13 @@ Query params of note:
 
 | # | File | Route | Response style | Used by client? |
 |---|------|-------|----------------|-----------------|
-| 1 | `api/room.js` | `POST /api/room` | `sendResponse` via `http.js` | **Yes** — useRoom, Home, Create |
-| 2 | `api/moderate.js` | `POST /api/moderate` | same | **Yes** — useRoom authFetch |
-| 3 | `api/createLiveKitToken.js` | `POST /api/createLiveKitToken` | same | **Yes** — ScreenShare |
+| 1 | `api/room.js` | `POST /api/room` | `sendResponse` via `http.js` | **Yes** - useRoom, Home, Create |
+| 2 | `api/moderate.js` | `POST /api/moderate` | same | **Yes** - useRoom authFetch |
+| 3 | `api/createLiveKitToken.js` | `POST /api/createLiveKitToken` | same | **Yes** - ScreenShare |
 | 4 | `api/cleanupStaleRooms.js` | `POST/GET /api/cleanupStaleRooms` | same | External cron only |
 | 5 | `api/media.js` | `POST /api/media` | same | **No live UI caller found** |
-| 6 | `api/scrape.js` | `POST /api/scrape` | **Express-style** `res.status().json()` | **Yes** — `useScraper` |
-| 7 | `api/search.js` | `POST /api/search` | **Express-style** | **Yes** — `useScraper` |
+| 6 | `api/scrape.js` | `POST /api/scrape` | **Express-style** `res.status().json()` | **Yes** - `useScraper` |
+| 7 | `api/search.js` | `POST /api/search` | **Express-style** | **Yes** - `useScraper` |
 
 `api/lib/*` does **not** count as separate functions.
 
@@ -187,14 +187,14 @@ Query params of note:
 ### 4.5 `api/media.js` (consolidated, currently unused by UI)
 
 **Imports:** firebaseAdmin, http, `scraper` from `lib/scraper.js`  
-**Actions:** `search` (YouTube API), `scrape` (metadata list via Cheerio site configs — imdb in lib)  
+**Actions:** `search` (YouTube API), `scrape` (metadata list via Cheerio site configs - imdb in lib)  
 **May write** `scrapes/{id}` when `roomId` provided  
 
 ### 4.6 `api/scrape.js` (active UI path)
 
 **Export:** `default handler`  
 **Does:** fetch HTML, Cheerio parse, site configs for `nkiri`, `netnaija`, `fzmovies`, `imdb`  
-**Response:** `res.status(200).json(...)` — **incompatible with Vercel Node response API** (see bugs)  
+**Response:** `res.status(200).json(...)` - **incompatible with Vercel Node response API** (see bugs)  
 **Does not** use `api/lib/http.js` or `sendResponse`
 
 ### 4.7 `api/search.js` (active UI path)
@@ -246,7 +246,7 @@ Query params of note:
 |------|--------|---------|
 | `features/auth/index.js` | `{ AuthPage }` | `./pages/AuthPage.jsx` |
 | `pages/AuthPage.jsx` | `default AuthPage` | `useAuth`, UI `Button/Input/Card` |
-| `pages/AuthPage.module.css` | CSS module | — |
+| `pages/AuthPage.module.css` | CSS module | - |
 
 **Flow:** display name → `signInAnonymously` → navigate `/`  
 **Redirect:** `useEffect` when `user` set (not during render)
@@ -354,7 +354,7 @@ features/room/
 | `features/scraper/index.js` | `{ ScraperPage }` | `./ScraperPage` | barrel for App |
 | `features/scraper/ScraperPage.jsx` | **named** `ScraperPage` | `../../hooks/useScraper` | Route page; **inline styles**; no CSS module |
 | `hooks/useScraper.js` | `useScraper` | react only | Calls **`/api/scrape`** + **`/api/search`** |
-| `components/Scraper.jsx` | named `Scraper` | `../hooks/useScraper` | **Orphan** — not imported by App or ScraperPage |
+| `components/Scraper.jsx` | named `Scraper` | `../hooks/useScraper` | **Orphan** - not imported by App or ScraperPage |
 
 **`useScraper` API surface**
 
@@ -585,7 +585,7 @@ scrapes/{scrapeId}   # written by api/media.js when roomId set; rules: client cr
 | ScreenShare | POST | `/api/createLiveKitToken` | roomId, uid, role |
 | useScraper.scrape | POST | `/api/scrape` | url, site |
 | useScraper.search | POST | `/api/search` | query, source |
-| *(none)* | POST | `/api/media` | — unused by UI |
+| *(none)* | POST | `/api/media` | - unused by UI |
 | cron | POST/GET | `/api/cleanupStaleRooms` | optional secret header |
 
 ---
@@ -598,7 +598,7 @@ Severity: **P0** blocks core path · **P1** feature broken · **P2** quality/ops
 |----|-----|------|---------|
 | B1 | **P0/P1** | `api/scrape.js`, `api/search.js` | Use **Express** APIs: `res.status().json()`, `res.setHeader`, `res.end`. Vercel Node serverless expects `res.writeHead` / `res.end` (as documented in `api/lib/response.js`). Same class of bug previously fixed as `res.status(...).set is not a function`. **`/media` search & scrape likely fail at runtime on Vercel.** |
 | B2 | **P1** | Media architecture | **Three parallel media implementations:** (1) `api/media.js` + `lib/scraper.js`, (2) `api/scrape.js` + `api/search.js`, (3) client-side `youtube.js` search on Create page. UI only calls (2). Dead code + double maintenance. |
-| B3 | **P2** | `src/components/Scraper.jsx` | **Orphan component** — never imported by `App` or `ScraperPage`. Duplicate UI of ScraperPage. |
+| B3 | **P2** | `src/components/Scraper.jsx` | **Orphan component** - never imported by `App` or `ScraperPage`. Duplicate UI of ScraperPage. |
 | B4 | **P2** | Function count | **7** serverless files. Under 12, but rising. Duplicate media endpoints waste 2 slots vs single `media` router. |
 | B5 | **P1/P2** | Ops | Anonymous Auth must be **enabled** in Firebase Console or sign-in returns `auth/admin-restricted-operation` (handled in copy only). |
 | B6 | **P2** | Ops | Firestore rules in repo may not match Console until manually published. |
@@ -609,10 +609,10 @@ Severity: **P0** blocks core path · **P1** feature broken · **P2** quality/ops
 | B11 | **P2** | Leave on unmount | Room unmount always POSTs leave (including StrictMode double-mount / soft navigations). Can cause flicker rejoin or count churn. |
 | B12 | **P3** | `VideoPlayer` | No seek event write to playerState (only play/pause). Host seek may not sync until next 5s heartbeat. |
 | B13 | **P3** | `ScreenShare` | Only true host publishes; co-host cannot screen-share even if co-host can control YouTube. |
-| B14 | **P2** | Home rooms query | Client loads **all** `rooms` docs then filters. Does not scale; also depends on rules allowing reads of non-live/private (denied) — OK but noisy. |
+| B14 | **P2** | Home rooms query | Client loads **all** `rooms` docs then filters. Does not scale; also depends on rules allowing reads of non-live/private (denied) - OK but noisy. |
 | B15 | **P3** | Docs drift | `docs/DEVELOPER_GUIDE.md` / README may still describe older 4–5 function layout without `scrape.js`/`search.js` duplicates. |
 | B16 | **P2** | Security/product | `api/scrape.js` targets third-party movie listing sites (nkiri, netnaija, fzmovies, imdb). Legal/ToS risk; not integrated into watch sync pipeline (results are links/metadata, not room player binding except YouTube search → external URL). |
-| B17 | **P3** | `api/scrape.js` early returns | Commits mention early return for undefined url/query — good — but response path still Express-style. |
+| B17 | **P3** | `api/scrape.js` early returns | Commits mention early return for undefined url/query - good - but response path still Express-style. |
 | B18 | **P3** | Package | `@livekit/components-react` / styles listed in package.json but **not imported** in audited src (only `livekit-client`). |
 
 ---
@@ -693,8 +693,8 @@ Listed in §5–6.
 1. **Product core** lives under `src/features/room` + `api/room.js` + `api/moderate.js`.  
 2. **Auth** is global via `shared/auth`.  
 3. **UI primitives** only from `shared/ui`.  
-4. **Server must use** `sendResponse` / `http.js` — never Express `res.status().json()`.  
-5. **Media tools are currently inconsistent** — UI → scrape/search; older media router unused; scrape/search likely broken on Vercel until rewritten to `sendResponse`.  
+4. **Server must use** `sendResponse` / `http.js` - never Express `res.status().json()`.  
+5. **Media tools are currently inconsistent** - UI → scrape/search; older media router unused; scrape/search likely broken on Vercel until rewritten to `sendResponse`.  
 6. **Do not add more top-level `api/*.js` files** without consolidating; budget is 12.
 
 ---

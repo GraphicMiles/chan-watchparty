@@ -1,9 +1,9 @@
-# Chan — Full site documentation
+# Chan - Full site documentation
 
-**Product:** Chan — real-time watch party (YouTube + optional direct video + LiveKit screen share + chat)  
+**Product:** Chan - real-time watch party (YouTube + optional direct video + LiveKit screen share + chat)  
 **Stack:** React 18 + Vite · Firebase Anonymous Auth + Firestore · Vercel serverless `/api` · LiveKit · Cheerio (scrape)  
 **Deploy:** Vercel Hobby · Firebase Spark  
-**This guide describes the repo as of main (includes robust YouTube/scrape UX).**
+**This guide describes the repo as of main, including the YouTube and scraper flows.**
 
 For a **security watchlist** of high-risk files, see [note.md](./note.md).
 
@@ -47,7 +47,7 @@ Vercel /api/* (Node)
 
 - Capacity, kick/promote/mute, LiveKit publish rights: **server-side**.  
 - Participants: **no client writes** (rules `write: if false`).  
-- Vercel responses: `sendResponse` / `ok` / `fail` — not Express `res.status().json()`.  
+- Vercel responses: `sendResponse` / `ok` / `fail` - not Express `res.status().json()`.  
 - Hobby: max **12** functions; this app uses **6** top-level `api/*.js` files.
 
 ---
@@ -105,7 +105,7 @@ Chan/
 
 ## 3. Routes & providers
 
-### 3.1 Mount — `src/main.jsx`
+### 3.1 Mount - `src/main.jsx`
 
 | | |
 |--|--|
@@ -113,7 +113,7 @@ Chan/
 | **Does** | Renders `<App />` into `#root` inside `React.StrictMode` |
 | **Exports** | none (entry) |
 
-### 3.2 App shell — `src/App.jsx`
+### 3.2 App shell - `src/App.jsx`
 
 | | |
 |--|--|
@@ -122,8 +122,8 @@ Chan/
 
 **Provider order (outer → inner)**
 
-1. `AuthProvider` — Firebase user  
-2. `ToastProvider` — `useToast()`  
+1. `AuthProvider` - Firebase user  
+2. `ToastProvider` - `useToast()`  
 3. `BrowserRouter`  
 4. `ConnectionBanner`  
 5. `Routes`  
@@ -138,9 +138,9 @@ Chan/
 
 **Query params**
 
-- `/room/:id?invite=CODE` — private join  
-- `/create?video=&title=&type=youtube` — YouTube preset  
-- `/create?videoUrl=&title=&type=direct` — direct file preset  
+- `/room/:id?invite=CODE` - private join  
+- `/create?video=&title=&type=youtube` - YouTube preset  
+- `/create?videoUrl=&title=&type=direct` - direct file preset  
 
 ---
 
@@ -193,7 +193,7 @@ Each file under `api/*.js` (not `lib/`) is one Vercel function.
 
 ### 4.2 Handlers
 
-#### `api/room.js` — `POST /api/room`
+#### `api/room.js` - `POST /api/room`
 
 | | |
 |--|--|
@@ -209,7 +209,7 @@ Each file under `api/*.js` (not `lib/`) is one Vercel function.
 
 **Called by:** `useRoom`, Home invite join, CreateRoomPage.
 
-#### `api/moderate.js` — `POST /api/moderate`
+#### `api/moderate.js` - `POST /api/moderate`
 
 | | |
 |--|--|
@@ -219,7 +219,7 @@ Each file under `api/*.js` (not `lib/`) is one Vercel function.
 
 **Called by:** `useRoom` via `authFetch`.
 
-#### `api/createLiveKitToken.js` — `POST /api/createLiveKitToken`
+#### `api/createLiveKitToken.js` - `POST /api/createLiveKitToken`
 
 | | |
 |--|--|
@@ -230,7 +230,7 @@ Each file under `api/*.js` (not `lib/`) is one Vercel function.
 
 **Called by:** `ScreenShare.jsx`.
 
-#### `api/cleanupStaleRooms.js` — `POST|GET /api/cleanupStaleRooms`
+#### `api/cleanupStaleRooms.js` - `POST|GET /api/cleanupStaleRooms`
 
 | | |
 |--|--|
@@ -238,7 +238,7 @@ Each file under `api/*.js` (not `lib/`) is one Vercel function.
 | **Optional** | `x-cron-secret` vs `CRON_SECRET` |
 | **Needs** | Firestore composite index on `rooms(status, lastHeartbeat)` |
 
-#### `api/scrape.js` — `POST /api/scrape`
+#### `api/scrape.js` - `POST /api/scrape`
 
 | | |
 |--|--|
@@ -249,7 +249,7 @@ Each file under `api/*.js` (not `lib/`) is one Vercel function.
 
 **Called by:** `useScraper.scrape`.
 
-#### `api/search.js` — `POST /api/search`
+#### `api/search.js` - `POST /api/search`
 
 | | |
 |--|--|
@@ -282,7 +282,7 @@ Each file under `api/*.js` (not `lib/`) is one Vercel function.
 |------|---------|---------|------|
 | `index.js` | `{ AuthPage }` | `./pages/AuthPage.jsx` | Barrel |
 | `pages/AuthPage.jsx` | `default AuthPage` | `useAuth`, UI Button/Input/Card | Display name → anonymous sign-in |
-| `pages/AuthPage.module.css` | — | — | Styles |
+| `pages/AuthPage.module.css` | - | - | Styles |
 
 **Flow:** `signInAnonymously` → navigate `/`. Redirect if already signed in (`useEffect`).
 
@@ -294,9 +294,9 @@ Each file under `api/*.js` (not `lib/`) is one Vercel function.
 |------|---------|---------|------|
 | `index.js` | `{ HomePage }` | pages | Barrel |
 | `pages/HomePage.jsx` | `default` | `useAuth`, Firestore, UI, Layout, `RoomCard`, `getLastRoom`, `parseJsonResponse` | Live public rooms, search/sort, invite join, link to `/media` |
-| `pages/HomePage.module.css` | — | — | Styles |
+| `pages/HomePage.module.css` | - | - | Styles |
 | `components/RoomCard.jsx` | `default` | Link, youtube thumb, Card/Badge/Avatar, SyncPulse | Room card |
-| `components/RoomCard.module.css` | — | — | Styles |
+| `components/RoomCard.module.css` | - | - | Styles |
 
 **API:** `POST /api/room` `{ action: 'join', inviteCode, ... }`  
 **Firestore:** `onSnapshot` on `rooms` (filter client-side live + public).
@@ -309,7 +309,7 @@ Each file under `api/*.js` (not `lib/`) is one Vercel function.
 |------|---------|---------|------|
 | `index.js` | `{ CreateRoomPage }` | pages | Barrel |
 | `pages/CreateRoomPage.jsx` | `default` | Firestore, `useAuth`, youtube helpers, `useScraper`, `parseJsonResponse`, UI | Create room YouTube or direct; search/scrape select |
-| `pages/CreateRoomPage.module.css` | — | — | Styles |
+| `pages/CreateRoomPage.module.css` | - | - | Styles |
 
 **Writes**
 
@@ -401,7 +401,7 @@ features/room/
 |------|--------|---------|------|
 | `index.js` | `{ ScraperPage }` | `./ScraperPage.jsx` | Barrel |
 | `ScraperPage.jsx` | named `ScraperPage` | useAuth, useScraper, youtube `isDirectVideoUrl`, UI, Layout | Movies/OMDb/manual scrape + YouTube search UI |
-| `ScraperPage.module.css` | — | — | Styles |
+| `ScraperPage.module.css` | - | - | Styles |
 
 **Actions**
 
@@ -607,7 +607,7 @@ scrapes/{id}   # rules exist; current scrape.js may not write
 | typing | authed | owner |
 | scrapes | authed | create false (admin) |
 
-**Publish rules in Firebase Console** — file in repo is not live until published.
+**Publish rules in Firebase Console** - file in repo is not live until published.
 
 ---
 
@@ -639,10 +639,10 @@ scrapes/{id}   # rules exist; current scrape.js may not write
 | File | Role |
 |------|------|
 | `package.json` | scripts, dependencies |
-| `vite.config.js` | React plugin, port 3000 (no API proxy — use `vercel dev` for full stack) |
+| `vite.config.js` | React plugin, port 3000 (no API proxy - use `vercel dev` for full stack) |
 | `vercel.json` | SPA rewrite + `/api` pass-through |
 | `firestore.rules` | Security rules source |
-| `.env` / `.env.example` | Env templates — **never commit real private keys** |
+| `.env` / `.env.example` | Env templates - **never commit real private keys** |
 | `README.md` | Deploy / keys overview |
 
 **Vercel function count:** 6 (`room`, `moderate`, `createLiveKitToken`, `cleanupStaleRooms`, `scrape`, `search`).
@@ -670,7 +670,7 @@ scrapes/{id}   # rules exist; current scrape.js may not write
 
 | Doc | Content |
 |-----|---------|
-| [note.md](./note.md) | Security watchlist — files to audit if malicious stream code appears |
+| [note.md](./note.md) | Security watchlist - files to audit if malicious stream code appears |
 | [guide.md](./guide.md) | This full structure / imports / exports guide |
 | `docs/DEVELOPER_GUIDE.md` | Earlier contributor guide (may lag slightly) |
 | `docs/APP_AUDIT.md` | Prior inventory audit |

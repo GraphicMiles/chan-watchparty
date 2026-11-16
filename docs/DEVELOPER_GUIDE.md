@@ -1,4 +1,4 @@
-# Chan — Developer Guide
+# Chan - Developer Guide
 
 How the codebase is organized, what each folder/file does, and where to change features without hunting.
 
@@ -14,8 +14,8 @@ How the codebase is organized, what each folder/file does, and where to change f
 
 Related docs:
 
-- [`README.md`](../README.md) — env vars, deploy, Firestore rules paste block
-- [`firestore.rules`](../firestore.rules) — canonical security rules file
+- [`README.md`](../README.md) - env vars, deploy, Firestore rules paste block
+- [`firestore.rules`](../firestore.rules) - canonical security rules file
 
 ---
 
@@ -52,9 +52,9 @@ Browser (React SPA on Vercel)
 ├── Firestore (rooms, playerState, chat, participants, typing, reactions)
 │     └── onSnapshot listeners for realtime
 │
-├── YouTube IFrame API (react-youtube) — playback + host control events
+├── YouTube IFrame API (react-youtube) - playback + host control events
 │
-└── LiveKit client — screen-share media only
+└── LiveKit client - screen-share media only
       │
       └── POST /api/createLiveKitToken  (JWT mint; secrets stay server-side)
 
@@ -156,7 +156,7 @@ Use this when you know *what* is broken and need *where* to open.
 | Theme / colors / fonts | `src/styles/theme.css`, `src/index.css`, `index.html` (Google fonts) |
 | Stale rooms not ending | `api/cleanupStaleRooms.js` + composite index + external cron |
 | Security denied writes | `firestore.rules` + client path must match rules |
-| API `res.status is not a function` | Always use `api/lib/response.js` `sendResponse` — never Express-style chaining |
+| API `res.status is not a function` | Always use `api/lib/response.js` `sendResponse` - never Express-style chaining |
 | LiveKit secrets leaked | Only `LIVEKIT_API_*` in Vercel env; client only has `VITE_LIVEKIT_URL` |
 
 ---
@@ -175,10 +175,10 @@ Defined in [`src/App.jsx`](../src/App.jsx).
 
 **Global providers (outer → inner):**
 
-1. `AuthProvider` — Firebase user session  
-2. `ToastProvider` — `useToast()`  
+1. `AuthProvider` - Firebase user session  
+2. `ToastProvider` - `useToast()`  
 3. `BrowserRouter`  
-4. `ConnectionBanner` — offline strip above routes  
+4. `ConnectionBanner` - offline strip above routes  
 
 ---
 
@@ -497,7 +497,7 @@ Barrel: `src/shared/ui/index.js`.
 | `leaveRoom.js` | POST | none | `roomId`, `uid` | Delete participant; decrement count |
 | `endRoom.js` | POST | none (checks hostId) | `roomId`, `uid` | Host-only: `status: ended`, `activityType: idle` |
 | `createLiveKitToken.js` | POST | none (checks hostId for publish) | `roomId`, `uid`, `role` | JWT; `canPublish` only if `uid === hostId` |
-| `cleanupStaleRooms.js` | POST/GET | optional `x-cron-secret` | — | Ends rooms with `status==live` and `lastHeartbeat` older than 15m |
+| `cleanupStaleRooms.js` | POST/GET | optional `x-cron-secret` | - | Ends rooms with `status==live` and `lastHeartbeat` older than 15m |
 | `kickParticipant.js` | POST | **Bearer idToken** | `roomId`, `uid` | Host-only remove; strip coHost |
 | `promoteParticipant.js` | POST | **Bearer** | `roomId`, `uid`, `role` (`co-host`\|`viewer`) | Host-only; maintains `room.coHosts` |
 | `muteParticipant.js` | POST | **Bearer** | `roomId`, `uid`, `muted:boolean` | Host or co-host; cannot mute host |
@@ -559,14 +559,14 @@ rooms/{roomId}/typing/{uid}
 
 | Path | Client write? | Server write? |
 |------|---------------|---------------|
-| `rooms` create | Yes (creator) | — |
+| `rooms` create | Yes (creator) | - |
 | `rooms` update | Host/co-host (rules) | join/leave/end/cleanup/kick/promote |
 | `participants` | **No** (rules `write: if false`) | join/leave/kick/mute/promote |
-| `playerState` | Host/co-host | — |
-| `messages` | Participants (not muted) | — |
-| `reactions` | Owner uid | — |
-| `typing` | Owner uid | — |
-| `users` | Owner | — |
+| `playerState` | Host/co-host | - |
+| `messages` | Participants (not muted) | - |
+| `reactions` | Owner uid | - |
+| `typing` | Owner uid | - |
+| `users` | Owner | - |
 
 **Indexes:** cleanup query needs composite **`status` ASC + `lastHeartbeat` ASC** on `rooms`.
 
@@ -651,7 +651,7 @@ Each component has a co-located `*.module.css`.
 
 ## 12. Environment variables
 
-### Client (`VITE_*` — bundled)
+### Client (`VITE_*` - bundled)
 
 | Variable | Used by |
 |----------|---------|
@@ -665,7 +665,7 @@ Each component has a co-located `*.module.css`.
 | `VITE_YOUTUBE_API_KEY` | `shared/lib/youtube.js` |
 | `VITE_LIVEKIT_URL` | `features/room/services/livekit.js` |
 
-### Server only (Vercel env — never `VITE_`)
+### Server only (Vercel env - never `VITE_`)
 
 | Variable | Used by |
 |----------|---------|
@@ -727,18 +727,18 @@ Edit `SYNC_THRESHOLD` and heartbeat `5000` in `usePlayerSync.js`.
 
 ## 14. Conventions & gotchas
 
-1. **No Express on Vercel functions** — use `sendResponse`, not `res.status().json()`.  
-2. **No `??` in Firestore rules** — use `map.get(key, default)`.  
-3. **Participants are server-written only** — never `setDoc` participants from the client.  
+1. **No Express on Vercel functions** - use `sendResponse`, not `res.status().json()`.  
+2. **No `??` in Firestore rules** - use `map.get(key, default)`.  
+3. **Participants are server-written only** - never `setDoc` participants from the client.  
 4. **Anonymous Auth must be enabled** in Firebase Console or all sign-in fails.  
 5. **Publish rules** after editing `firestore.rules` (editing the file alone does nothing).  
 6. **Cleanup needs index + external cron** (Hobby cannot do 15‑min Vercel crons).  
-7. **Co-hosts can control playback** — intentional extension; tighten in `usePlayerSync` + rules if product wants host-only.  
-8. **CSS modules** — co-locate `Component.module.css`; theme tokens from `theme.css`.  
-9. **Feature barrels** — import pages via `features/*/index.js` from `App.jsx`.  
-10. **Secrets** — anything without `VITE_` must never be imported from `src/`.  
-11. **Function budget** — count files in `api/*.js` (excluding `lib/`) before adding endpoints.  
-12. **Double-check before push** — `npm run build` must pass; rules syntax has no `??` / bare `?` in code.
+7. **Co-hosts can control playback** - intentional extension; tighten in `usePlayerSync` + rules if product wants host-only.  
+8. **CSS modules** - co-locate `Component.module.css`; theme tokens from `theme.css`.  
+9. **Feature barrels** - import pages via `features/*/index.js` from `App.jsx`.  
+10. **Secrets** - anything without `VITE_` must never be imported from `src/`.  
+11. **Function budget** - count files in `api/*.js` (excluding `lib/`) before adding endpoints.  
+12. **Double-check before push** - `npm run build` must pass; rules syntax has no `??` / bare `?` in code.
 
 ---
 

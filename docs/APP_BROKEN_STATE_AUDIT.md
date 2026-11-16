@@ -1,14 +1,14 @@
-# Historical Audit — Pull `f0b0266`
+# Historical Audit - Pull `f0b0266`
 
 > This document describes the broken state before the local repair commits. It is retained as an audit record, not as a description of the current working tree.
 
 Read-only audit. Nothing was modified to produce this document.
 
-## TL;DR — your worry is correct, and it's worse than "not configured yet"
+## TL;DR - your worry is correct, and it's worse than "not configured yet"
 
 **The app cannot start at all right now.** `src/App.jsx` was replaced with a
 version that imports six files that don't exist anywhere in the repo. This
-isn't a missing-config problem — it's a broken entry point. On top of that,
+isn't a missing-config problem - it's a broken entry point. On top of that,
 three new npm dependencies the new code requires (`react-player`, `hls.js`,
 `react-toastify`) are declared in `package.json` but were never installed
 (`package-lock.json` was deleted in this same pull and nothing reinstalled),
@@ -33,11 +33,11 @@ None of these exist. The actual auth code in this repo lives at
 different shape entirely) and `src/features/auth/pages/AuthPage.jsx` (a
 single combined page, not separate Login/Register pages). There is no
 `features/profile` directory, and no `.scss` files exist anywhere in `src/`
-— only `.module.css`.
+- only `.module.css`.
 
 This is a Vite build/import failure at the very top of the app. `main.jsx`
-imports `App.jsx` directly, so nothing renders — not the home page, not the
-search page, nothing — until this is fixed. This single file is the reason
+imports `App.jsx` directly, so nothing renders - not the home page, not the
+search page, nothing - until this is fixed. This single file is the reason
 the whole app is currently unreachable, independent of every other issue
 below.
 
@@ -46,7 +46,7 @@ template (login/register pages, a profile page, SCSS modules) that got
 pulled in wholesale instead of being adapted to this codebase's actual
 structure (single combined auth page, CSS Modules, no profile page).
 
-## 2. Missing npm packages — three new imports, zero installs
+## 2. Missing npm packages - three new imports, zero installs
 
 `package.json` now lists `react-player`, `hls.js`, and `react-toastify` as
 dependencies, `sass` as a dev dependency, and the same pull **deleted
@@ -61,8 +61,8 @@ dependencies, `sass` as a dev dependency, and the same pull **deleted
 
 `src/features/room/components/VideoPlayer.jsx` now does
 `import ReactPlayer from 'react-player'` and `import Hls from 'hls.js'` at
-the top level — both unresolvable imports today. `App.jsx` does
-`import { ToastContainer } from 'react-toastify'` — also unresolved. Even
+the top level - both unresolvable imports today. `App.jsx` does
+`import { ToastContainer } from 'react-toastify'` - also unresolved. Even
 once `App.jsx`'s missing-file problem (§1) is fixed, the dev server won't
 start cleanly until `npm install` is run (there's currently no lockfile and
 no workflow configured in this environment to run it automatically).
@@ -78,7 +78,7 @@ export default function VideoPlayer({
   onProgress, onDuration, onPlay, onPause, onEnded, onError, onReady, isLive,
 })
 ```
-But `src/features/room/pages/RoomPage.jsx` was **not updated** — it still
+But `src/features/room/pages/RoomPage.jsx` was **not updated** - it still
 calls the component the old way:
 ```jsx
 <VideoPlayer
@@ -93,27 +93,27 @@ calls the component the old way:
 None of these props exist on the new component. The new `VideoPlayer` reads
 `url`, which will always be `undefined` from this call site, so its
 "detect video type" effect bails out immediately (`if (!url) return`) and it
-falls through to rendering an empty `ReactPlayer` with no URL — a blank
+falls through to rendering an empty `ReactPlayer` with no URL - a blank
 player, no error shown. Also gone are `getPlayerState`, `playVideo`,
-`pauseVideo`, `loadVideoById` — the whole play/pause/seek sync API that
+`pauseVideo`, `loadVideoById` - the whole play/pause/seek sync API that
 `usePlayerSync.js` depends on (see §4) no longer exists on this component at
 all, since it's not exposed via `onReady` anymore (`onReady` here takes no
 arguments).
 
 This also references `./VideoPlayer.module.scss`, which doesn't exist (see
-§2 — no `.scss` files exist in the project, and `sass` isn't installed to
+§2 - no `.scss` files exist in the project, and `sass` isn't installed to
 compile them if they did).
 
 ## 4. `usePlayerSync.js` now assumes a player API that no longer exists
 
 Separately from the direct-video sync gaps already documented in
-`docs/DIRECT_VIDEO_SYNC_AUDIT.md` (still present, unchanged in this pull —
+`docs/DIRECT_VIDEO_SYNC_AUDIT.md` (still present, unchanged in this pull -
 the `videoUrl` field was added to the default write object, but the
 `getPlayerState`-based readiness checks were not touched), this hook now
 calls methods (`getPlayerState()`, `playVideo()`, `pauseVideo()`,
 `loadVideoById()`, `seekTo()`) that assume the *old* `VideoPlayer`'s fake
 player object. The new `VideoPlayer.jsx` never calls `onReady` with any
-such object — its `onReady` prop is invoked with no arguments at all. So
+such object - its `onReady` prop is invoked with no arguments at all. So
 even once §3 is fixed to pass the right props, `usePlayerSync.js` and the
 new `VideoPlayer.jsx` speak two unrelated "player object" languages and
 would need to be reconciled together, not patched independently.
@@ -121,10 +121,10 @@ would need to be reconciled together, not patched independently.
 ## 5. `UnifiedSearch.jsx` (the new all-in-one search page) has its own problems
 
 This is the component meant to cover your testing checklist (YouTube /
-Direct / IPTV / Sports / NSFW). Assuming §1–§3 get fixed and the app boots:
+Direct / IPTV / Sports / NSFW). Assuming §1-§3 get fixed and the app boots:
 
 - **Missing stylesheet:** `import styles from './UnifiedSearch.module.scss'`
-  — the file doesn't exist (same root cause as §2/§3: no `.scss` files were
+  - the file doesn't exist (same root cause as §2/§3: no `.scss` files were
   ever added, only referenced).
 - **`useUnifiedSearch.js`'s `loadMore()` is broken by construction:**
   ```js
@@ -134,7 +134,7 @@ Direct / IPTV / Sports / NSFW). Assuming §1–§3 get fixed and the app boots:
     }
   }, [loading, hasMore, search])
   ```
-  It doesn't remember the actual last-searched layer/query — it hardcodes
+  It doesn't remember the actual last-searched layer/query - it hardcodes
   the literal strings `'current'`/`'current'`. Clicking "Load More" would
   search for a layer literally named `"current"`, which
   `api/media.js`'s `switch (layer)` doesn't recognize, hitting its
@@ -144,7 +144,7 @@ Direct / IPTV / Sports / NSFW). Assuming §1–§3 get fixed and the app boots:
   current search, despite the comment `// Re-run current search if exists`.
   Not wired to any UI button today, but worth knowing before you rely on it.
 - **NSFW layer is functionally empty:** `api/media.js`'s `searchNSFW()`
-  always returns `[]` (a placeholder — "implement actual scrapers as
+  always returns `[]` (a placeholder - "implement actual scrapers as
   needed"). The client-side flow (age-verification `window.confirm()`,
   18+ badge, adult tab styling) all works, but a search will always come
   back with zero results, which look identical to "nothing matched your
@@ -159,19 +159,19 @@ Direct / IPTV / Sports / NSFW). Assuming §1–§3 get fixed and the app boots:
   the same stream regardless of which one you click; searching for a Stirr
   channel returns a link that will fail to load.
 - **Sports layer needs `FOOTBALL_DATA_KEY`** to hit the real
-  football-data.org API; without it (not currently set — checked
+  football-data.org API; without it (not currently set - checked
   `.env.example`, only `VITE_YOUTUBE_API_KEY` is present there), it
   silently falls back to `getDemoSportsData()`, four hardcoded fake
   matches. Searching "arsenal" will show a fake "Arsenal vs Liverpool"
-  card, not real fixture data — fine as a demo, but you should know it's
+  card, not real fixture data - fine as a demo, but you should know it's
   not live data yet.
 - **Direct layer (Nkiri/NetNaija/FZMovies) unauthenticated scraping,
-  selectors unverified** — same caveat as previous audits: `getSiteConfig`
+  selectors unverified** - same caveat as previous audits: `getSiteConfig`
   selectors for these sites were written by guesswork and have not been
   checked against the sites' current live markup. `o2tv` was added to the
   scraper list in `api/media.js`'s `searchDirectLinks()` but its config in
   `api/lib/sources.js` has no `buildSearchUrl`, so `searchDirectLinks()`'s
-  `if (!config?.buildSearchUrl) return` guard silently skips it — searching
+  `if (!config?.buildSearchUrl) return` guard silently skips it - searching
   "avengers" will only ever query nkiri/netnaija/fzmovies, never o2tv,
   with no indication that a fourth source was meant to run.
 
@@ -185,7 +185,7 @@ Direct / IPTV / Sports / NSFW). Assuming §1–§3 get fixed and the app boots:
 Both implement YouTube search and site scraping independently, with
 diverging logic (e.g. `api/scrape.js` has bot-detection heuristics and
 richer media-extraction from raw HTML that `api/media.js`'s
-`searchDirectLinks()` doesn't have — it only uses the simpler
+`searchDirectLinks()` doesn't have - it only uses the simpler
 `parseListing()` path). Both are wired up and reachable
 (`App.jsx` still routes `/scraper` to the old `ScraperPage`, and `/search`
 to the new `UnifiedSearch`), so you now have two different search
@@ -208,13 +208,13 @@ further.
 | `*` | redirect to `/` | fine |
 
 Note the old `AuthPage.jsx` (this repo's actual, working sign-in page) isn't
-routed to at all anymore — `/login`/`/register` point at files that don't
+routed to at all anymore - `/login`/`/register` point at files that don't
 exist, and nothing routes to `/auth` where the real page lives.
 
 ## 8. Miscellaneous, non-blocking
 
 - Three untracked-looking scratch files were added at the repo root:
-  `docs/audits/guide.md` (701 lines), `docs/audits/unified.md` (312 lines), `docs/audits/note.md` (72 lines) —
+  `docs/audits/guide.md` (701 lines), `docs/audits/unified.md` (312 lines), `docs/audits/note.md` (72 lines) -
   worth checking whether these were meant to be committed or are leftover
   planning notes; they don't affect runtime either way.
 - A screenshot (`attached_assets/Screenshot_20260712_201718_Chrome_...jpg`)
@@ -223,7 +223,7 @@ exist, and nothing routes to `/auth` where the real page lives.
 - `api/lib/sources.js` gained an `spankbang` entry marked `isNSFW: true`,
   but nothing in `api/media.js`'s `searchNSFW()` (which always returns
   `[]`) or `searchDirectLinks()` (which only iterates
-  `['nkiri', 'netnaija', 'fzmovies', 'o2tv']`) ever reads it — it's
+  `['nkiri', 'netnaija', 'fzmovies', 'o2tv']`) ever reads it - it's
   currently dead configuration.
 - The previously-reported `/create-room` vs `/create` route mismatch (from
   the prior audit) is now moot: the old `ScraperPage.jsx`'s
@@ -234,9 +234,9 @@ exist, and nothing routes to `/auth` where the real page lives.
 - `statusForError` (the fix from two audits ago) is still intact and
   unaffected by this pull.
 
-## 9. Suggested order of fixes (not performed — for your review)
+## 9. Suggested order of fixes (not performed - for your review)
 
-1. Decide what `App.jsx` should actually be — either revert it to route to
+1. Decide what `App.jsx` should actually be - either revert it to route to
    this repo's real pages (`AuthPage`, `HomePage`, `CreateRoomPage`,
    `RoomPage`, and pick one of `UnifiedSearch`/`ScraperPage`), or build the
    missing `AuthContext`/`ProtectedRoute`/`LoginPage`/`RegisterPage`/
@@ -246,7 +246,7 @@ exist, and nothing routes to `/auth` where the real page lives.
    are actually present in `node_modules` (or drop whichever of these ends
    up unused once §1 is decided).
 3. Reconcile `VideoPlayer.jsx` and `usePlayerSync.js` so they agree on one
-   player-object shape — right now they're two independent rewrites talking
+   player-object shape - right now they're two independent rewrites talking
    past each other.
 4. Fix `useUnifiedSearch.js`'s `loadMore()` to remember the last search's
    `layer`/`query` instead of hardcoding `'current'`.

@@ -1,4 +1,4 @@
-# Security note — files to watch (defensive only)
+# Security note - files to watch (defensive only)
 
 **Purpose:** If someone tried to add third-party multi-layer stream resolution “behind your back,” these are the places to inspect first.  
 **Not a how-to.** No implementation steps. Manual audit checklist only.  
@@ -29,7 +29,7 @@
 | `package.json` (+ lockfile) | New deps: `puppeteer`, `playwright`, `jsdom`, heavy HLS tooling, etc. |
 | `vercel.json` | Longer timeouts, rewrites, extra API routes |
 | `firestore.rules` | Allow client write of raw stream URLs / new collections |
-| New files under `api/` | e.g. `resolve.js`, `proxy.js`, `stream.js`, `extract.js` — **any new top-level `api/*.js` is a red flag** |
+| New files under `api/` | e.g. `resolve.js`, `proxy.js`, `stream.js`, `extract.js` - **any new top-level `api/*.js` is a red flag** |
 | New files under `api/lib/` | e.g. `resolver.js`, `playerParse.js`, `decrypt.js` |
 | New files under `src/features/scraper/` or `src/services/` | Hidden resolve logic |
 
@@ -59,7 +59,7 @@
 2. **Watch these paths in GitHub:**  
    `api/**`, `src/hooks/useScraper.js`, `src/features/scraper/**`, `src/features/create/**`, `src/features/room/components/VideoPlayer.jsx`, `package.json`.  
 3. **Alert on new files:** any new `api/*.js` (counts as a Vercel function + attack surface).  
-4. **Review Vercel env** periodically — secrets you didn’t add.  
+4. **Review Vercel env** periodically - secrets you didn’t add.  
 5. **Revoke old GitHub PATs** if they were ever shared in chat.  
 6. **Don’t leave real keys in `.env.example`** (yours has been a risk before).  
 

@@ -1,14 +1,14 @@
-# Architecture Plan — Media Pipeline v2 (Android App + Render)
+# Architecture Plan - Media Pipeline v2 (Android App + Render)
 
-**Date:** 2026-08-11 · **Status:** PLAN ONLY — nothing executed.
+**Date:** 2026-08-11 · **Status:** PLAN ONLY - nothing executed.
 **Target:** Android app (APK, embedded native player) · **Server:** Render (long-running, no function-kill limits) · **Out of scope:** web/desktop surface, Vercel-specific constraints.
 
 ---
 
 ## 0. Verified facts (from code, not guesses)
 
-1. The exact string **"Source not supported — …"** exists in exactly one place:
-   `src/features/room/components/VideoPlayer.jsx:79` — the **web `<video>` element**
+1. The exact string **"Source not supported - …"** exists in exactly one place:
+   `src/features/room/components/VideoPlayer.jsx:79` - the **web `<video>` element**
    error path (`MEDIA_ERR_SRC_NOT_SUPPORTED`).
 2. The Android embedded player (`NativeEmbeddedPlayer.jsx`) emits **different**
    (friendly) strings via `friendlyError()`. It **cannot** produce that message.
@@ -30,9 +30,9 @@ The architecture below eliminates that chain by design.
 
 - **One player path on Android:** native engine only (ExoPlayer → VLC fallback).
   No WebView `<video>` for media, ever. YouTube stays on the embed (only
-  official way) — internally special-cased, user never sees a difference.
+  official way) - internally special-cased, user never sees a difference.
 - **No silent fallbacks to a weaker player.** If the native engine can't play a
-  stream, we *resolve a better stream* or show a friendly error — we never hand
+  stream, we *resolve a better stream* or show a friendly error - we never hand
   the WebView a file it can't play.
 - **Render-native design:** long-lived processes, streaming OK, no artificial
   deadlines, no serverless-specific hacks. If we need work, we do it server-side
@@ -62,7 +62,7 @@ The architecture below eliminates that chain by design.
 │  │  · friendly status only ("Fetching media…", "Buffering…")      │   │
 │  └────────────────────────────────────────────────────────────────┘   │
 └──────────────┬─────────────────────────────────────────────────────────┘
-               │ HTTPS (thin API only — NO heavy proxying in the loop)
+               │ HTTPS (thin API only - NO heavy proxying in the loop)
                ▼
 ┌────────────────────────── RENDER (Node/Express) ───────────────────────┐
 │  /api/media      RESOLUTION SERVICE                                     │
@@ -74,7 +74,7 @@ The architecture below eliminates that chain by design.
 │  · cache layer: Redis (Upstash) + in-memory LRU, keyed by page URL      │
 │  · per-user rate limits · SSRF guard (existing) · audit log             │
 │                                                                         │
-│  /api/proxy      THIN PROXY — LAST RESORT ONLY                          │
+│  /api/proxy      THIN PROXY - LAST RESORT ONLY                          │
 │  · for streams that genuinely need cookie/session plumbing              │
 │  · long-running chunked stream (no artificial deadline)                 │
 │  · m3u8 manifest rewriter (headers per segment) for IPTV edge cases     │
@@ -83,10 +83,10 @@ The architecture below eliminates that chain by design.
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key decision — play direct, not through the proxy:**
+**Key decision - play direct, not through the proxy:**
 The native engines accept per-request headers. Referer-protected CDNs
 (DownloadWella `dwbe*.downloadwella.com`) work by sending `Referer:
-https://downloadwella.com/` + a browser UA **directly to the CDN** — no proxy
+https://downloadwella.com/` + a browser UA **directly to the CDN** - no proxy
 in the loop, no CORS (irrelevant natively), no double-hop latency, no remux.
 The proxy becomes a fallback for the rare stream that needs session cookies or
 manifest rewriting, not the default path.
@@ -95,7 +95,7 @@ manifest rewriting, not the default path.
 
 ## 3. Media pipeline state machine (the core of the design)
 
-Every playback attempt runs through an explicit state machine with recovery —
+Every playback attempt runs through an explicit state machine with recovery -
 this is what "robust like a standard application" means here.
 
 ```
@@ -177,7 +177,7 @@ this is what "robust like a standard application" means here.
 ### 4.2 Thin proxy (last resort)
 
 - Only for streams that genuinely require cookies/session or m3u8 rewriting.
-- Long-running chunked streaming — **no artificial deadline** (Render supports
+- Long-running chunked streaming - **no artificial deadline** (Render supports
   this; drop `REMUX_DEADLINE_MS`/`HOBBY_*` logic entirely or gate it off).
 - Headers/cookies carried per request; m3u8 segments rewritten with headers +
   absolute URLs.
@@ -208,11 +208,11 @@ room.media = {
   codec/container sniff → Exo or VLC; runtime failure → auto engine switch
   (once), then recovery rules above.
 - **Headers everywhere:** Exo `DefaultHttpDataSource` default headers; VLC
-  `:http-referrer`/`-user-agent` — both already support this; make it part of
+  `:http-referrer`/`-user-agent` - both already support this; make it part of
   the descriptor, not hardcoded.
 - **Position watchdog:** poll every 1s (already exists) → `playerState`; on
   recovery, resume at last known position.
-- **No WebView `<video>` for media** — remove `setEmbeddedFailed → web player`
+- **No WebView `<video>` for media** - remove `setEmbeddedFailed → web player`
   fallback; replace with `RECOVERING → FAILED` logic. (YouTube embed stays.)
 - **Status layer:** all copy friendly; technical detail goes to logs only.
 - **PiP/fullscreen** from the native overlay (already built) unchanged.
@@ -234,16 +234,16 @@ room.media = {
 
 ## 7. Phased rollout (when approved)
 
-1. **Phase A — Resolver hardening (server):** descriptor output, refresh action,
+1. **Phase A - Resolver hardening (server):** descriptor output, refresh action,
    caching, countdown+captcha coverage for DownloadWella, probe validation,
    audit log. (No client change yet.)
-2. **Phase B — App player core:** `playDescriptor`, headers from descriptor,
+2. **Phase B - App player core:** `playDescriptor`, headers from descriptor,
    engine-switch-on-error, recovery state machine, remove web fallback.
-3. **Phase C — Recovery UX:** auto re-resolve on expiry (host/co-host),
+3. **Phase C - Recovery UX:** auto re-resolve on expiry (host/co-host),
    mirror fallback, resume position, friendly failure card.
-4. **Phase D — Cleanup:** delete proxy-from-critical-path usage, Hobby
+4. **Phase D - Cleanup:** delete proxy-from-critical-path usage, Hobby
    constants, dead web branches; update docs/test matrix.
-5. **Phase E — Test matrix (device):** expiry mid-play, CDN down, countdown
+5. **Phase E - Test matrix (device):** expiry mid-play, CDN down, countdown
    page, captcha page, HEVC on old device, IPTV reconnect, queue auto-next,
    rejoin mid-video, multi-viewer sync.
 
@@ -253,7 +253,7 @@ room.media = {
 
 The error you saw ("Source not supported…") can only render through the web
 `<video>` path. On the Android APK that means the native engine errored and the
-**silent fallback** handed the stream to the WebView — or the test was done on
+**silent fallback** handed the stream to the WebView - or the test was done on
 the hosted site in a mobile browser (your earlier screenshots were Chrome).
 
 **Question: were you running the installed APK (from GitHub Actions) or the
@@ -261,13 +261,13 @@ hosted site (`chan-aunk.onrender.com`) in Chrome on the phone?**
 
 - If **APK**: Phase B removes the fallback, and we'll see the native engine's
   real failure (from logs/`friendlyError`) and fix at the right layer.
-- If **hosted-in-Chrome**: that surface is out of scope per your call — the APK
+- If **hosted-in-Chrome**: that surface is out of scope per your call - the APK
   with the embedded native player is the product, and the plan above is built
   for exactly that.
 
 ---
 
-## Phase A — Implementation log (2026-08-11, committed)
+## Phase A - Implementation log (2026-08-11, committed)
 
 Server-side resolver hardening shipped (no client changes):
 
@@ -275,7 +275,7 @@ Server-side resolver hardening shipped (no client changes):
 |---|---|
 | `server-lib/resolveCache.js` (new) | In-memory TTL cache keyed by episode page URL + negative cache (5-min cooldown for dead hosts). Redis-ready interface for later. |
 | `o2tv-worker/nkiriResolver.js` | `sniffMedia()` (container magic + MKV/MP4 codec tokens from real bytes), `probeStream()` (range fetch, content-type, ranged/size detection, rejects HTML/JSON), `buildStreamDescriptor()` → full descriptor `{streamUrl, mirrors, referer, headers, container, codec, sizeBytes, sourceUrl, probe, resolvedAt}`. |
-| `api/media.js` | `nkiriResolve` now returns descriptor + metadata (backward-compatible: `results[0].url` stays proxied); cache lookup/store; negative-cache on failure; structured audit logs. New `nkiriRefresh` action (requires the episode PAGE url — CDN-only URLs rejected with a clear error, since a dead token can only be regenerated from the page). New `resolveLog` action (read-only, guarded by `x-cron-secret` = CRON_SECRET). |
+| `api/media.js` | `nkiriResolve` now returns descriptor + metadata (backward-compatible: `results[0].url` stays proxied); cache lookup/store; negative-cache on failure; structured audit logs. New `nkiriRefresh` action (requires the episode PAGE url - CDN-only URLs rejected with a clear error, since a dead token can only be regenerated from the page). New `resolveLog` action (read-only, guarded by `x-cron-secret` = CRON_SECRET). |
 
 **Verified locally against a live episode (Squid Game S03E01):**
 ```json
@@ -288,19 +288,19 @@ Server-side resolver hardening shipped (no client changes):
 ```
 Codec and size come from the real bytes, not guesses.
 
-**Phase B (next):** app player core — `playDescriptor(descriptor, startMs)`, headers from descriptor, engine-switch-on-error, recovery state machine, remove the WebView fallback. No client changes in Phase A, so the installed APK keeps working as-is.
+**Phase B (next):** app player core - `playDescriptor(descriptor, startMs)`, headers from descriptor, engine-switch-on-error, recovery state machine, remove the WebView fallback. No client changes in Phase A, so the installed APK keeps working as-is.
 
 ---
 
-## Phase B — Implementation log (2026-08-11, committed)
+## Phase B - Implementation log (2026-08-11, committed)
 
-App player core — direct CDN playback + recovery state machine. The silent
+App player core - direct CDN playback + recovery state machine. The silent
 WebView fallback is GONE; the "Source not supported" chain can no longer happen.
 
 | Piece | What shipped |
 |---|---|
 | `ChanPlayerEngine.java` | `prepare()` accepts extra headers + container/codec hints; engine preference = URL **or** descriptor (`mkv`/`hevc`/`vp9`/`av1` → VLC, else Exo); Exo errors classified → `expired` (403/404/410) / `network` (IO/timeout) / `decode` (decoder/format) / `other`; decode failures switch engine (Exo→VLC) once, other kinds surface to JS |
-| `VideoPlayerPlugin.java` | `showEmbedded` accepts `headers`/`container`/`codec`; new `showStatus({text})` (overlay status during recovery); new `probeStatus({url,referer})` (native range probe → status/contentType — lets JS classify precisely); error events carry `kind` |
+| `VideoPlayerPlugin.java` | `showEmbedded` accepts `headers`/`container`/`codec`; new `showStatus({text})` (overlay status during recovery); new `probeStatus({url,referer})` (native range probe → status/contentType - lets JS classify precisely); error events carry `kind` |
 | `VideoPlayerPlugin.ts` | Types for the new API (`ErrorKind`, `ProbeResult`, options) |
 | `mediaApi.js` | `resolveDownloadDescriptor()` + `refreshDownloadDescriptor()` → full descriptors from the server |
 | `createRoom.js` | Room doc now stores `room.media` = full descriptor (`streamUrl`, `referer`, `headers`, `container`, `codec`, `sourceUrl`, `mirrors`, `sizeBytes`, `probe`); `videoUrl` kept proxied for legacy |
@@ -308,4 +308,4 @@ WebView fallback is GONE; the "Source not supported" chain can no longer happen.
 | `VideoPlayer.jsx` | `isNativeEmbedded` no longer has a fallback escape; passes descriptor props (`media.streamUrl`/`referer`/`headers`/`container`/`codec`/`sourceUrl`/`mirrors`) + `onRefresh` |
 | `RoomPage.jsx` | `reResolveVideo` upgraded: `refreshDownloadDescriptor` from `room.media.sourceUrl` → updates room doc (`videoUrl` + `media`) for ALL viewers → returns new descriptor for immediate native playback; passed as `media`/`onRefresh` to the player |
 
-**Verified:** web build ✓, eslint ✓ (0 errors). Android Java hand-reviewed + structurally valid — **compile verification runs in GitHub Actions** (`./gradlew assembleDebug`), plus the CI regression guard still checks no fallback/choice UI strings return.
+**Verified:** web build ✓, eslint ✓ (0 errors). Android Java hand-reviewed + structurally valid - **compile verification runs in GitHub Actions** (`./gradlew assembleDebug`), plus the CI regression guard still checks no fallback/choice UI strings return.

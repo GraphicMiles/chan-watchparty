@@ -1,10 +1,10 @@
 # Analysis: Player controls broken (fullscreen / ±10s / brightness) + raw filenames still visible
 
-**Date:** 2026-08-11 · **Status:** ANALYSIS ONLY — nothing fixed yet.
+**Date:** 2026-08-11 · **Status:** ANALYSIS ONLY - nothing fixed yet.
 
 ---
 
-## F1 — ±10s seek restarts the video (and Pin/AI-CC positions are wrong)
+## F1 - ±10s seek restarts the video (and Pin/AI-CC positions are wrong)
 
 ### Root cause (confirmed in code)
 `jumpSeconds` computes the target from `currentTime()`:
@@ -29,7 +29,7 @@ const currentTime = useCallback(() => {
 
 In native mode `videoRef`/`playerRef` are **null** (no web player mounted), so `currentTime()` always returns **0**. Therefore:
 - **−10s** → `max(0, 0 − 10)` = **0** → seek to 0 → **video restarts from the beginning** (exactly what you saw)
-- **+10s** → seek to 10s (wrong — should be current+10)
+- **+10s** → seek to 10s (wrong - should be current+10)
 
 The same broken `currentTime()` powers:
 - **Pin bookmarks** (`addStagePin` → pins get stamped at `0:00`)
@@ -46,7 +46,7 @@ const currentTime = useCallback(() => {
 
 ---
 
-## F2 — Fullscreen: tapping anywhere minimizes (no visible controls in fullscreen)
+## F2 - Fullscreen: tapping anywhere minimizes (no visible controls in fullscreen)
 
 ### Root cause (confirmed in code)
 1. `handleNativeTap` exits fullscreen on **any** tap:
@@ -59,7 +59,7 @@ const handleNativeTap = useCallback(() => {
   }
   revealControls()
 ```
-2. In fullscreen the native surface covers the **entire** screen (plugin `setFullscreen` → `MATCH_PARENT`), so the **web control bar is rendered behind the native surface** — invisible and unreachable.
+2. In fullscreen the native surface covers the **entire** screen (plugin `setFullscreen` → `MATCH_PARENT`), so the **web control bar is rendered behind the native surface** - invisible and unreachable.
 3. The **native control bar is hidden** in native mode (`setInteractive(false)` from `showEmbedded({controls:false})`, and it's never re-enabled on fullscreen).
 4. The native bar has **no exit/minimize button** (only play/seek/time/fullscreen/PiP).
 
@@ -73,14 +73,14 @@ Net result: the only interaction available in fullscreen is tap → which minimi
 
 ---
 
-## F3 — Brightness / AI Upscale / LUT filters don't work
+## F3 - Brightness / AI Upscale / LUT filters don't work
 
 ### Root cause (two independent layers)
-**(a) ExoPlayer path (MP4/HLS/IPTV)** — the overlay's `PlayerView` uses the default **SurfaceView**. Media3 video effects (`Brightness`/`Contrast`/`HslAdjustment`, applied via `setVideoEffects`) only render through a **GL surface** — with a plain SurfaceView they are silently ignored. Fix: `exoView.setUseTextureView(true)` in `RoomPlayerOverlayView` (GL-backed) so effects actually render.
+**(a) ExoPlayer path (MP4/HLS/IPTV)** - the overlay's `PlayerView` uses the default **SurfaceView**. Media3 video effects (`Brightness`/`Contrast`/`HslAdjustment`, applied via `setVideoEffects`) only render through a **GL surface** - with a plain SurfaceView they are silently ignored. Fix: `exoView.setUseTextureView(true)` in `RoomPlayerOverlayView` (GL-backed) so effects actually render.
 
-**(b) VLC path (MKV/HEVC — your main direct-link content)** — effects are **skipped entirely**:
+**(b) VLC path (MKV/HEVC - your main direct-link content)** - effects are **skipped entirely**:
 ```java
-Log.d(TAG, "Video effects unsupported on libVLC 3.6.5 — skipped");
+Log.d(TAG, "Video effects unsupported on libVLC 3.6.5 - skipped");
 ```
 libVLC 3.6.5's Java API has no adjust-filter methods, so brightness/contrast/filters do nothing on MKV. This is almost certainly what you tested (a Silo MKV) → "brightness doesn't work".
 
@@ -94,20 +94,20 @@ Fix: implement the VLC adjust filter via **libVLC media options** (the supported
 
 ---
 
-## F4 — Raw filenames still visible (.html, THENKIRI.COM)
+## F4 - Raw filenames still visible (.html, THENKIRI.COM)
 
-### Root cause (confirmed in code — three leaks)
-1. **`ResultCard`** (UnifiedSearch — the "All/YouTube/IPTV/Sports" result grid, which is exactly what Home's search bar routes to via `/search?q=`) renders `result.title` **raw** — `cleanMediaTitle` was never applied there:
+### Root cause (confirmed in code - three leaks)
+1. **`ResultCard`** (UnifiedSearch - the "All/YouTube/IPTV/Sports" result grid, which is exactly what Home's search bar routes to via `/search?q=`) renders `result.title` **raw** - `cleanMediaTitle` was never applied there:
 ```js
 <h3 className={styles.title}>{result.title}</h3>
 ```
-2. **Create page room-title input** — `title` state initializes from the raw query param, and the cleaner is defeated by the `t ||` guard:
+2. **Create page room-title input** - `title` state initializes from the raw query param, and the cleaner is defeated by the `t ||` guard:
 ```js
 const [title, setTitle] = useState(presetTitle)          // raw "Silo...mkv.html"
 setTitle((t) => t || cleanMediaTitle(next?.title || '')) // t is truthy → keeps raw
 ```
 So the **input field** shows `Silo.S03E01.(THENKIRI.COM).mkv.html` (the picked card cleans at render, the input doesn't).
-3. **Raw titles are emitted at pick time** — `ShowBrowser` `emit(...)` passes `ep.title`/`itemTitle` raw → `UnifiedSearch.handleDirectPick` puts the raw value into `?title=` → the create page preset (same as #2).
+3. **Raw titles are emitted at pick time** - `ShowBrowser` `emit(...)` passes `ep.title`/`itemTitle` raw → `UnifiedSearch.handleDirectPick` puts the raw value into `?title=` → the create page preset (same as #2).
 
 ### Fix (clean at the source, not just at render)
 - `ResultCard` render: `cleanMediaTitle(result.title)` (and the `alt` attr).

@@ -11,7 +11,7 @@ search or pastes a URL.
 
 ## 1. npm dependencies you need
 
-Already in `package.json` — nothing to install for these:
+Already in `package.json` - nothing to install for these:
 
 | Package | Version | Used by | Import statement |
 |---|---|---|---|
@@ -27,7 +27,7 @@ Removed, only needed if you rebuild a local dev server to run `api/*.js`:
 |---|---|---|---|
 | `express` | `^4.22.2` | Was only used by a custom `server.js` dev server, deleted per a "don't run this in Replit anymore" request | `npm install express`, then write your own server (see §6.1) |
 
-Not installed, and **not needed** — both remaining network calls use the
+Not installed, and **not needed** - both remaining network calls use the
 native global `fetch()`:
 
 - `api/search.js` → OMDb + YouTube REST calls
@@ -79,7 +79,7 @@ ScraperPage.jsx  ──calls──▶  useScraper.js
                                              Third-party site (fetch + parse HTML)
 ```
 
-No results are persisted anywhere — everything lives in React state
+No results are persisted anywhere - everything lives in React state
 (`useScraper`'s `results`) for the duration of the page view. There is a
 `scrapes` collection defined in `firestore.rules`, but nothing currently
 writes to it (see §6.6).
@@ -97,7 +97,7 @@ import { ScraperPage } from './features/scraper/index.js'
 <Route path="/media" element={<ScraperPage />} />
 ```
 Sits alongside `/`, `/auth`, `/create`, `/room/:roomId` inside the shared
-`AuthProvider` / `ToastProvider` / `BrowserRouter` tree — that's the only
+`AuthProvider` / `ToastProvider` / `BrowserRouter` tree - that's the only
 reason `ScraperPage` has access to `useAuth()` and toasts without extra setup.
 
 **No new imports needed here** if the feature already exists; if you're
@@ -111,7 +111,7 @@ Barrel file. Should contain exactly:
 ```js
 export { ScraperPage } from './ScraperPage.jsx'
 ```
-This is the only file `App.jsx` imports from directly — keeps the route
+This is the only file `App.jsx` imports from directly - keeps the route
 registration decoupled from the feature's internal file layout.
 
 ### `src/features/scraper/ScraperPage.jsx`
@@ -128,7 +128,7 @@ import styles from './ScraperPage.module.css'
 
 Connects to the rest of the app via:
 - `useAuth()` → reads `user` (to show the signed-in header / sign-out
-  button) but **does not gate access** — no redirect if `user` is null,
+  button) but **does not gate access** - no redirect if `user` is null,
   unlike `CreateRoomPage`/`RoomPage`. Anyone who can load `/media` can use
   the search form. If you want to require sign-in, add the same pattern
   those pages use (check `user`, `navigate('/auth')` if absent) inside a
@@ -136,10 +136,10 @@ Connects to the rest of the app via:
 - `useScraper()` → the only place that talks to the network. The page
   itself never calls `fetch`.
 - `../../shared/ui/index.js` → `Button`, `Input`, `Card`, `Badge`,
-  `EmptyState`, `Skeleton` — the same shared component kit used by
+  `EmptyState`, `Skeleton` - the same shared component kit used by
   `HomePage`, `CreateRoomPage`, etc. Reuse these rather than writing new
   ones so the page matches the rest of the app.
-- `../../shared/layout/index.js` → `Header`, `Layout` — same page chrome as
+- `../../shared/layout/index.js` → `Header`, `Layout` - same page chrome as
   every other route.
 - `./ScraperPage.module.css` → page-local CSS Module; doesn't leak into or
   depend on global styles.
@@ -152,9 +152,9 @@ const [movieSite, setMovieSite] = useState('omdb')
 const [manualUrl, setManualUrl] = useState('')
 const [ytQuery, setYtQuery] = useState('')
 ```
-- `SEARCHABLE_SITES = [{ value: 'omdb', label: 'IMDb (via OMDb)' }]` — sites
+- `SEARCHABLE_SITES = [{ value: 'omdb', label: 'IMDb (via OMDb)' }]` - sites
   with title search.
-- `MANUAL_SITES = [nkiri, netnaija, fzmovies, custom]` — sites where the
+- `MANUAL_SITES = [nkiri, netnaija, fzmovies, custom]` - sites where the
   user must paste the page URL themselves.
 - Which group `movieSite` is in decides whether the movies-tab form submit
   calls `search(movieQuery, movieSite)` or `scrape({ url: manualUrl, site: movieSite })`.
@@ -174,7 +174,7 @@ Exposes `{ scrape, search, results, lastQuery, loading, error, clear }`.
 
 - `scrape({ url, query, site })` → `POST /api/scrape`. Used today only for
   the "paste a URL" manual sites (`query` is accepted by the API but no UI
-  path currently sends it — see §6.4).
+  path currently sends it - see §6.4).
 - `search(query, source = 'youtube')`:
   - `source === 'omdb'` → `POST /api/search` with `{ query, source: 'omdb' }`.
     Always server-side; OMDb has no referrer restriction.
@@ -187,7 +187,7 @@ Exposes `{ scrape, search, results, lastQuery, loading, error, clear }`.
     `POST /api/search` with `{ query, source: 'youtube' }`, for setups using
     an unrestricted server-side key instead.
 - `postJson()` (local helper, top of file) treats any `!res.ok || !data.success`
-  as failure and throws `data.error` — this is what surfaces as the "Search
+  as failure and throws `data.error` - this is what surfaces as the "Search
   failed" card in `ScraperPage.jsx`.
 
 ### `api/search.js`
@@ -197,7 +197,7 @@ Import list:
 ```js
 import { preflight, ok, fail } from './lib/http.js'
 ```
-No cheerio, no firebase-admin — this file only calls REST APIs and reshapes
+No cheerio, no firebase-admin - this file only calls REST APIs and reshapes
 JSON.
 
 Branches on `req.body.source`:
@@ -221,7 +221,7 @@ import { preflight, ok, fail } from './lib/http.js'
 import { getSiteConfig, resolveUrl } from './lib/sources.js'
 ```
 
-- `fetchHtml(url)` — fetches with an 8s timeout via `AbortController` and a
+- `fetchHtml(url)` - fetches with an 8s timeout via `AbortController` and a
   browser-like `User-Agent` header, then runs bot-challenge-page detection:
   a small set of highly specific markers (`gokuprops`,
   `awswafcookiedomainlist`, `cf-chl-bypass`, `cf_chl_opt`) checked
@@ -229,11 +229,11 @@ import { getSiteConfig, resolveUrl } from './lib/sources.js'
   (`checking your browser`, `are you a human`, etc.) checked **only** on
   short (<5KB) responses, to avoid false-positiving on long legitimate pages
   that happen to mention one of those words once.
-- `parseResults(html, url, site)` — loads HTML with `cheerio.load()`,
+- `parseResults(html, url, site)` - loads HTML with `cheerio.load()`,
   iterates `config.items`, extracts `title` / `image` / `link` / `meta` per
   the site's CSS selectors from `api/lib/sources.js`, resolves relative
   URLs via `resolveUrl()`, dedupes by resolved link, caps at 40 results.
-- `handler()` — accepts `{ url, query, site }`. The `query` branch checks
+- `handler()` - accepts `{ url, query, site }`. The `query` branch checks
   `config.buildSearchUrl`, which **no `SITE_CONFIGS` entry defines anymore**
   (removed when IMDb scraping was replaced by the OMDb API in
   `api/search.js`). This branch is dead code today; every real call should
@@ -242,13 +242,13 @@ import { getSiteConfig, resolveUrl } from './lib/sources.js'
 ### `api/lib/sources.js`
 
 Static config, **zero imports**. Exports:
-- `SITE_CONFIGS` — one entry per manual-paste site (`nkiri`, `netnaija`,
+- `SITE_CONFIGS` - one entry per manual-paste site (`nkiri`, `netnaija`,
   `fzmovies`, `custom`), each `{ label, items, title, image, link, meta }`
   as CSS selector strings. **These selectors are unverified placeholders**
   written without fetching real markup from those sites.
-- `getSiteConfig(site)` — returns the matching config, or `custom` if the
+- `getSiteConfig(site)` - returns the matching config, or `custom` if the
   `site` key is unknown.
-- `resolveUrl(src, baseUrl)` — normalizes protocol-relative (`//cdn...`),
+- `resolveUrl(src, baseUrl)` - normalizes protocol-relative (`//cdn...`),
   root-relative (`/img.jpg`), and plain relative (`foo.html`) URLs against
   the page's own URL, using the native `URL` global (no import needed).
 
@@ -261,13 +261,13 @@ Import list:
 import { sendResponse } from './response.js'
 ```
 Shared response helpers used by **every** `api/*.js` handler in the project
-— `search.js`, `scrape.js`, `room.js`, `createLiveKitToken.js`,
+- `search.js`, `scrape.js`, `room.js`, `createLiveKitToken.js`,
 `moderate.js`, `cleanupStaleRooms.js`:
-- `JSON_HEADERS` — includes permissive CORS headers (`Access-Control-Allow-Origin: *`, etc.)
-- `preflight(req, res, { methods })` — handles `OPTIONS` requests and
+- `JSON_HEADERS` - includes permissive CORS headers (`Access-Control-Allow-Origin: *`, etc.)
+- `preflight(req, res, { methods })` - handles `OPTIONS` requests and
   rejects disallowed methods with `405`. Returns `true` if it fully handled
   the request (caller should `return` immediately).
-- `ok(res, body, status = 200)` / `fail(res, status, error)` — thin
+- `ok(res, body, status = 200)` / `fail(res, status, error)` - thin
   wrappers around `sendResponse`.
 
 ### `api/lib/response.js`
@@ -284,7 +284,7 @@ What the feature reads, and from where:
 | Variable | Read in | Client or server | Status |
 |---|---|---|---|
 | `VITE_YOUTUBE_API_KEY` | `src/hooks/useScraper.js` (via `import.meta.env`), `api/search.js` (via `process.env`, fallback) | Client-bundled (public) | Present in `.env.example` |
-| `OMDB_API_KEY` | `api/search.js` | Server-only | **Not present** — get one free at `https://www.omdbapi.com/apikey.aspx` |
+| `OMDB_API_KEY` | `api/search.js` | Server-only | **Not present** - get one free at `https://www.omdbapi.com/apikey.aspx` |
 | `YOUTUBE_API_KEY` | `api/search.js` (preferred over the `VITE_` one, if set) | Server-only | Not documented anywhere; optional, only needed if you want an unrestricted server-side YouTube key instead of the referrer-restricted client one |
 
 ### `firestore.rules`
@@ -297,7 +297,7 @@ match /scrapes/{scrapeId} {
   allow update, delete: if false;
 }
 ```
-Nothing in `api/scrape.js` or `api/search.js` writes to it today — it's
+Nothing in `api/scrape.js` or `api/search.js` writes to it today - it's
 provisioned for persistence but unused (§6.6).
 
 ## 4. Cross-cutting connections to the rest of the app
@@ -305,7 +305,7 @@ provisioned for persistence but unused (§6.6).
 - **Auth**: `ScraperPage.jsx` reads `useAuth()` for display only; it does
   not require a session to function, unlike `CreateRoomPage`/`RoomPage`
   which redirect unauthenticated users. The real security boundary today is
-  nonexistent — nothing on the server checks who's calling (§6.3).
+  nonexistent - nothing on the server checks who's calling (§6.3).
 - **Shared UI kit**: `Button`, `Input`, `Card`, `Badge`, `EmptyState`,
   `Skeleton`, `Header`, `Layout` (all from `src/shared/ui/` and
   `src/shared/layout/`) are shared with every other feature (`home`,
@@ -319,12 +319,12 @@ provisioned for persistence but unused (§6.6).
   `export default function handler(req, res)` files with no bundled way to
   run them locally (the previous custom Express dev server, `server.js`,
   was deleted). To use them you need either a Vercel deployment, or your
-  own Node/Express (or similar) wrapper — see §6.1 for exactly what that
+  own Node/Express (or similar) wrapper - see §6.1 for exactly what that
   needs to do.
 
 ## 5. Data shapes
 
-Every result — regardless of source — is normalized to roughly:
+Every result - regardless of source - is normalized to roughly:
 ```js
 {
   title: string,
@@ -338,23 +338,23 @@ Every result — regardless of source — is normalized to roughly:
 }
 ```
 `ScraperPage.jsx`'s result card renders `image ?? thumbnail`, `link ?? url`,
-and `meta ?? channel` — any new source just needs to map into this same
+and `meta ?? channel` - any new source just needs to map into this same
 shape to render correctly without touching the UI.
 
 ## 6. What's missing for full functionality (in priority order)
 
 ### 6.1 A runtime to execute `api/*.js`
 These are plain Vercel-style handlers with no server. Two options:
-- **Deploy to Vercel** — zero extra code, `api/*.js` files are picked up
+- **Deploy to Vercel** - zero extra code, `api/*.js` files are picked up
   automatically by convention.
 - **Write your own Node server.** It needs to, for each file in `api/`:
   1. Dynamically `import()` the module.
   2. Parse the JSON request body (e.g. `express.json()`, or Node's built-in
-     body handling) before calling the handler — every handler reads
+     body handling) before calling the handler - every handler reads
      `req.body` as an already-parsed object.
   3. Call `module.default(req, res)`.
   4. Bind to whatever host/port your environment requires.
-  Minimal shape (Express example — requires `npm install express` first):
+  Minimal shape (Express example - requires `npm install express` first):
   ```js
   import express from 'express'
   import scrapeHandler from './api/scrape.js'
@@ -387,7 +387,7 @@ or not. To lock this down:
    const decoded = await getAuth().verifyIdToken(token)
    ```
    `api/lib/firebaseAdmin.js` already initializes the Admin SDK for this
-   project (used by `api/room.js`) — reuse it rather than re-initializing.
+   project (used by `api/room.js`) - reuse it rather than re-initializing.
 
 ### 6.4 Dead `query` branch in `api/scrape.js`
 Still checks for `config.buildSearchUrl`, which no `SITE_CONFIGS` entry
@@ -406,7 +406,7 @@ without fetching real markup from those sites. To fix: open each site in a
 browser, inspect the actual listing/result HTML, and correct `items` /
 `title` / `image` / `link` / `meta` to match real selectors. The `custom`
 fallback is intentionally generic and will produce noisy results (nav
-links, etc.) on most real pages — expected, since it has to work on
+links, etc.) on most real pages - expected, since it has to work on
 arbitrary sites the user pastes.
 
 ### 6.6 No persistence
@@ -425,6 +425,6 @@ use in `api/room.js`.)
 
 ### 6.7 Real, possibly-live credentials in `.env.example`
 Including what looks like a full Firebase Admin private key and a LiveKit
-secret. Rotate these before relying on this project's security boundaries —
+secret. Rotate these before relying on this project's security boundaries -
 an exposed Admin key bypasses every Firestore rule, including the one
 protecting the `scrapes` collection above.
